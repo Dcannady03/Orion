@@ -5,6 +5,7 @@ Responsible for:
 - Booting Orion
 - Initializing core services
 - Displaying startup information
+- Running the main command loop
 
 Author:
 Daniel Cannady
@@ -14,6 +15,7 @@ Orion AI Operating System
 """
 
 from orion.core.config import ConfigManager
+from orion.core.router import CommandRouter
 
 
 class Orion:
@@ -41,9 +43,11 @@ class Orion:
         # System status
         self.status = "READY"
 
-    def start(self):
-        """Starts Orion."""
+        # Core systems
+        self.router = CommandRouter(self)
 
+    def start(self):
+        """Starts Orion and enters the command loop."""
         self.banner()
 
         print(f"Hello {self.user_name}.")
@@ -55,9 +59,18 @@ class Orion:
         print(f"Welcome to {self.name}.")
         print("=" * 50)
 
+        self.command_loop()
+
+    def command_loop(self):
+        """Run Orion's interactive command loop."""
+        running = True
+
+        while running:
+            user_input = input(f"\n{self.name}> ")
+            running = self.router.handle(user_input)
+
     def banner(self):
         """Displays the Orion startup banner."""
-
         print("=" * 50)
         print(f"{self.name:^50}")
         print("=" * 50)
