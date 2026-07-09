@@ -37,6 +37,13 @@ class CommandRouter:
         elif command_lower == "config":
             self.show_config()
 
+        elif command_lower == "ask":
+            print("Usage: ask <your question>")
+
+        elif command_lower.startswith("ask "):
+            prompt = raw_command[4:].strip()
+            self.ask_ai(prompt)
+
         elif command_lower in ["exit", "quit"]:
             print("Shutting down Orion.")
             return False
@@ -54,6 +61,7 @@ Available commands:
   help     Show this help menu
   status   Show Orion system status
   config   Show loaded configuration
+  ask      Ask Orion's configured AI provider
   exit     Shut down Orion
 """)
 
@@ -62,8 +70,29 @@ Available commands:
         print(f"System Status: {self.orion.status}")
         print("Core: Online")
         print("Command Router: Online")
+        print(f"AI Provider: {self.orion.ai_provider.name()}")
 
     def show_config(self):
         """Display loaded configuration."""
         print("Loaded configuration:")
         print(self.orion.config)
+
+    def ask_ai(self, prompt: str):
+        """Send a prompt to Orion's configured AI provider."""
+        if not prompt:
+            print("Usage: ask <your question>")
+            return
+
+        print("Thinking...")
+
+        try:
+            response = self.orion.ai_provider.chat(prompt)
+        except Exception as exc:
+            print(f"AI Error: {exc}")
+            return
+
+        if response:
+            print()
+            print(response)
+        else:
+            print("No response received from AI provider.")

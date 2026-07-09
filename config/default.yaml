@@ -5,7 +5,7 @@ orion:
   user_name: Daniel
 
 providers:
-  default: openai
+  default: ollama
   openai:
     enabled: false
     model: gpt-4.1-mini

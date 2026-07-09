@@ -16,6 +16,7 @@ Orion AI Operating System
 
 from orion.core.config import ConfigManager
 from orion.core.router import CommandRouter
+from orion.intelligence.factory import AIProviderFactory
 
 
 class Orion:
@@ -44,6 +45,7 @@ class Orion:
         self.status = "READY"
 
         # Core systems
+        self.ai_provider = AIProviderFactory(self.config_manager).create()
         self.router = CommandRouter(self)
 
     def start(self):
