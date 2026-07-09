@@ -37,6 +37,9 @@ class CommandRouter:
         elif command_lower == "config":
             self.show_config()
 
+        elif command_lower == "profile":
+            self.show_profile()
+
         elif command_lower == "ask":
             print("Usage: ask <your question>")
 
@@ -61,6 +64,7 @@ Available commands:
   help     Show this help menu
   status   Show Orion system status
   config   Show loaded configuration
+  profile  Show loaded user profile
   ask      Ask Orion's configured AI provider
   exit     Shut down Orion
 """)
@@ -71,11 +75,18 @@ Available commands:
         print("Core: Online")
         print("Command Router: Online")
         print(f"AI Provider: {self.orion.ai_provider.name()}")
+        print(f"Brain: {self.orion.brain.name()}")
+        print(f"User Profile: {self.orion.profile_manager.name}")
 
     def show_config(self):
         """Display loaded configuration."""
         print("Loaded configuration:")
         print(self.orion.config)
+
+    def show_profile(self):
+        """Display loaded user profile."""
+        print("Loaded user profile:")
+        print(self.orion.profile)
 
     def ask_ai(self, prompt: str):
         """Send a prompt to Orion's configured AI provider."""
@@ -83,10 +94,10 @@ Available commands:
             print("Usage: ask <your question>")
             return
 
-        print("Thinking...")
+        print("Analyzing request...")
 
         try:
-            response = self.orion.ai_provider.chat(prompt)
+            response = self.orion.brain.ask(prompt)
         except Exception as exc:
             print(f"AI Error: {exc}")
             return

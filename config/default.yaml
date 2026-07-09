@@ -2,7 +2,7 @@ orion:
   name: Orion
   version: 0.0.1
   codename: First Light
-  user_name: Daniel
+  
 
 providers:
   default: ollama

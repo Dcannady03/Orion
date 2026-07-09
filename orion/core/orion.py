@@ -15,8 +15,10 @@ Orion AI Operating System
 """
 
 from orion.core.config import ConfigManager
+from orion.core.profile import ProfileManager
 from orion.core.router import CommandRouter
 from orion.intelligence.factory import AIProviderFactory
+from orion.intelligence.brain import Brain
 
 
 class Orion:
@@ -27,6 +29,10 @@ class Orion:
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load()
 
+        # Load user profile
+        self.profile_manager = ProfileManager()
+        self.profile = self.profile_manager.load()
+
         # Orion information
         self.name = self.config_manager.get("orion.name", "Orion")
         self.version = self.config_manager.get("orion.version", "0.0.1")
@@ -36,16 +42,17 @@ class Orion:
         )
 
         # User profile
-        self.user_name = self.config_manager.get(
-            "orion.user_name",
-            "Daniel"
-        )
+        self.user_name = self.profile_manager.name
 
         # System status
         self.status = "READY"
 
         # Core systems
         self.ai_provider = AIProviderFactory(self.config_manager).create()
+        self.brain = Brain(
+            ai_provider=self.ai_provider,
+            config_manager=self.config_manager,
+        )
         self.router = CommandRouter(self)
 
     def start(self):
@@ -55,6 +62,7 @@ class Orion:
         print(f"Hello {self.user_name}.")
         print()
         print("Configuration Loaded.")
+        print("User Profile Loaded.")
         print("System Initialized.")
         print(f"Status: {self.status}")
         print()
