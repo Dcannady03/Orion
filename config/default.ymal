@@ -1,0 +1,31 @@
+orion:
+  name: Orion
+  version: 0.0.1
+  codename: First Light
+  user_name: Daniel
+
+providers:
+  default: openai
+  openai:
+    enabled: false
+    model: gpt-4.1-mini
+  ollama:
+    enabled: true
+    base_url: http://localhost:11434
+    model: qwen3.6:35b
+
+memory:
+  enabled: true
+  database_path: data/orion_memory.sqlite
+
+voice:
+  enabled: false
+  wake_word: Orion
+
+safety:
+  require_approval: true
+  dangerous_actions:
+    - delete_file
+    - restart_service
+    - shutdown
+    - run_shell_command
