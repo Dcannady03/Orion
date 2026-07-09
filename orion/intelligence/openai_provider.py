@@ -16,7 +16,7 @@ class OpenAIProvider(AIProvider):
     def name(self) -> str:
         return f"openai:{self.model}"
 
-    def chat(self, prompt: str) -> str:
+    def chat(self, prompt: str, system_prompt: str | None = None) -> str:
         raise NotImplementedError(
             "OpenAI provider is not implemented yet. "
             "Set providers.default to ollama for now."

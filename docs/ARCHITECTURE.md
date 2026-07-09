@@ -93,3 +93,11 @@ Orion should become a personal AI operating system that can:
 - Integrate with Home Assistant
 - Use local and cloud models interchangeably
 - Act as a long-term development partner
+
+## Orion Identity Prompt
+
+All general intelligence requests pass through the Brain and receive a centralized identity/system prompt before reaching an AI provider.
+
+This ensures Orion speaks consistently as Orion, even when the underlying reasoning engine is Ollama, Qwen, OpenAI, Claude, Gemini, or another future provider.
+
+The provider is an implementation detail. The user interacts with Orion.

@@ -20,13 +20,16 @@ class OllamaProvider(AIProvider):
     def name(self) -> str:
         return f"ollama:{self.model}"
 
-    def chat(self, prompt: str) -> str:
+    def chat(self, prompt: str, system_prompt: str | None = None) -> str:
         url = f"{self.base_url}/api/generate"
         payload = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
         }
+
+        if system_prompt:
+            payload["system"] = system_prompt
 
         data = json.dumps(payload).encode("utf-8")
         req = request.Request(

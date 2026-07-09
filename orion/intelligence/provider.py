@@ -11,7 +11,7 @@ class AIProvider(ABC):
     """Base interface for Orion AI providers."""
 
     @abstractmethod
-    def chat(self, prompt: str) -> str:
+    def chat(self, prompt: str, system_prompt: str | None = None) -> str:
         """Send a prompt to the provider and return a response."""
         raise NotImplementedError
 

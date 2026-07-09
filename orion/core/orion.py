@@ -52,6 +52,7 @@ class Orion:
         self.brain = Brain(
             ai_provider=self.ai_provider,
             config_manager=self.config_manager,
+            profile_manager=self.profile_manager,
         )
         self.router = CommandRouter(self)
 
