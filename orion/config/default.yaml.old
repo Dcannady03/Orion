@@ -1,8 +1,8 @@
 orion:
   name: Orion
-  version: 0.2.2
-  codename: Open Constellation
-  
+  version: 0.0.1
+  codename: First Light
+  user_name: Daniel
 
 providers:
   default: ollama
@@ -13,9 +13,6 @@ providers:
     enabled: true
     base_url: http://localhost:11434
     model: qwen3.6:35b
-
-workspace:
-  default_path: .
 
 memory:
   enabled: true
@@ -32,6 +29,3 @@ safety:
     - restart_service
     - shutdown
     - run_shell_command
-plugins:
-  path: plugins
-  enabled: true
