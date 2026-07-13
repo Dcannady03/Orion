@@ -13,6 +13,7 @@ Responsibilities:
 
 from orion.intelligence.identity import IdentityPrompt
 from orion.intelligence.intent import IntentDetector
+from orion.conversation import ContextBuilder
 
 
 class Brain:
@@ -25,6 +26,9 @@ class Brain:
         self.memory = memory
         self.services = services
         self.intent_detector = IntentDetector()
+        self.conversation = services.find("conversation") if services else None
+        project_context = services.find("project_context") if services else None
+        self.context_builder = ContextBuilder(self.conversation, memory, project_context) if self.conversation else None
         self.identity_prompt = IdentityPrompt(
             config_manager=config_manager,
             profile_manager=profile_manager,
@@ -49,9 +53,13 @@ class Brain:
 
         intent = self.intent_detector.detect(prompt)
         system_prompt = self.identity_prompt.build()
+        if self.context_builder:
+            context = self.context_builder.build()
+            if context:
+                system_prompt += "\n\nUse this Orion context when it is relevant:\n" + context
 
-        if intent == "chat":
-            return self.ai_provider.chat(prompt, system_prompt=system_prompt)
-
-        # Future intents will route to skills/tools here.
-        return self.ai_provider.chat(prompt, system_prompt=system_prompt)
+        response = self.ai_provider.chat(prompt, system_prompt=system_prompt)
+        if self.conversation and response:
+            self.conversation.add("user", prompt)
+            self.conversation.add("assistant", response)
+        return response

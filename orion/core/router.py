@@ -118,6 +118,23 @@ class CommandRouter:
         elif command_lower == "history":
             self.show_history()
 
+        elif command_lower in {"conversation", "conversation recent"}:
+            self.show_conversation()
+
+        elif command_lower.startswith("conversation recent "):
+            value = raw_command[len("conversation recent "):].strip()
+            self.show_conversation(value)
+
+        elif command_lower == "conversation search":
+            print("Usage: conversation search <text>")
+
+        elif command_lower.startswith("conversation search "):
+            query = raw_command[len("conversation search "):].strip()
+            self.search_conversation(query)
+
+        elif command_lower == "conversation clear":
+            self.clear_conversation()
+
         elif command_lower == "about":
             self.show_about()
 
@@ -166,6 +183,10 @@ Available commands:
   project set <field> <value>  Update goal, phase, version, model, etc.
   project note <text>    Append a timestamped project note
   history                Show Orion and project history
+  conversation           Show recent conversation context
+  conversation recent [n] Show the most recent messages
+  conversation search <text> Search saved conversation messages
+  conversation clear     Clear today's conversation after confirmation
   about                  Show Orion identity and capabilities
   ask                    Ask Orion's configured AI provider
   exit     Shut down Orion
@@ -190,6 +211,7 @@ Available commands:
         print(f"Code Skill: {code_state}")
         print(f"Search Skill: {search_state}")
         print(f"Session Memory: Online ({len(self.orion.session_memory)} items)")
+        print(f"Conversation Context: Online ({self.orion.conversation.count()} messages)")
         print(f"Service Registry: Online ({len(self.orion.services)} registered)")
         state = "Initialized" if self.orion.project_context.initialized else "Not initialized"
         print(f"Project Context: Online ({state})")
@@ -262,6 +284,7 @@ Available commands:
             return
 
         self.orion.project_context.bind(selected)
+        self.orion.conversation.bind(selected)
         print(f"Active workspace changed to: {selected}")
 
     def list_workspace(self, path: str = "."):
@@ -459,8 +482,10 @@ Available commands:
         print("  Persistent Project Context, History, About, Documentation")
         print("v0.2.2 - Open Constellation")
         print("  Plugin contracts, discovery, lifecycle management, Code Plugin")
-        print("v0.2.3 - Pathfinder (Current)")
+        print("v0.2.3 - Pathfinder")
         print("  Safe workspace content search, file search, regex and type filters")
+        print("v0.2.4 - Continuum (Current)")
+        print("  Persistent conversation history and context-aware AI requests")
         if not self.orion.project_context.initialized:
             print("\nProject history is not initialized. Run 'project init'.")
             return
@@ -472,6 +497,49 @@ Available commands:
         print("\nProject History")
         for entry in entries:
             print(f"  {entry.get('timestamp', '')} - {entry.get('summary', '')}")
+
+
+    def show_conversation(self, limit_value: str = "10"):
+        """Display recent persisted conversation messages."""
+        try:
+            limit = int(limit_value or "10")
+            messages = self.orion.conversation.recent(limit)
+        except (ValueError, OSError) as exc:
+            print(f"Conversation Error: {exc}")
+            return
+        if not messages:
+            print("Conversation history is empty.")
+            return
+        print(f"Recent Conversation ({len(messages)} message(s)):")
+        for message in messages:
+            print(f"  [{message.timestamp}] {message.role.title()}: {message.content}")
+
+    def search_conversation(self, query: str):
+        """Search persisted conversation messages."""
+        try:
+            messages = self.orion.conversation.search(query)
+        except (ValueError, OSError) as exc:
+            print(f"Conversation Error: {exc}")
+            return
+        if not messages:
+            print(f"No conversation matches found for: {query}")
+            return
+        print(f"Found {len(messages)} conversation match(es):")
+        for message in messages:
+            print(f"  [{message.timestamp}] {message.role.title()}: {message.content}")
+
+    def clear_conversation(self):
+        """Clear today's conversation after explicit confirmation."""
+        response = input("Clear today's conversation? (y/n): ").strip().lower()
+        if response not in {"y", "yes"}:
+            print("Conversation history was not cleared.")
+            return
+        try:
+            count = self.orion.conversation.clear_today()
+        except (ValueError, OSError) as exc:
+            print(f"Conversation Error: {exc}")
+            return
+        print(f"Cleared {count} conversation message(s).")
 
     def show_about(self):
         """Show Orion identity, architecture, and current capabilities."""
@@ -485,7 +553,7 @@ Available commands:
         print(f"Services: {len(self.orion.services)}")
         print(f"Plugins: {self.orion.plugin_manager.loaded_count()} loaded")
         print("Skills: Code and Search supplied by plugins")
-        print("Tests: 37 passing in v0.2.3")
+        print("Tests: verified for v0.2.4")
         print(f"Workspace: {self.orion.workspace_manager.root}")
         if self.orion.project_context.initialized:
             try:

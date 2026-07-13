@@ -23,6 +23,7 @@ from orion.services.registry import ServiceRegistry
 from orion.services.workspace import WorkspaceManager
 from orion.services.project_context import ProjectContext
 from orion.memory.session import SessionMemory
+from orion.conversation import ConversationService
 from orion.plugins.manager import PluginManager
 
 
@@ -62,6 +63,9 @@ class Orion:
         )
         self.session_memory = self.services.register(
             "session_memory", SessionMemory()
+        )
+        self.conversation = self.services.register(
+            "conversation", ConversationService(self.workspace_manager.root)
         )
         self.code_skill = None
         self.search_skill = None

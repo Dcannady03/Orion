@@ -22,5 +22,10 @@
     "timestamp": "2026-07-13T14:50:00-07:00",
     "type": "release",
     "summary": "v0.2.3 Pathfinder added safe workspace content and file search with regex, path, and file-type filters; removed the accidental nested repository copy."
+  },
+  {
+    "timestamp": "2026-07-13T15:30:00-07:00",
+    "type": "release",
+    "summary": "v0.2.4 Continuum added persistent conversation history, context-aware AI requests, and shared conversation services."
   }
 ]
