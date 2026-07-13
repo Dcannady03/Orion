@@ -1,11 +1,11 @@
 {
   "name": "Orion",
   "description": "A modular, user-controlled personal AI operating system.",
-  "version": "0.2.4",
-  "phase": "Intelligence Core",
-  "current_goal": "Build the Knowledge Index",
+  "version": "0.2.5",
+  "phase": "Knowledge",
+  "current_goal": "Complete Waypoint portable handoff memory and project rules",
   "preferred_model": "ollama:qwen3.6:35b",
-  "workspace": ".",
+  "workspace": "/mnt/data/waypoint_work/Orion-v0.2.4-Continuum",
   "created_at": "2026-07-10T00:00:00+00:00",
-  "updated_at": "2026-07-13T15:30:00-07:00"
+  "updated_at": "2026-07-13T15:16:22+00:00"
 }

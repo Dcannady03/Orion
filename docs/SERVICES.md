@@ -25,3 +25,7 @@ orion.workspace_manager
 orion.session_memory
 orion.code_skill
 ```
+
+## Waypoint project memory
+
+`project_context` owns portable `.orion/memory.db` checkpoints and mandatory project rules. Rules are scoped to the active workspace and included in AI context.

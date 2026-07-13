@@ -27,5 +27,25 @@
     "timestamp": "2026-07-13T15:30:00-07:00",
     "type": "release",
     "summary": "v0.2.4 Continuum added persistent conversation history, context-aware AI requests, and shared conversation services."
+  },
+  {
+    "timestamp": "2026-07-13T15:16:22+00:00",
+    "type": "project_updated",
+    "summary": "Set version to 0.2.5"
+  },
+  {
+    "timestamp": "2026-07-13T15:16:22+00:00",
+    "type": "project_updated",
+    "summary": "Set phase to Knowledge"
+  },
+  {
+    "timestamp": "2026-07-13T15:16:22+00:00",
+    "type": "project_updated",
+    "summary": "Set current_goal to Complete Waypoint portable handoff memory and project rules"
+  },
+  {
+    "timestamp": "2026-07-13T15:16:22+00:00",
+    "type": "release_completed",
+    "summary": "v0.2.5 Waypoint added SQLite project checkpoints, resume support, and mandatory workspace rules."
   }
 ]

@@ -96,7 +96,7 @@ class CommandRouter:
             self.clear_memory()
 
         elif command_lower == "project":
-            print("Usage: project <init|status|info|set|note>")
+            print("Usage: project <init|status|info|set|note|checkpoint|resume|rule>")
 
         elif command_lower == "project init":
             self.project_init()
@@ -114,6 +114,30 @@ class CommandRouter:
         elif command_lower.startswith("project note "):
             text = raw_command[len("project note "):].strip()
             self.project_note(text)
+
+        elif command_lower == "project checkpoint":
+            print("Usage: project checkpoint <summary>")
+
+        elif command_lower.startswith("project checkpoint "):
+            self.project_checkpoint(raw_command[len("project checkpoint "):].strip())
+
+        elif command_lower == "project resume":
+            self.project_resume()
+
+        elif command_lower in {"project rules", "project rule list"}:
+            self.project_rules()
+
+        elif command_lower == "project rule add":
+            print("Usage: project rule add <rule>")
+
+        elif command_lower.startswith("project rule add "):
+            self.project_rule_add(raw_command[len("project rule add "):].strip())
+
+        elif command_lower == "project rule remove":
+            print("Usage: project rule remove <id>")
+
+        elif command_lower.startswith("project rule remove "):
+            self.project_rule_remove(raw_command[len("project rule remove "):].strip())
 
         elif command_lower == "history":
             self.show_history()
@@ -182,6 +206,11 @@ Available commands:
   project info           Show detailed project metadata
   project set <field> <value>  Update goal, phase, version, model, etc.
   project note <text>    Append a timestamped project note
+  project checkpoint <summary> Save a portable handoff checkpoint
+  project resume         Show where this project left off
+  project rules          List mandatory project rules
+  project rule add <rule> Add a workspace-specific rule
+  project rule remove <id> Remove a project rule
   history                Show Orion and project history
   conversation           Show recent conversation context
   conversation recent [n] Show the most recent messages
@@ -286,6 +315,11 @@ Available commands:
         self.orion.project_context.bind(selected)
         self.orion.conversation.bind(selected)
         print(f"Active workspace changed to: {selected}")
+        if self.orion.project_context.initialized:
+            print("Project memory recognized. Use 'project resume' to continue where you left off.")
+            rules = self.orion.project_context.rules()
+            if rules:
+                print(f"Loaded {len(rules)} mandatory project rule(s).")
 
     def list_workspace(self, path: str = "."):
         """List entries inside the active workspace."""
@@ -470,6 +504,76 @@ Available commands:
             return
         print("Project note added.")
 
+    def project_checkpoint(self, summary: str):
+        """Save a concise project handoff checkpoint."""
+        try:
+            data = self.orion.project_context.project()
+            checkpoint = self.orion.project_context.add_checkpoint(
+                summary,
+                current_task=data.get("current_goal", ""),
+                next_step=summary,
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            print(f"Project Context Error: {exc}")
+            return
+        print(f"Project checkpoint saved: {checkpoint['summary']}")
+        print(f"Location: {self.orion.project_context.database_path}")
+
+    def project_resume(self):
+        """Display the active project's latest handoff and rules."""
+        try:
+            data = self.orion.project_context.resume()
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            print(f"Project Context Error: {exc}")
+            return
+        project = data["project"]
+        checkpoint = data["checkpoint"]
+        print(f"Project recognized: {project.get('name', '')}")
+        print(f"Current goal: {project.get('current_goal', '')}")
+        if checkpoint:
+            print(f"Last checkpoint: {checkpoint.get('summary', '')}")
+            if checkpoint.get("current_task"):
+                print(f"Current task: {checkpoint['current_task']}")
+            if checkpoint.get("next_step"):
+                print(f"Next step: {checkpoint['next_step']}")
+        else:
+            print("No checkpoint has been saved yet.")
+        rules = data["rules"]
+        if rules:
+            print("Mandatory project rules:")
+            for item in rules:
+                print(f"  [{item['id']}] {item['rule']}")
+
+    def project_rules(self):
+        try:
+            rules = self.orion.project_context.rules()
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            print(f"Project Context Error: {exc}")
+            return
+        if not rules:
+            print("No project rules defined.")
+            return
+        print("Mandatory Project Rules:")
+        for item in rules:
+            print(f"  [{item['id']}] {item['rule']}")
+
+    def project_rule_add(self, rule: str):
+        try:
+            item = self.orion.project_context.add_rule(rule)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            print(f"Project Context Error: {exc}")
+            return
+        print(f"Project rule added [{item['id']}]: {item['rule']}")
+
+    def project_rule_remove(self, value: str):
+        try:
+            rule_id = int(value)
+            removed = self.orion.project_context.remove_rule(rule_id)
+        except (ValueError, OSError, FileNotFoundError) as exc:
+            print(f"Project Context Error: {exc}")
+            return
+        print(f"Project rule removed: {rule_id}" if removed else f"Project rule not found: {rule_id}")
+
     def show_history(self):
         """Show release milestones and persistent project history."""
         print("Orion Development History")
@@ -484,8 +588,10 @@ Available commands:
         print("  Plugin contracts, discovery, lifecycle management, Code Plugin")
         print("v0.2.3 - Pathfinder")
         print("  Safe workspace content search, file search, regex and type filters")
-        print("v0.2.4 - Continuum (Current)")
+        print("v0.2.4 - Continuum")
         print("  Persistent conversation history and context-aware AI requests")
+        print("v0.2.5 - Waypoint (Current)")
+        print("  Portable project checkpoints, SQLite memory, and mandatory project rules")
         if not self.orion.project_context.initialized:
             print("\nProject history is not initialized. Run 'project init'.")
             return
@@ -553,7 +659,7 @@ Available commands:
         print(f"Services: {len(self.orion.services)}")
         print(f"Plugins: {self.orion.plugin_manager.loaded_count()} loaded")
         print("Skills: Code and Search supplied by plugins")
-        print("Tests: verified for v0.2.4")
+        print("Tests: verified for v0.2.5")
         print(f"Workspace: {self.orion.workspace_manager.root}")
         if self.orion.project_context.initialized:
             try:

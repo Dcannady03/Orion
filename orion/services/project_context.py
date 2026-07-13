@@ -1,9 +1,10 @@
 """Persistent, user-owned project context for Orion workspaces."""
-
 from __future__ import annotations
 
 import json
+import sqlite3
 from copy import deepcopy
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
@@ -11,7 +12,7 @@ from typing import Any
 
 
 class ProjectContext:
-    """Manage persistent metadata stored in a workspace's ``.orion`` folder."""
+    """Manage portable project metadata, checkpoints, and rules in ``.orion``."""
 
     FILES = {
         "project": "project.json",
@@ -20,6 +21,7 @@ class ProjectContext:
         "metrics": "metrics.json",
         "settings": "settings.json",
         "notes": "notes.md",
+        "memory": "memory.db",
     }
 
     def __init__(self, workspace_root: str | Path) -> None:
@@ -35,35 +37,74 @@ class ProjectContext:
         return self._root / ".orion"
 
     @property
+    def database_path(self) -> Path:
+        return self.context_dir / self.FILES["memory"]
+
+    @property
     def initialized(self) -> bool:
         return (self.context_dir / self.FILES["project"]).is_file()
 
     def bind(self, workspace_root: str | Path) -> None:
-        """Point the service at another workspace without creating files."""
         root = Path(workspace_root).expanduser().resolve()
         if not root.is_dir():
             raise NotADirectoryError(f"Workspace is not a directory: {root}")
         self._root = root
+        if self.initialized:
+            self._ensure_database()
 
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    @contextmanager
+    def _database(self):
+        self.context_dir.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            yield connection
+            connection.commit()
+        finally:
+            connection.close()
+
+    def _ensure_database(self) -> None:
+        with self._database() as connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS checkpoints (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    current_task TEXT NOT NULL DEFAULT '',
+                    next_step TEXT NOT NULL DEFAULT '',
+                    completed_work TEXT NOT NULL DEFAULT '',
+                    open_questions TEXT NOT NULL DEFAULT '',
+                    important_files TEXT NOT NULL DEFAULT ''
+                );
+                CREATE TABLE IF NOT EXISTS rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    rule TEXT NOT NULL UNIQUE,
+                    enabled INTEGER NOT NULL DEFAULT 1
+                );
+                """
+            )
 
     def initialize(
         self,
         *,
         name: str | None = None,
         description: str = "",
-        version: str = "0.2.1",
-        phase: str = "Intelligence Core",
-        current_goal: str = "Build File Search",
+        version: str = "0.2.5",
+        phase: str = "Knowledge",
+        current_goal: str = "Build portable project handoff memory",
         preferred_model: str = "",
     ) -> dict[str, Any]:
-        """Create a portable project context, preserving existing data."""
         with self._lock:
             self.context_dir.mkdir(parents=True, exist_ok=True)
             project_path = self.context_dir / self.FILES["project"]
             if project_path.exists():
+                self._ensure_database()
                 return self.project()
 
             now = self._now()
@@ -81,14 +122,10 @@ class ProjectContext:
             self._write_json(project_path, project)
             self._write_json(self.context_dir / self.FILES["history"], [])
             self._write_json(self.context_dir / self.FILES["tasks"], [])
-            self._write_json(
-                self.context_dir / self.FILES["metrics"],
-                {"history_entries": 0, "tasks_open": 0, "tasks_completed": 0},
-            )
+            self._write_json(self.context_dir / self.FILES["metrics"], {"history_entries": 0, "tasks_open": 0, "tasks_completed": 0})
             self._write_json(self.context_dir / self.FILES["settings"], {})
-            (self.context_dir / self.FILES["notes"]).write_text(
-                f"# {project['name']} Notes\n\n", encoding="utf-8"
-            )
+            (self.context_dir / self.FILES["notes"]).write_text(f"# {project['name']} Notes\n\n", encoding="utf-8")
+            self._ensure_database()
             self.add_history("project_initialized", f"Initialized project {project['name']}")
             return deepcopy(project)
 
@@ -147,6 +184,67 @@ class ProjectContext:
             handle.write(f"## {stamp}\n\n{note}\n\n")
         self.add_history("note_added", note[:120])
 
+    def add_checkpoint(self, summary: str, *, current_task: str = "", next_step: str = "", completed_work: str = "", open_questions: str = "", important_files: str = "") -> dict[str, Any]:
+        self._require_initialized()
+        if not summary.strip():
+            raise ValueError("Checkpoint summary cannot be empty.")
+        self._ensure_database()
+        values = (self._now(), summary.strip(), current_task.strip(), next_step.strip(), completed_work.strip(), open_questions.strip(), important_files.strip())
+        with self._database() as connection:
+            cursor = connection.execute(
+                "INSERT INTO checkpoints (created_at, summary, current_task, next_step, completed_work, open_questions, important_files) VALUES (?, ?, ?, ?, ?, ?, ?)", values,
+            )
+            checkpoint_id = cursor.lastrowid
+        self.add_history("checkpoint_saved", summary.strip()[:120])
+        return {"id": checkpoint_id, "created_at": values[0], "summary": values[1], "current_task": values[2], "next_step": values[3], "completed_work": values[4], "open_questions": values[5], "important_files": values[6]}
+
+    def latest_checkpoint(self) -> dict[str, Any] | None:
+        self._require_initialized()
+        self._ensure_database()
+        with self._database() as connection:
+            row = connection.execute("SELECT * FROM checkpoints ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+
+    def add_rule(self, rule: str) -> dict[str, Any]:
+        self._require_initialized()
+        text = rule.strip()
+        if not text:
+            raise ValueError("Project rule cannot be empty.")
+        self._ensure_database()
+        try:
+            with self._database() as connection:
+                cursor = connection.execute("INSERT INTO rules (created_at, rule, enabled) VALUES (?, ?, 1)", (self._now(), text))
+                rule_id = cursor.lastrowid
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("That project rule already exists.") from exc
+        self.add_history("rule_added", text[:120])
+        return {"id": rule_id, "rule": text, "enabled": True}
+
+    def rules(self, *, enabled_only: bool = True) -> list[dict[str, Any]]:
+        self._require_initialized()
+        self._ensure_database()
+        query = "SELECT id, created_at, rule, enabled FROM rules"
+        if enabled_only:
+            query += " WHERE enabled = 1"
+        query += " ORDER BY id"
+        with self._database() as connection:
+            rows = connection.execute(query).fetchall()
+        return [{**dict(row), "enabled": bool(row["enabled"])} for row in rows]
+
+    def remove_rule(self, rule_id: int) -> bool:
+        self._require_initialized()
+        self._ensure_database()
+        with self._database() as connection:
+            cursor = connection.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
+        if cursor.rowcount:
+            self.add_history("rule_removed", f"Removed project rule {rule_id}")
+            return True
+        return False
+
+    def resume(self) -> dict[str, Any]:
+        self._require_initialized()
+        return {"project": self.project(), "checkpoint": self.latest_checkpoint(), "rules": self.rules()}
+
     def history(self) -> list[dict[str, Any]]:
         self._require_initialized()
         data = self._read_json(self.context_dir / self.FILES["history"], [])
@@ -183,4 +281,6 @@ class ProjectContext:
         data["history_entries"] = len(self.history())
         data["tasks_open"] = sum(task.get("status") != "completed" for task in tasks)
         data["tasks_completed"] = sum(task.get("status") == "completed" for task in tasks)
+        data["rules"] = len(self.rules())
+        data["has_checkpoint"] = self.latest_checkpoint() is not None
         return deepcopy(data)

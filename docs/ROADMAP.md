@@ -31,4 +31,6 @@ A cohesive, documented, user-controlled personal AI operating system.
 
 ## Current Release
 
-**v0.2.4 — Continuum:** Persistent conversation context is complete. Next priority: a lightweight Knowledge Index.
+**v0.2.4 — Continuum:** Persistent conversation context is complete.
+
+**v0.2.5 — Waypoint:** Portable project checkpoints, SQLite project memory, and mandatory workspace rules are complete. Next priority: a lightweight Knowledge Index.
