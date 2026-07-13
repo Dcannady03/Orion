@@ -166,6 +166,15 @@ class CommandRouter:
         elif command_lower.startswith("index find "):
             self.index_find(raw_command[len("index find "):].strip())
 
+        elif command_lower == "action echo":
+            print("Usage: action echo <text>")
+
+        elif command_lower.startswith("action echo "):
+            self.action_echo(raw_command[len("action echo "):].strip())
+
+        elif command_lower == "action history":
+            self.action_history()
+
         elif command_lower == "history":
             self.show_history()
 
@@ -245,6 +254,8 @@ Available commands:
   index functions        List indexed functions
   index todos            List TODO/FIXME/HACK items
   index imports          List Python imports
+  action echo <text>     Run a harmless action through the Action Service
+  action history         Show project-local action audit history
   history                Show Orion and project history
   conversation           Show recent conversation context
   conversation recent [n] Show the most recent messages
@@ -277,6 +288,7 @@ Available commands:
         print(f"Conversation Context: Online ({self.orion.conversation.count()} messages)")
         index_state = "Built" if self.orion.knowledge_index.exists() else "Not built"
         print(f"Knowledge Index: Online ({index_state})")
+        print(f"Action Service: Online ({len(self.orion.action_service.handler_types())} handlers)")
         print(f"Service Registry: Online ({len(self.orion.services)} registered)")
         state = "Initialized" if self.orion.project_context.initialized else "Not initialized"
         print(f"Project Context: Online ({state})")
@@ -351,6 +363,7 @@ Available commands:
         self.orion.project_context.bind(selected)
         self.orion.conversation.bind(selected)
         self.orion.knowledge_index.bind(selected)
+        self.orion.action_history.bind(selected)
         print(f"Active workspace changed to: {selected}")
         if self.orion.project_context.initialized:
             print("Project memory recognized. Use 'project resume' to continue where you left off.")
@@ -691,6 +704,24 @@ Available commands:
                 location += f":{item['line']}"
             name = item.get("name") or item.get("text") or location
             print(f"  [{item['type']}] {name} - {location}")
+
+
+    def action_echo(self, text: str):
+        if not text:
+            print("Usage: action echo <text>")
+            return
+        result = self.orion.action_service.run("echo", {"message": text})
+        print(result.output if result.success else f"Action failed: {result.error}")
+
+    def action_history(self):
+        entries = self.orion.action_history.entries(limit=10)
+        if not entries:
+            print("Action history is empty.")
+            return
+        print("Recent Actions:")
+        for entry in entries:
+            action = entry["action"]
+            print(f"  {entry['timestamp']} [{entry['event']}] {action['type']} - {action['status']}")
 
     def show_history(self):
         """Show release milestones and persistent project history."""

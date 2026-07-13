@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.0 — Ignition
+
+- Added the unified Action Core.
+- Added action models, handler registration, execution results, and project-local audit history.
+- Added harmless `action echo` and `action history` CLI commands.
+- Added action lifecycle and isolation tests.
+
 ## v0.2.6 — Atlas
 
 - Added the first-class `knowledge_index` service.

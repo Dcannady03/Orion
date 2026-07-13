@@ -17,9 +17,12 @@ Foundation: Core, Configuration, Profile, Router, Brain, AI Providers, and Ident
 - [x] Knowledge Index
 - [ ] Task Manager
 
-## v0.3.0 — Automation Core
+## Phase 3 — Action
 
-Docker, Git, approval-based Shell, Email, Calendar, and Home Assistant.
+- [x] v0.3.0 Ignition — Action Core
+- [ ] v0.3.1 Safeguard — Approval and policy engine
+- [ ] Launchpad — Application control
+- [ ] Weather, Git, Email, Calendar, Docker, and Home Assistant
 
 ## v0.4.0 — Voice OS
 
@@ -35,4 +38,4 @@ A cohesive, documented, user-controlled personal AI operating system.
 
 **v0.2.5 — Waypoint:** Portable project checkpoints, SQLite project memory, and mandatory workspace rules are complete.
 
-**v0.2.6 — Atlas:** Portable structural workspace indexing is complete. Next priority: Task Manager and structured work planning.
+**v0.3.0 — Ignition:** The unified Action Core is complete. Next priority: approval and policy enforcement.

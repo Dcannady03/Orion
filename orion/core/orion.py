@@ -26,6 +26,7 @@ from orion.memory.session import SessionMemory
 from orion.conversation import ConversationService
 from orion.knowledge import KnowledgeIndex
 from orion.plugins.manager import PluginManager
+from orion.actions import ActionHistory, ActionService
 
 
 class Orion:
@@ -75,6 +76,13 @@ class Orion:
         )
         self.knowledge_index = self.services.register(
             "knowledge_index", KnowledgeIndex(self.workspace_manager.root)
+        )
+        self.action_history = ActionHistory(self.workspace_manager.root)
+        self.action_service = self.services.register(
+            "actions", ActionService(self.action_history)
+        )
+        self.action_service.register_handler(
+            "echo", lambda action: action.parameters.get("message", "")
         )
 
         # Plugin system. Plugins may register services and commands without
