@@ -26,7 +26,7 @@ from orion.memory.session import SessionMemory
 from orion.conversation import ConversationService
 from orion.knowledge import KnowledgeIndex
 from orion.plugins.manager import PluginManager
-from orion.actions import ActionHistory, ActionService
+from orion.actions import ActionHistory, ActionService, PolicyDecision
 
 
 class Orion:
@@ -83,6 +83,13 @@ class Orion:
         )
         self.action_service.register_handler(
             "echo", lambda action: action.parameters.get("message", "")
+        )
+        self.action_service.register_handler(
+            "protected_echo", lambda action: action.parameters.get("message", "")
+        )
+        self.action_service.approval.set_policy(
+            "protected_echo", PolicyDecision.REQUIRE_APPROVAL,
+            "Protected demonstration actions require explicit approval.",
         )
 
         # Plugin system. Plugins may register services and commands without

@@ -20,7 +20,7 @@ Foundation: Core, Configuration, Profile, Router, Brain, AI Providers, and Ident
 ## Phase 3 — Action
 
 - [x] v0.3.0 Ignition — Action Core
-- [ ] v0.3.1 Safeguard — Approval and policy engine
+- [x] v0.3.1 Safeguard — Approval and policy engine
 - [ ] Launchpad — Application control
 - [ ] Weather, Git, Email, Calendar, Docker, and Home Assistant
 
@@ -38,4 +38,4 @@ A cohesive, documented, user-controlled personal AI operating system.
 
 **v0.2.5 — Waypoint:** Portable project checkpoints, SQLite project memory, and mandatory workspace rules are complete.
 
-**v0.3.0 — Ignition:** The unified Action Core is complete. Next priority: approval and policy enforcement.
+**v0.3.1 — Safeguard:** Approval and policy enforcement are complete. Next priority: Launchpad application control.

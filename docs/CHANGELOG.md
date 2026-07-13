@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.1 — Safeguard
+
+- Added the central approval and policy engine.
+- Added allow, require-approval, and deny policy decisions.
+- Added pending, approve, deny, and protected action CLI flows.
+- Prevented approval bypass, denied execution, and action replay.
+
 ## v0.3.0 — Ignition
 
 - Added the unified Action Core.

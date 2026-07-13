@@ -172,6 +172,27 @@ class CommandRouter:
         elif command_lower.startswith("action echo "):
             self.action_echo(raw_command[len("action echo "):].strip())
 
+        elif command_lower == "action request":
+            print("Usage: action request <text>")
+
+        elif command_lower.startswith("action request "):
+            self.action_request(raw_command[len("action request "):].strip())
+
+        elif command_lower == "action pending":
+            self.action_pending()
+
+        elif command_lower == "action approve":
+            print("Usage: action approve <id>")
+
+        elif command_lower.startswith("action approve "):
+            self.action_approve(raw_command[len("action approve "):].strip())
+
+        elif command_lower == "action deny":
+            print("Usage: action deny <id>")
+
+        elif command_lower.startswith("action deny "):
+            self.action_deny(raw_command[len("action deny "):].strip())
+
         elif command_lower == "action history":
             self.action_history()
 
@@ -255,6 +276,10 @@ Available commands:
   index todos            List TODO/FIXME/HACK items
   index imports          List Python imports
   action echo <text>     Run a harmless action through the Action Service
+  action request <text>  Create a protected action awaiting approval
+  action pending         List actions awaiting approval
+  action approve <id>    Approve and execute a pending action
+  action deny <id>       Deny a pending action
   action history         Show project-local action audit history
   history                Show Orion and project history
   conversation           Show recent conversation context
@@ -712,6 +737,43 @@ Available commands:
             return
         result = self.orion.action_service.run("echo", {"message": text})
         print(result.output if result.success else f"Action failed: {result.error}")
+
+    def action_request(self, text: str):
+        if not text:
+            print("Usage: action request <text>")
+            return
+        action = self.orion.action_service.create("protected_echo", {"message": text})
+        print("Action awaiting approval:")
+        print(f"  ID: {action.id}")
+        print(f"  Type: {action.type}")
+        print(f"  Message: {text}")
+        print(f"Approve with: action approve {action.id}")
+
+    def action_pending(self):
+        actions = self.orion.action_service.pending()
+        if not actions:
+            print("No actions are awaiting approval.")
+            return
+        print("Pending Actions:")
+        for action in actions:
+            print(f"  {action.id}  {action.type}  {action.parameters}")
+
+    def action_approve(self, action_id: str):
+        try:
+            action = self.orion.action_service.approve(action_id)
+            result = self.orion.action_service.execute(action)
+        except (KeyError, RuntimeError, PermissionError) as exc:
+            print(f"Action Error: {exc}")
+            return
+        print(result.output if result.success else f"Action failed: {result.error}")
+
+    def action_deny(self, action_id: str):
+        try:
+            action = self.orion.action_service.deny(action_id)
+        except (KeyError, RuntimeError) as exc:
+            print(f"Action Error: {exc}")
+            return
+        print(f"Action denied: {action.id}")
 
     def action_history(self):
         entries = self.orion.action_history.entries(limit=10)
