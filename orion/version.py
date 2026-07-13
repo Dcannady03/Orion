@@ -1,2 +1,2 @@
-__version__ = "0.2.2"
-__codename__ = "Open Constellation"
+__version__ = "0.2.3"
+__codename__ = "Pathfinder"

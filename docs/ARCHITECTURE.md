@@ -24,3 +24,8 @@ The core initializes shared components. Consumers discover them through the regi
 - `settings.json` — future project-specific preferences
 
 Workspace changes rebind Project Context so each project keeps independent, portable data.
+
+
+## Workspace Search
+
+`SearchSkill` is registered by the built-in Search Plugin. It depends only on the Workspace Manager, which guarantees that all searched paths remain inside the active workspace. Search remains read-only and applies resource limits before reading files.

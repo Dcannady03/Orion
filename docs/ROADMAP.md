@@ -9,7 +9,7 @@ Foundation: Core, Configuration, Profile, Router, Brain, AI Providers, and Ident
 - [x] Session Memory
 - [x] Service Registry
 - [x] Project Memory
-- [ ] File Search
+- [ ] File Search ✅
 - [ ] Task Manager
 - [ ] Conversation Context
 
@@ -26,6 +26,11 @@ A cohesive, documented, user-controlled personal AI operating system.
 
 - [x] Plugin system
 - [x] Code Skill migration
-- [ ] File Search plugin
+- [ ] File Search ✅ plugin
 - [ ] Task Manager plugin
 - [ ] Conversation Context
+
+
+## Current Release
+
+**v0.2.3 — Pathfinder:** Search Plugin complete. Next priority: conversation context and knowledge indexing.

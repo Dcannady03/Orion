@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.3 — Pathfinder
+
+- Added the built-in Search Plugin and read-only SearchSkill service.
+- Added content, file-name, regex, case-sensitive, path-scoped, and file-type searches.
+- Added search safety limits and ignored generated directories.
+- Added 11 search-focused tests.
+- Removed the accidental nested repository copy from the `orion/` package.
+- Updated status, history, about, roadmap, architecture, and plugin documentation.
+
 ## 0.2.1 — Project Memory
 - Added persistent, workspace-local Project Context.
 - Added `.orion/` metadata, notes, history, metrics, settings, and task storage foundation.

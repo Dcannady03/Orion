@@ -17,5 +17,10 @@
   {
     "timestamp": "2026-07-10T00:00:00+00:00",
     "summary": "v0.2.2 Open Constellation introduced plugin discovery, lifecycle management, command routing, failure isolation, and the Code Plugin."
+  },
+  {
+    "timestamp": "2026-07-13T14:50:00-07:00",
+    "type": "release",
+    "summary": "v0.2.3 Pathfinder added safe workspace content and file search with regex, path, and file-type filters; removed the accidental nested repository copy."
   }
 ]

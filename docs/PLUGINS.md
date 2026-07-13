@@ -32,3 +32,8 @@ class HelloPlugin(OrionPlugin):
 def create_plugin():
     return HelloPlugin()
 ```
+
+
+## Built-in Search Plugin
+
+The Search Plugin registers the `search` service and provides `search` / `find` commands. It is read-only, workspace-bound, ignores generated directories, and skips binary or oversized files.

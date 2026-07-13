@@ -186,7 +186,9 @@ Available commands:
         print(f"User Profile: {self.orion.profile_manager.name}")
         print(f"Workspace: {self.orion.workspace_manager.root}")
         code_state = "Online (plugin)" if self.orion.services.find("code") else "Offline"
+        search_state = "Online (plugin)" if self.orion.services.find("search") else "Offline"
         print(f"Code Skill: {code_state}")
+        print(f"Search Skill: {search_state}")
         print(f"Session Memory: Online ({len(self.orion.session_memory)} items)")
         print(f"Service Registry: Online ({len(self.orion.services)} registered)")
         state = "Initialized" if self.orion.project_context.initialized else "Not initialized"
@@ -453,8 +455,12 @@ Available commands:
         print("  Foundation: Core, Configuration, Profile, Router, Brain, AI Providers, Identity")
         print("v0.2.0 - Intelligence Core")
         print("  Workspace Manager, Code Skill, Session Memory, Service Registry")
-        print("v0.2.1 - Project Memory (Current)")
+        print("v0.2.1 - Project Memory")
         print("  Persistent Project Context, History, About, Documentation")
+        print("v0.2.2 - Open Constellation")
+        print("  Plugin contracts, discovery, lifecycle management, Code Plugin")
+        print("v0.2.3 - Pathfinder (Current)")
+        print("  Safe workspace content search, file search, regex and type filters")
         if not self.orion.project_context.initialized:
             print("\nProject history is not initialized. Run 'project init'.")
             return
@@ -478,8 +484,8 @@ Available commands:
         print("Architecture: Modular services and skills")
         print(f"Services: {len(self.orion.services)}")
         print(f"Plugins: {self.orion.plugin_manager.loaded_count()} loaded")
-        print("Skills: Code Skill supplied by plugin")
-        print("Tests: 26 passing in v0.2.2")
+        print("Skills: Code and Search supplied by plugins")
+        print("Tests: 37 passing in v0.2.3")
         print(f"Workspace: {self.orion.workspace_manager.root}")
         if self.orion.project_context.initialized:
             try:

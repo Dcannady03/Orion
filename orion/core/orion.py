@@ -64,6 +64,7 @@ class Orion:
             "session_memory", SessionMemory()
         )
         self.code_skill = None
+        self.search_skill = None
         self.project_context = self.services.register(
             "project_context", ProjectContext(self.workspace_manager.root)
         )
