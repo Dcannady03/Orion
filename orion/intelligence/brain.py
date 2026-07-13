@@ -28,7 +28,8 @@ class Brain:
         self.intent_detector = IntentDetector()
         self.conversation = services.find("conversation") if services else None
         project_context = services.find("project_context") if services else None
-        self.context_builder = ContextBuilder(self.conversation, memory, project_context) if self.conversation else None
+        knowledge_index = services.find("knowledge_index") if services else None
+        self.context_builder = ContextBuilder(self.conversation, memory, project_context, knowledge_index) if self.conversation else None
         self.identity_prompt = IdentityPrompt(
             config_manager=config_manager,
             profile_manager=profile_manager,

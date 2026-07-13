@@ -14,7 +14,7 @@ Foundation: Core, Configuration, Profile, Router, Brain, AI Providers, and Ident
 - [x] Plugin System
 - [x] File Search
 - [x] Conversation Context
-- [ ] Knowledge Index
+- [x] Knowledge Index
 - [ ] Task Manager
 
 ## v0.3.0 — Automation Core
@@ -33,4 +33,6 @@ A cohesive, documented, user-controlled personal AI operating system.
 
 **v0.2.4 — Continuum:** Persistent conversation context is complete.
 
-**v0.2.5 — Waypoint:** Portable project checkpoints, SQLite project memory, and mandatory workspace rules are complete. Next priority: a lightweight Knowledge Index.
+**v0.2.5 — Waypoint:** Portable project checkpoints, SQLite project memory, and mandatory workspace rules are complete.
+
+**v0.2.6 — Atlas:** Portable structural workspace indexing is complete. Next priority: Task Manager and structured work planning.

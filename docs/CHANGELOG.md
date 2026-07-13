@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.2.6 — Atlas
+
+- Added the first-class `knowledge_index` service.
+- Added a portable `.orion/knowledge-index.json` workspace map.
+- Added Python AST discovery for classes, functions, and imports.
+- Added file inventory, test discovery, and TODO/FIXME/HACK scanning.
+- Added `index build`, `index status`, `index find`, `index classes`, `index functions`, `index todos`, and `index imports`.
+- Added a compact index summary to Orion AI context without injecting the full index.
+- Rebound the index automatically when the active workspace changes.
+- Added workspace-isolation and context tests; the full suite now contains 48 passing tests.
+
 ## v0.2.4 — Continuum
 
 - Added a first-class `conversation` service to the Service Registry.

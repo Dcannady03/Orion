@@ -3,10 +3,11 @@ from __future__ import annotations
 
 
 class ContextBuilder:
-    def __init__(self, conversation, memory=None, project_context=None, max_messages: int = 8, max_chars: int = 6000):
+    def __init__(self, conversation, memory=None, project_context=None, knowledge_index=None, max_messages: int = 8, max_chars: int = 6000):
         self.conversation = conversation
         self.memory = memory
         self.project_context = project_context
+        self.knowledge_index = knowledge_index
         self.max_messages = max_messages
         self.max_chars = max_chars
 
@@ -39,5 +40,9 @@ class ContextBuilder:
             rules = self.project_context.rules()
             if rules:
                 sections.append("Mandatory project rules (must be followed):\n" + "\n".join(f"- {item['rule']}" for item in rules))
+        if self.knowledge_index is not None:
+            summary = self.knowledge_index.summary()
+            if summary:
+                sections.append(summary)
         result = "\n\n".join(sections)
         return result[-self.max_chars:]

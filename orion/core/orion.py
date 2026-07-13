@@ -24,6 +24,7 @@ from orion.services.workspace import WorkspaceManager
 from orion.services.project_context import ProjectContext
 from orion.memory.session import SessionMemory
 from orion.conversation import ConversationService
+from orion.knowledge import KnowledgeIndex
 from orion.plugins.manager import PluginManager
 
 
@@ -71,6 +72,9 @@ class Orion:
         self.search_skill = None
         self.project_context = self.services.register(
             "project_context", ProjectContext(self.workspace_manager.root)
+        )
+        self.knowledge_index = self.services.register(
+            "knowledge_index", KnowledgeIndex(self.workspace_manager.root)
         )
 
         # Plugin system. Plugins may register services and commands without

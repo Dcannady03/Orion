@@ -139,6 +139,33 @@ class CommandRouter:
         elif command_lower.startswith("project rule remove "):
             self.project_rule_remove(raw_command[len("project rule remove "):].strip())
 
+        elif command_lower == "index":
+            print("Usage: index <build|status|find|classes|functions|todos|imports>")
+
+        elif command_lower == "index build":
+            self.index_build()
+
+        elif command_lower == "index status":
+            self.index_status()
+
+        elif command_lower == "index classes":
+            self.index_symbols("class")
+
+        elif command_lower == "index functions":
+            self.index_symbols("function")
+
+        elif command_lower == "index todos":
+            self.index_todos()
+
+        elif command_lower == "index imports":
+            self.index_imports()
+
+        elif command_lower == "index find":
+            print("Usage: index find <text>")
+
+        elif command_lower.startswith("index find "):
+            self.index_find(raw_command[len("index find "):].strip())
+
         elif command_lower == "history":
             self.show_history()
 
@@ -211,6 +238,13 @@ Available commands:
   project rules          List mandatory project rules
   project rule add <rule> Add a workspace-specific rule
   project rule remove <id> Remove a project rule
+  index build            Build the workspace knowledge index
+  index status           Show index statistics
+  index find <text>      Find indexed symbols, files, and TODOs
+  index classes          List indexed classes
+  index functions        List indexed functions
+  index todos            List TODO/FIXME/HACK items
+  index imports          List Python imports
   history                Show Orion and project history
   conversation           Show recent conversation context
   conversation recent [n] Show the most recent messages
@@ -241,6 +275,8 @@ Available commands:
         print(f"Search Skill: {search_state}")
         print(f"Session Memory: Online ({len(self.orion.session_memory)} items)")
         print(f"Conversation Context: Online ({self.orion.conversation.count()} messages)")
+        index_state = "Built" if self.orion.knowledge_index.exists() else "Not built"
+        print(f"Knowledge Index: Online ({index_state})")
         print(f"Service Registry: Online ({len(self.orion.services)} registered)")
         state = "Initialized" if self.orion.project_context.initialized else "Not initialized"
         print(f"Project Context: Online ({state})")
@@ -314,6 +350,7 @@ Available commands:
 
         self.orion.project_context.bind(selected)
         self.orion.conversation.bind(selected)
+        self.orion.knowledge_index.bind(selected)
         print(f"Active workspace changed to: {selected}")
         if self.orion.project_context.initialized:
             print("Project memory recognized. Use 'project resume' to continue where you left off.")
@@ -574,6 +611,87 @@ Available commands:
             return
         print(f"Project rule removed: {rule_id}" if removed else f"Project rule not found: {rule_id}")
 
+
+    def index_build(self):
+        """Build the active workspace knowledge index."""
+        try:
+            data = self.orion.knowledge_index.build()
+        except (OSError, ValueError) as exc:
+            print(f"Knowledge Index Error: {exc}")
+            return
+        stats = data["stats"]
+        print("Knowledge index built.")
+        print(f"  Files: {stats['files']}")
+        print(f"  Python files: {stats['python_files']}")
+        print(f"  Classes: {stats['classes']}")
+        print(f"  Functions: {stats['functions']}")
+        print(f"  Imports: {stats['imports']}")
+        print(f"  TODO/FIXME items: {stats['todos']}")
+        print(f"  Test files: {stats['tests']}")
+
+    def index_status(self):
+        """Show knowledge index metadata."""
+        try:
+            status = self.orion.knowledge_index.status()
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Knowledge Index Error: {exc}")
+            return
+        print("Knowledge Index:")
+        print(f"  Built: {status['built_at']}")
+        print(f"  Files: {status['files']}")
+        print(f"  Classes: {status['classes']}")
+        print(f"  Functions: {status['functions']}")
+        print(f"  TODO/FIXME items: {status['todos']}")
+        print(f"  Test files: {status['tests']}")
+
+    def index_symbols(self, kind: str):
+        try:
+            items = self.orion.knowledge_index.symbols(kind)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Knowledge Index Error: {exc}")
+            return
+        label = "Classes" if kind == "class" else "Functions"
+        print(f"Indexed {label} ({len(items)}):")
+        for item in items:
+            print(f"  {item['name']} - {item['path']}:{item['line']}")
+
+    def index_todos(self):
+        try:
+            items = self.orion.knowledge_index.todos()
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Knowledge Index Error: {exc}")
+            return
+        print(f"Indexed TODOs ({len(items)}):")
+        for item in items:
+            print(f"  [{item['marker']}] {item['path']}:{item['line']} - {item['text']}")
+
+    def index_imports(self):
+        try:
+            items = self.orion.knowledge_index.imports()
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Knowledge Index Error: {exc}")
+            return
+        print(f"Indexed Imports ({len(items)}):")
+        for item in items:
+            print(f"  {item['module']} - {item['path']}:{item['line']}")
+
+    def index_find(self, query: str):
+        try:
+            items = self.orion.knowledge_index.query(query)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Knowledge Index Error: {exc}")
+            return
+        if not items:
+            print(f"No indexed matches for: {query}")
+            return
+        print(f"Found {len(items)} indexed match(es):")
+        for item in items:
+            location = item.get("path", "")
+            if item.get("line"):
+                location += f":{item['line']}"
+            name = item.get("name") or item.get("text") or location
+            print(f"  [{item['type']}] {name} - {location}")
+
     def show_history(self):
         """Show release milestones and persistent project history."""
         print("Orion Development History")
@@ -590,8 +708,10 @@ Available commands:
         print("  Safe workspace content search, file search, regex and type filters")
         print("v0.2.4 - Continuum")
         print("  Persistent conversation history and context-aware AI requests")
-        print("v0.2.5 - Waypoint (Current)")
+        print("v0.2.5 - Waypoint")
         print("  Portable project checkpoints, SQLite memory, and mandatory project rules")
+        print("v0.2.6 - Atlas (Current)")
+        print("  Portable workspace knowledge index for files, symbols, imports, tests, and TODOs")
         if not self.orion.project_context.initialized:
             print("\nProject history is not initialized. Run 'project init'.")
             return
