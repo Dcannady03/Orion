@@ -6,20 +6,20 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.3.4 — Morning Star**
+**v0.3.5 — Weather**
 
-Morning Star adds a modular daily briefing that every future service can extend:
+Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
+API key required. It also plugs into Morning Star through the provider architecture:
 
 ```text
 Today's Briefing
 --------------------------------------------------
+  [WX] Weather: 75°F and clear sky; high 96°F, low 64°F
   [OK] Workspace: Orion is ready
   [OK] AI: ollama:qwen3.6:35b is connected
-  [OK] Applications: 207 discovered
 ```
 
-The startup screen does not know about Weather, Email, Calendar, or Docker. Each service
-will register its own provider, allowing Orion to grow without hardcoded startup logic.
+Weather failures are isolated, so a network outage never prevents Orion from starting.
 
 ## Quick start
 
@@ -34,6 +34,9 @@ python -m orion.main
 help                         Show Orion's abilities
 status                       Show the system dashboard
 briefing                     Refresh the current briefing
+weather                      Show live conditions and today's forecast
+weather tomorrow             Show tomorrow's forecast
+weather <location>           Check another location
 ask <question>               Talk to the configured AI provider
 workspace                    Inspect the active workspace
 files                        List workspace files
@@ -62,7 +65,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 - `orion/core` — runtime, configuration, profile, and routing
 - `orion/intelligence` — Brain, identity, intents, and AI providers
 - `orion/actions` — action models, policies, execution, and history
-- `orion/services` — workspace, discovery, Companion, and Morning Star briefing services
+- `orion/services` — workspace, discovery, Companion, Morning Star, and Weather services
 - `orion/conversation` — persistent conversation context
 - `orion/knowledge` — structural workspace index
 - `orion/plugins` — plugin contracts and lifecycle
@@ -75,9 +78,9 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The v0.3.4 release contains **76 passing tests**.
+The v0.3.5 release contains **82 passing tests**.
 
 ## Roadmap
 
-The next milestone is **v0.3.5 — Weather**, which contributes live conditions and forecasts through Morning Star. See `docs/ROADMAP.md` for the complete plan, including Weather, Calendar,
+The next milestone is **v0.3.6 — Calendar**, which will contribute a daily agenda through Morning Star. See `docs/ROADMAP.md` for the complete plan, including Weather, Calendar,
 Email, Docker, Diagnostics & Recovery, Voice, Knowledge, and Orion OS.

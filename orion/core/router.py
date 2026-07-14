@@ -37,6 +37,9 @@ class CommandRouter:
         elif command_lower == "briefing":
             self.show_briefing()
 
+        elif command_lower == "weather" or command_lower.startswith("weather "):
+            self.show_weather(raw_command)
+
         elif command_lower == "config":
             self.show_config()
 
@@ -269,7 +272,13 @@ class CommandRouter:
 
         elif command_lower.startswith("ask "):
             prompt = raw_command[4:].strip()
-            self.ask_ai(prompt)
+            if self._looks_like_weather(prompt):
+                self.show_weather(prompt)
+            else:
+                self.ask_ai(prompt)
+
+        elif self._looks_like_weather(raw_command):
+            self.show_weather(raw_command)
 
         elif command_lower in ["exit", "quit"]:
             print("Shutting down Orion.")
@@ -312,6 +321,8 @@ class CommandRouter:
         print("    developer on|off           Toggle diagnostic details")
         print()
         print("  System")
+        print("    weather [location]         Show live weather and today's forecast")
+        print("    weather tomorrow           Show tomorrow's forecast")
         print("    briefing                   Show the current Morning Star briefing")
         print("    status                     Show system health")
         print("    workspace [path]           View or change workspace")
@@ -345,6 +356,7 @@ class CommandRouter:
             ("Project Context", project_state),
             ("Plugins", f"{self.orion.plugin_manager.loaded_count()} loaded / {self.orion.plugin_manager.failed_count()} failed"),
             ("Briefing", f"{len(self.orion.briefing_service.provider_names())} providers"),
+            ("Weather", self.orion.weather_service.get_status().message),
             ("Services", f"{len(self.orion.services)} registered"),
         )
         print("\nOrion Status")
@@ -352,6 +364,25 @@ class CommandRouter:
         width = max(len(label) for label, _ in rows)
         for label, value in rows:
             print(f"  {label:<{width}}  {value}")
+
+    @staticmethod
+    def _looks_like_weather(text: str) -> bool:
+        value = text.strip().lower()
+        weather_phrases = (
+            "weather", "forecast", "temperature", "how hot", "how cold",
+            "do i need an umbrella", "will it rain", "is it raining",
+        )
+        return any(phrase in value for phrase in weather_phrases)
+
+    def show_weather(self, request: str):
+        """Fetch live weather directly instead of asking the language model."""
+        result = self.orion.weather_service.handle_request(request)
+        if result.success:
+            print(result.output)
+            return
+        print(f"Weather unavailable: {result.error}")
+        if self.orion.companion_settings.developer_mode:
+            print(f"Service status: {self.orion.weather_service.get_status().state.value}")
 
     def show_briefing(self):
         """Build and display the latest provider-neutral briefing."""

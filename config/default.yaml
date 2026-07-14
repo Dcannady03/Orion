@@ -1,7 +1,7 @@
 orion:
   name: Orion
-  version: 0.3.4
-  codename: Morning Star
+  version: 0.3.5
+  codename: Weather
   
 
 providers:
@@ -35,3 +35,10 @@ safety:
 plugins:
   path: plugins
   enabled: true
+
+
+weather:
+  # Empty uses profile.yaml's location field.
+  location: ""
+  units: imperial
+  timeout_seconds: 5

@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - graceful fallback
 
 
 BASE_COMMANDS = (
-    "help", "status", "briefing", "settings", "about", "profile", "config", "services",
+    "help", "status", "briefing", "weather", "weather tomorrow", "settings", "about", "profile", "config", "services",
     "plugins", "workspace", "files", "ls", "remember", "recall", "memory",
     "forget", "clear memory", "project init", "project status", "project info",
     "project resume", "project rules", "index build", "index status", "index find",

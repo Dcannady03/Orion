@@ -34,7 +34,7 @@ tested, documented milestones.
 - [x] **v0.3.4 — Morning Star:** modular briefing service and provider-driven startup dashboard
 
 ### Planned releases
-- [ ] **v0.3.5 — Weather:** current conditions, forecasts, and briefing provider
+- [x] **v0.3.5 — Weather:** current conditions, forecasts, location lookup, and briefing provider
 - [ ] **v0.3.6 — Calendar:** agenda access and briefing provider
 - [ ] **v0.3.7 — Email:** inbox access, sending, and briefing provider
 - [ ] **v0.3.8 — Docker:** container discovery, control, and health checks
@@ -78,10 +78,10 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.3.4 — Morning Star: COMPLETE**
+**v0.3.5 — Weather: COMPLETE**
 
-Morning Star introduces Orion's provider-neutral home screen. Independent services can
-contribute prioritized, truthful briefing items without modifying startup code. Provider
-failures are isolated and visible in Developer Mode.
+Weather adds Orion's first live external-information service using Open-Meteo. Weather
+requests are routed directly to structured service data rather than the LLM, and the
+Morning Star briefing gains a fault-isolated live forecast provider.
 
-**Next milestone:** v0.3.5 — Weather.
+**Next milestone:** v0.3.6 — Calendar.

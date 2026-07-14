@@ -1,5 +1,25 @@
 # Changelog
 
+### v0.3.5 Weather conversational refinement
+
+- Preserved greetings when weather questions are routed to the Weather service.
+- Added natural summaries for conversational weather requests.
+- Added focused answers for rain and temperature questions.
+- Kept the detailed structured report for the explicit `weather` command.
+- Added regression coverage for conversational and command-style output.
+
+## v0.3.5 — Weather
+
+- Added a common external-service contract with service state, status, and result models.
+- Added an Open-Meteo client using only Python's standard library and no API key.
+- Added geocoding for profile defaults and explicit locations.
+- Added current temperature, apparent temperature, humidity, wind, conditions, highs/lows, and rain chance.
+- Added `weather`, `weather tomorrow`, `weather <location>`, and conversational weather routing.
+- Routed weather-like `ask` requests to WeatherService instead of the language model.
+- Added a fault-isolated Weather briefing provider for Morning Star.
+- Added weather service health to `status` and command completion/help updates.
+- Added six focused weather tests; the complete suite now contains 82 passing tests.
+
 ## v0.3.4 — Morning Star
 
 - Added a first-class, provider-neutral Briefing Service.
@@ -107,3 +127,8 @@
 - Added Windows Search fallback for unknown application names.
 - Routed application launches through the Action Service, approval engine, and audit history.
 - Added Discovery unit tests.
+
+### v0.3.5 Weather hotfix
+- Fixed geocoding for profile locations containing a region, such as `Yuba City, California`.
+- Weather now sends only the city name to Open-Meteo and uses state/country qualifiers to select the correct result.
+- Added support for common state abbreviations such as `CA`.

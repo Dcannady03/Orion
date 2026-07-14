@@ -21,6 +21,7 @@ from orion.intelligence.factory import AIProviderFactory
 from orion.intelligence.brain import Brain
 from orion.services.registry import ServiceRegistry
 from orion.services.briefing import BriefingService, SystemBriefingProvider
+from orion.services.weather import WeatherBriefingProvider, WeatherService
 from orion.services.workspace import WorkspaceManager
 from orion.services.project_context import ProjectContext
 from orion.services.companion import CompanionSettings, ActionTrustStore
@@ -125,6 +126,26 @@ class Orion:
         # knows how to render the resulting briefing, not where facts came from.
         self.briefing_service = self.services.register("briefing", BriefingService())
         self.briefing_service.register_provider(SystemBriefingProvider(self))
+
+        # Weather is Orion's first external information service. It uses the
+        # profile location by default and contributes through Morning Star's
+        # provider contract. Network failures are isolated by BriefingService.
+        weather_location = (
+            self.config_manager.get("weather.location", "")
+            or self.profile_manager.get("location", "")
+        )
+        weather_units = self.config_manager.get("weather.units", "imperial")
+        weather_timeout = float(self.config_manager.get("weather.timeout_seconds", 5.0))
+        from orion.services.weather import OpenMeteoClient
+        self.weather_service = self.services.register(
+            "weather", WeatherService(
+                weather_location,
+                units=weather_units,
+                client=OpenMeteoClient(timeout=weather_timeout),
+                user_name=self.user_name,
+            ),
+        )
+        self.briefing_service.register_provider(WeatherBriefingProvider(self.weather_service))
         self.action_service.register_handler(
             "open_app",
             lambda action: self.application_launcher.launch(

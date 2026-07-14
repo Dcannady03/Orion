@@ -1,2 +1,2 @@
-__version__ = "0.3.4"
-__codename__ = "Morning Star"
+__version__ = "0.3.5"
+__codename__ = "Weather"
