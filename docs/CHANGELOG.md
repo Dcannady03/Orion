@@ -2,11 +2,19 @@
 
 ## v0.3.3 — Companion
 
-- Added conversational Y/N/A/Details application approvals.
-- Hid internal action UUIDs in normal mode.
-- Added persistent per-application trust and trust revocation.
-- Added numbered pending actions and developer mode.
-- Added workspace-isolated Companion settings.
+- Added conversational `Y`, `N`, `A`, and `D` application approvals.
+- Hid internal action UUIDs in normal mode while preserving them for audit and Developer Mode.
+- Added persistent, workspace-isolated application trust and trust revocation.
+- Added a numbered pending-action queue.
+- Added Developer Mode and a readable settings summary.
+- Added persistent command history with Up/Down navigation.
+- Added Tab completion for commands and discovered applications.
+- Added cross-platform semantic color output with graceful fallback.
+- Reworked startup into a time-aware Companion readiness summary.
+- Reorganized help around user abilities rather than internal subsystems.
+- Added a compact system status dashboard.
+- Improved graceful `Ctrl+C` and `Ctrl+D` shutdown behavior.
+- Completed the release with 71 passing automated tests.
 
 ## v0.3.1 — Safeguard
 

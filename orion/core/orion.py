@@ -31,6 +31,8 @@ from orion.conversation import ConversationService
 from orion.knowledge import KnowledgeIndex
 from orion.plugins.manager import PluginManager
 from orion.actions import ActionHistory, ActionService, PolicyDecision
+from orion.ui.console import Console
+from datetime import datetime
 
 
 class Orion:
@@ -145,29 +147,36 @@ class Orion:
             services=self.services,
         )
         self.router = CommandRouter(self)
+        self.console = Console(self)
 
     def start(self):
-        """Starts Orion and enters the command loop."""
+        """Start Orion and enter the polished Companion command loop."""
         self.banner()
-
-        print(f"Hello {self.user_name}.")
+        hour = datetime.now().hour
+        greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+        print(f"{greeting}, {self.user_name}.")
         print()
-        print("Configuration Loaded.")
-        print("User Profile Loaded.")
-        print("System Initialized.")
-        print(f"Status: {self.status}")
+        self.console.success("Configuration loaded")
+        self.console.success("User profile loaded")
+        self.console.success(f"Workspace ready: {self.workspace_manager.root.name}")
+        self.console.success(f"AI provider ready: {self.ai_provider.name()}")
+        app_count = len(self.application_catalog.applications())
+        self.console.success(f"Application library ready: {app_count} discovered")
+        self.console.success(f"Trust settings loaded: {len(self.action_trust.entries())} trusted")
         print()
-        print(f"Welcome to {self.name}.")
+        print("System ready. What would you like to do today?")
         print("=" * 50)
-
         self.command_loop()
 
     def command_loop(self):
-        """Run Orion's interactive command loop."""
+        """Run Orion's interactive command loop with history and completion."""
         running = True
-
         while running:
-            user_input = input(f"\n{self.name}> ")
+            try:
+                user_input = self.console.prompt(self.name)
+            except (EOFError, KeyboardInterrupt):
+                print("\nShutting down Orion.")
+                break
             running = self.router.handle(user_input)
 
     def banner(self):

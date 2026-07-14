@@ -282,97 +282,71 @@ class CommandRouter:
         return True
 
     def show_help(self):
-        """Display available commands."""
-        print("""
-Available commands:
-  help     Show this help menu
-  status   Show Orion system status
-  config   Show loaded configuration
-  profile  Show loaded user profile
-  services Show registered Orion services
-  plugins  Show discovered Orion plugins
-  plugins info <name> Show plugin details
-  workspace              Show the active workspace
-  workspace <path>       Change the active workspace
-  files [path]           List workspace files (alias: ls)
-  remember <key> <value> Store a value for this Orion session
-  recall <key>           Recall a session-memory value
-  memory                 Show all session-memory values
-  forget <key>           Remove one session-memory value
-  clear memory           Clear session memory after confirmation
-  project init           Initialize persistent project memory
-  project status         Show persistent project status
-  project info           Show detailed project metadata
-  project set <field> <value>  Update goal, phase, version, model, etc.
-  project note <text>    Append a timestamped project note
-  project checkpoint <summary> Save a portable handoff checkpoint
-  project resume         Show where this project left off
-  project rules          List mandatory project rules
-  project rule add <rule> Add a workspace-specific rule
-  project rule remove <id> Remove a project rule
-  index build            Build the workspace knowledge index
-  index status           Show index statistics
-  index find <text>      Find indexed symbols, files, and TODOs
-  index classes          List indexed classes
-  index functions        List indexed functions
-  index todos            List TODO/FIXME/HACK items
-  index imports          List Python imports
-  action echo <text>     Run a harmless action through the Action Service
-  action request <text>  Create a protected action awaiting approval
-  action pending         List numbered actions awaiting approval
-  action approve <number> Approve and execute a pending action
-  action deny <number>   Deny a pending action
-  action history         Show project-local action audit history
-  apps scan              Discover Start Menu and desktop applications
-  apps list              List discovered applications
-  apps find <name>       Find catalog matches
-  app alias <a> = <app>  Teach Orion a personal application alias
-  open <application>     Find an application and ask before opening it
-  settings               Show Companion settings
-  developer on|off       Show or hide internal action details
-  trust list             Show actions you have chosen to always allow
-  trust revoke <app>     Require approval for an application again
-  history                Show Orion and project history
-  conversation           Show recent conversation context
-  conversation recent [n] Show the most recent messages
-  conversation search <text> Search saved conversation messages
-  conversation clear     Clear today's conversation after confirmation
-  about                  Show Orion identity and capabilities
-  ask                    Ask Orion's configured AI provider
-  exit     Shut down Orion
-""")
+        """Display a concise, task-oriented help menu."""
+        print("\nOrion Abilities")
+        print("=" * 50)
+        print("  Ask & understand")
+        print("    ask <question>             Ask Orion's AI provider")
+        print("    conversation               Review recent context")
+        print("    remember <key> <value>     Remember something this session")
+        print()
+        print("  Open & discover")
+        print("    open <application>         Find and open an application")
+        print("    apps find <name>           Search your application library")
+        print("    apps scan                  Refresh discovered applications")
+        print("    app alias <a> = <app>      Teach Orion your preferred name")
+        print()
+        print("  Projects & knowledge")
+        print("    project resume             Continue where you left off")
+        print("    project status             Show project progress")
+        print("    index build                Refresh the code knowledge index")
+        print("    index find <text>          Search indexed project knowledge")
+        print()
+        print("  Safety & control")
+        print("    action pending             Review pending actions")
+        print("    trust list                 Review always-allowed applications")
+        print("    settings                   Show Companion preferences")
+        print("    developer on|off           Toggle diagnostic details")
+        print()
+        print("  System")
+        print("    status                     Show system health")
+        print("    workspace [path]           View or change workspace")
+        print("    plugins                    Show loaded plugins")
+        print("    help                       Show this menu")
+        print("    exit                       Shut down Orion")
+        print()
+        print("Tip: use the Up/Down arrows for history and Tab for completion.")
         plugin_lines = self.orion.plugin_manager.help_lines()
         if plugin_lines:
-            print("Plugin commands:")
+            print("\nPlugin abilities:")
             for line in plugin_lines:
                 print(line)
 
     def show_status(self):
-        """Display Orion status."""
-        print(f"System Status: {self.orion.status}")
-        print("Core: Online")
-        print("Command Router: Online")
-        print(f"AI Provider: {self.orion.ai_provider.name()}")
-        print(f"Brain: {self.orion.brain.name()}")
-        print(f"User Profile: {self.orion.profile_manager.name}")
-        print(f"Workspace: {self.orion.workspace_manager.root}")
-        code_state = "Online (plugin)" if self.orion.services.find("code") else "Offline"
-        search_state = "Online (plugin)" if self.orion.services.find("search") else "Offline"
-        print(f"Code Skill: {code_state}")
-        print(f"Search Skill: {search_state}")
-        print(f"Session Memory: Online ({len(self.orion.session_memory)} items)")
-        print(f"Conversation Context: Online ({self.orion.conversation.count()} messages)")
-        index_state = "Built" if self.orion.knowledge_index.exists() else "Not built"
-        print(f"Knowledge Index: Online ({index_state})")
-        print(f"Action Service: Online ({len(self.orion.action_service.handler_types())} handlers)")
+        """Display a compact Companion health dashboard."""
         mode = "Developer" if self.orion.companion_settings.developer_mode else "Companion"
-        print(f"Interface Mode: {mode}")
-        print(f"Trusted Actions: {len(self.orion.action_trust.entries())}")
-        print(f"Discovery Service: Online ({len(self.orion.application_catalog.applications())} applications)")
-        print(f"Service Registry: Online ({len(self.orion.services)} registered)")
-        state = "Initialized" if self.orion.project_context.initialized else "Not initialized"
-        print(f"Project Context: Online ({state})")
-        print(f"Plugin Manager: Online ({self.orion.plugin_manager.loaded_count()} loaded, {self.orion.plugin_manager.failed_count()} failed)")
+        index_state = "Built" if self.orion.knowledge_index.exists() else "Not built"
+        project_state = "Initialized" if self.orion.project_context.initialized else "Not initialized"
+        rows = (
+            ("System", self.orion.status),
+            ("Interface", mode),
+            ("AI Provider", self.orion.ai_provider.name()),
+            ("Brain", self.orion.brain.name()),
+            ("Workspace", str(self.orion.workspace_manager.root)),
+            ("Applications", f"{len(self.orion.application_catalog.applications())} discovered"),
+            ("Trusted Actions", str(len(self.orion.action_trust.entries()))),
+            ("Session Memory", f"{len(self.orion.session_memory)} items"),
+            ("Conversation", f"{self.orion.conversation.count()} messages"),
+            ("Knowledge Index", index_state),
+            ("Project Context", project_state),
+            ("Plugins", f"{self.orion.plugin_manager.loaded_count()} loaded / {self.orion.plugin_manager.failed_count()} failed"),
+            ("Services", f"{len(self.orion.services)} registered"),
+        )
+        print("\nOrion Status")
+        print("=" * 50)
+        width = max(len(label) for label, _ in rows)
+        for label, value in rows:
+            print(f"  {label:<{width}}  {value}")
 
     def show_services(self):
         """Display registered services and their implementation types."""

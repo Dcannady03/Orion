@@ -1,60 +1,89 @@
 # Orion Roadmap
 
-## v0.1.0 — First Light
+Orion is a local-first personal intelligence operating system built through small,
+tested, documented milestones.
 
-Foundation: Core, Configuration, Profile, Router, Brain, AI Providers, and Identity.
+## Phase 1 — Foundation ✅
 
-## v0.2.x — Intelligence Core
+- Core runtime and configuration
+- User profile and identity
+- Command router and Brain
+- Ollama and OpenAI provider architecture
+- Logging and automated test foundation
 
-- [x] Workspace Manager
-- [x] Code Skill foundation
-- [x] Session Memory
-- [x] Service Registry
-- [x] Project Memory
-- [x] Plugin System
-- [x] File Search
-- [x] Conversation Context
-- [x] Knowledge Index
-- [ ] Task Manager
+## Phase 2 — Intelligence ✅
 
-## Phase 3 — Action
+- Workspace Manager
+- Read-only Code Skill
+- Session Memory
+- Portable Project Context
+- Service Registry
+- Plugin System
+- File Search
+- Persistent Conversation Context
+- Structural Knowledge Index
 
-- [x] v0.3.0 Ignition — Action Core
-- [x] v0.3.1 Safeguard — Approval and policy engine
-- [x] v0.3.2 Discovery — Application discovery, aliases, smart matching, and safe launch
-- [ ] Weather, Git, Email, Calendar, Docker, and Home Assistant
+## Phase 3 — Automation 🚧
 
-## v0.4.0 — Voice OS
+### Completed releases
 
-Wake word, speech recognition, natural voice, mobile integration, and Siri workflows.
+- [x] **v0.3.0 — Ignition:** unified Action framework and audit history
+- [x] **v0.3.1 — Safeguard:** approval policies and protected execution
+- [x] **v0.3.2 — Discovery:** application discovery, aliases, matching, and safe launch
+- [x] **v0.3.3 — Companion:** conversational approvals, trust, Developer Mode, and polished CLI
 
-## v1.0.0 — Orion OS
+### Planned releases
 
-A cohesive, documented, user-controlled personal AI operating system.
+- [ ] **v0.3.4 — Morning Star:** modular briefing service and startup dashboard
+- [ ] **v0.3.5 — Weather:** current conditions, forecasts, and briefing provider
+- [ ] **v0.3.6 — Calendar:** agenda access and briefing provider
+- [ ] **v0.3.7 — Email:** inbox access, sending, and briefing provider
+- [ ] **v0.3.8 — Docker:** container discovery, control, and health checks
+- [ ] **v0.3.9 — Git:** repository status and approval-based operations
+- [ ] **v0.3.10 — Home Assistant:** entity discovery and device control
+- [ ] Approval-based shell execution
+- [ ] Routines and multi-step workflows
 
-## Current Release
+## v0.4.x — Pathfinder: Diagnostics & Recovery
 
-**v0.2.4 — Continuum:** Persistent conversation context is complete.
+- Dependency and service health graphs
+- Root-cause-oriented diagnostic runbooks
+- Safe, approval-based remediation
+- Retry and end-to-end verification
+- Transparent recovery history and rollback where possible
 
-**v0.2.5 — Waypoint:** Portable project checkpoints, SQLite project memory, and mandatory workspace rules are complete.
+## Phase 4 — Voice
 
-**v0.3.1 — Safeguard:** Approval and policy enforcement are complete. Discovery application control is complete. Next priority: weather integration.
-
+- Wake Word
+- Speech Recognition
+- Natural Voice
+- Continuous Conversation
+- Mobile Integration
+- Smart Notifications
 
 ## Phase 5 — Knowledge Engine
 
-- [ ] Learn PDFs, Word documents, Markdown, text, and source code
-- [ ] Knowledge collections and semantic search
-- [ ] Citations, source references, duplicate detection, and version tracking
-- [ ] Summaries, comparisons, study guides, teaching, and quizzes
+- Learn PDFs, Word documents, Markdown, text, and source code
+- Knowledge collections and semantic retrieval
+- Citations and source references
+- Duplicate detection and version tracking
+- Summaries, comparisons, study guides, teaching, and quizzes
 
 ## Phase 6 — Orion OS
 
-AI Command Center GUI, web and mobile interfaces, multi-agent coordination, and a cohesive personal intelligence operating system.
+- AI Command Center GUI
+- Web and mobile interfaces
+- Multi-agent coordination
+- Personalized workspaces
+- Plugin marketplace exploration
 
-### v0.3.3 — Companion ✅
-- Conversational approvals
-- Friendly pending queue
-- Persistent application trust
-- Developer Mode
+## Current Release
 
+**v0.3.3 — Companion: COMPLETE**
+
+Companion is Orion's finished CLI experience milestone. It preserves engineering-grade
+action IDs, policies, and audit records internally while presenting conversational
+approvals, persistent trust, command history, completion, readable status, and a
+friendly default interface.
+
+**Next milestone:** v0.3.4 — Morning Star.
