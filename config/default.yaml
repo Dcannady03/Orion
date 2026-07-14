@@ -1,7 +1,7 @@
 orion:
   name: Orion
-  version: 0.2.6
-  codename: Atlas
+  version: 0.3.3
+  codename: Companion
   
 
 providers:

@@ -196,6 +196,48 @@ class CommandRouter:
         elif command_lower == "action history":
             self.action_history()
 
+        elif command_lower == "apps scan":
+            self.apps_scan()
+
+        elif command_lower in {"apps", "apps list"}:
+            self.apps_list()
+
+        elif command_lower == "apps find":
+            print("Usage: apps find <name>")
+
+        elif command_lower.startswith("apps find "):
+            self.apps_find(raw_command[len("apps find "):].strip())
+
+        elif command_lower == "app alias":
+            print("Usage: app alias <alias> = <application name>")
+
+        elif command_lower.startswith("app alias "):
+            self.app_alias(raw_command[len("app alias "):].strip())
+
+        elif command_lower in {"open", "launch"}:
+            print("Usage: open <application>")
+
+        elif command_lower.startswith("open "):
+            self.open_app(raw_command[len("open "):].strip())
+
+        elif command_lower.startswith("launch "):
+            self.open_app(raw_command[len("launch "):].strip())
+
+        elif command_lower == "developer on":
+            self.set_developer_mode(True)
+
+        elif command_lower == "developer off":
+            self.set_developer_mode(False)
+
+        elif command_lower in {"settings", "settings companion"}:
+            self.show_companion_settings()
+
+        elif command_lower in {"trust", "trust list"}:
+            self.show_trust()
+
+        elif command_lower.startswith("trust revoke "):
+            self.revoke_trust(raw_command[len("trust revoke "):].strip())
+
         elif command_lower == "history":
             self.show_history()
 
@@ -277,10 +319,19 @@ Available commands:
   index imports          List Python imports
   action echo <text>     Run a harmless action through the Action Service
   action request <text>  Create a protected action awaiting approval
-  action pending         List actions awaiting approval
-  action approve <id>    Approve and execute a pending action
-  action deny <id>       Deny a pending action
+  action pending         List numbered actions awaiting approval
+  action approve <number> Approve and execute a pending action
+  action deny <number>   Deny a pending action
   action history         Show project-local action audit history
+  apps scan              Discover Start Menu and desktop applications
+  apps list              List discovered applications
+  apps find <name>       Find catalog matches
+  app alias <a> = <app>  Teach Orion a personal application alias
+  open <application>     Find an application and ask before opening it
+  settings               Show Companion settings
+  developer on|off       Show or hide internal action details
+  trust list             Show actions you have chosen to always allow
+  trust revoke <app>     Require approval for an application again
   history                Show Orion and project history
   conversation           Show recent conversation context
   conversation recent [n] Show the most recent messages
@@ -314,6 +365,10 @@ Available commands:
         index_state = "Built" if self.orion.knowledge_index.exists() else "Not built"
         print(f"Knowledge Index: Online ({index_state})")
         print(f"Action Service: Online ({len(self.orion.action_service.handler_types())} handlers)")
+        mode = "Developer" if self.orion.companion_settings.developer_mode else "Companion"
+        print(f"Interface Mode: {mode}")
+        print(f"Trusted Actions: {len(self.orion.action_trust.entries())}")
+        print(f"Discovery Service: Online ({len(self.orion.application_catalog.applications())} applications)")
         print(f"Service Registry: Online ({len(self.orion.services)} registered)")
         state = "Initialized" if self.orion.project_context.initialized else "Not initialized"
         print(f"Project Context: Online ({state})")
@@ -389,6 +444,9 @@ Available commands:
         self.orion.conversation.bind(selected)
         self.orion.knowledge_index.bind(selected)
         self.orion.action_history.bind(selected)
+        self.orion.application_catalog.bind(selected)
+        self.orion.companion_settings.bind(selected)
+        self.orion.action_trust.bind(selected)
         print(f"Active workspace changed to: {selected}")
         if self.orion.project_context.initialized:
             print("Project memory recognized. Use 'project resume' to continue where you left off.")
@@ -749,31 +807,56 @@ Available commands:
         print(f"  Message: {text}")
         print(f"Approve with: action approve {action.id}")
 
+    def _pending_action_by_reference(self, reference: str):
+        """Resolve a friendly queue number or a developer action ID."""
+        pending = self.orion.action_service.pending()
+        value = reference.strip()
+        if value.isdigit():
+            index = int(value) - 1
+            if index < 0 or index >= len(pending):
+                raise KeyError(f"No pending action numbered {value}.")
+            return pending[index]
+        return self.orion.action_service.get(value)
+
+    def _describe_action(self, action) -> str:
+        if action.type == "open_app":
+            return f"Open {action.parameters.get('display_name') or action.parameters.get('name', 'application')}"
+        if action.type == "protected_echo":
+            return f"Protected message: {action.parameters.get('message', '')}"
+        return f"{action.type}: {action.parameters}"
+
     def action_pending(self):
         actions = self.orion.action_service.pending()
         if not actions:
-            print("No actions are awaiting approval.")
+            print("Nothing is waiting for your approval.")
             return
         print("Pending Actions:")
-        for action in actions:
-            print(f"  {action.id}  {action.type}  {action.parameters}")
+        developer = self.orion.companion_settings.developer_mode
+        for index, action in enumerate(actions, 1):
+            suffix = f"  [{action.id}]" if developer else ""
+            print(f"  {index}. {self._describe_action(action)}{suffix}")
+        print("Use 'action approve <number>' or 'action deny <number>'.")
 
-    def action_approve(self, action_id: str):
+    def action_approve(self, reference: str):
         try:
-            action = self.orion.action_service.approve(action_id)
+            action = self._pending_action_by_reference(reference)
+            self.orion.action_service.approve(action.id)
             result = self.orion.action_service.execute(action)
         except (KeyError, RuntimeError, PermissionError) as exc:
             print(f"Action Error: {exc}")
             return
-        print(result.output if result.success else f"Action failed: {result.error}")
+        print(result.output if result.success else f"I couldn't complete that action: {result.error}")
 
-    def action_deny(self, action_id: str):
+    def action_deny(self, reference: str):
         try:
-            action = self.orion.action_service.deny(action_id)
+            action = self._pending_action_by_reference(reference)
+            self.orion.action_service.deny(action.id)
         except (KeyError, RuntimeError) as exc:
             print(f"Action Error: {exc}")
             return
-        print(f"Action denied: {action.id}")
+        print("Okay, I won't do that.")
+        if self.orion.companion_settings.developer_mode:
+            print(f"Action denied: {action.id}")
 
     def action_history(self):
         entries = self.orion.action_history.entries(limit=10)
@@ -784,6 +867,150 @@ Available commands:
         for entry in entries:
             action = entry["action"]
             print(f"  {entry['timestamp']} [{entry['event']}] {action['type']} - {action['status']}")
+
+    def apps_scan(self):
+        try:
+            applications = self.orion.discovery_service.scan()
+        except (OSError, ValueError) as exc:
+            print(f"Discovery Error: {exc}")
+            return
+        print(f"Application discovery complete: {len(applications)} found.")
+
+    def apps_list(self):
+        applications = self.orion.application_catalog.applications()
+        if not applications:
+            print("No applications are cataloged. Run 'apps scan'.")
+            return
+        print(f"Discovered Applications ({len(applications)}):")
+        for application in applications:
+            print(f"  {application.name} [{application.source}]")
+
+    def apps_find(self, query: str):
+        matches = self.orion.application_matcher.find(query)
+        if not matches:
+            print(f"No catalog matches found for: {query}")
+            return
+        print(f"Application Matches for '{query}':")
+        for index, match in enumerate(matches, 1):
+            print(f"  {index}. {match.application.name} ({match.score:.0%}, {match.matched_by})")
+
+    def app_alias(self, payload: str):
+        if "=" not in payload:
+            print("Usage: app alias <alias> = <application name>")
+            return
+        alias, query = (part.strip() for part in payload.split("=", 1))
+        matches = self.orion.application_matcher.find(query, limit=2)
+        if not alias or not matches:
+            print(f"Could not resolve application: {query}")
+            return
+        if len(matches) > 1 and matches[0].score - matches[1].score < 0.08:
+            print("That application name is ambiguous. Use 'apps find <name>' and provide a more specific name.")
+            return
+        self.orion.application_catalog.set_alias(alias, matches[0].application.path)
+        print(f"Learned application alias: {alias} -> {matches[0].application.name}")
+
+    def open_app(self, query: str):
+        if not query:
+            print("Usage: open <application>")
+            return
+
+        matches = self.orion.application_matcher.find(query, limit=2)
+        resolved = self.orion.application_matcher.resolve(query)
+        display_name = resolved.application.name if resolved else (matches[0].application.name if matches else query)
+        trust_target = resolved.application.path if resolved else f"search:{query.strip().lower()}"
+
+        action = self.orion.action_service.create(
+            "open_app",
+            {
+                "name": query,
+                "display_name": display_name,
+                "trust_target": trust_target,
+                "allow_search_fallback": True,
+            },
+        )
+
+        if self.orion.action_trust.is_trusted("open_app", trust_target):
+            self.orion.action_service.approve(action.id)
+            result = self.orion.action_service.execute(action)
+            print(result.output if result.success else f"I couldn't open {display_name}: {result.error}")
+            return
+
+        if resolved:
+            print(f"I found {display_name}.")
+        elif matches:
+            print(f"The closest match I found is {display_name}.")
+        else:
+            print(f"I couldn't find {query} in your application library.")
+            print("I can try Windows Search instead.")
+
+        if self.orion.companion_settings.developer_mode:
+            print(f"Action ID: {action.id}")
+            print(f"Match confidence: {matches[0].score:.0%}" if matches else "Match confidence: Windows Search fallback")
+
+        response = input("Open it? [Y] Yes  [N] No  [A] Always allow  [D] Details: ").strip().lower()
+        if response in {"", "y", "yes"}:
+            self.orion.action_service.approve(action.id)
+            result = self.orion.action_service.execute(action)
+            print(result.output if result.success else f"I couldn't open {display_name}: {result.error}")
+            return
+        if response in {"a", "always"}:
+            self.orion.action_trust.trust("open_app", trust_target)
+            self.orion.action_service.approve(action.id)
+            result = self.orion.action_service.execute(action)
+            if result.success:
+                print(f"Got it. I'll open {display_name} without asking next time.")
+                print(result.output)
+            else:
+                print(f"I couldn't open {display_name}: {result.error}")
+            return
+        if response in {"d", "details", "?"}:
+            print(f"Action: open_app")
+            print(f"Target: {query}")
+            print(f"Resolved application: {display_name}")
+            print(f"Internal ID: {action.id}")
+            print("The action is still pending. Use 'action pending' to review it.")
+            return
+
+        self.orion.action_service.deny(action.id, "Declined in Companion prompt.")
+        print("Okay, I won't open it.")
+
+    def set_developer_mode(self, enabled: bool):
+        self.orion.companion_settings.set_developer_mode(enabled)
+        if enabled:
+            print("Developer Mode is on. Orion will show internal action details.")
+        else:
+            print("Developer Mode is off. Companion Mode is active.")
+
+    def show_companion_settings(self):
+        mode = "ON" if self.orion.companion_settings.developer_mode else "OFF"
+        print("Companion Settings:")
+        print(f"  Developer Mode: {mode}")
+        print(f"  Trusted Actions: {len(self.orion.action_trust.entries())}")
+        print("  Approval Prompt: Y / N / A / Details")
+
+    def show_trust(self):
+        entries = self.orion.action_trust.entries()
+        if not entries:
+            print("No actions are currently trusted.")
+            return
+        print("Trusted Actions:")
+        for index, (action_type, target) in enumerate(entries, 1):
+            label = target
+            if action_type == "open_app":
+                app = next((a for a in self.orion.application_catalog.applications() if a.path.lower() == target.lower()), None)
+                label = app.name if app else target
+            print(f"  {index}. {action_type}: {label}")
+
+    def revoke_trust(self, query: str):
+        if not query:
+            print("Usage: trust revoke <application>")
+            return
+        resolved = self.orion.application_matcher.resolve(query)
+        target = resolved.application.path if resolved else f"search:{query.strip().lower()}"
+        if self.orion.action_trust.revoke("open_app", target):
+            print(f"I'll ask before opening {resolved.application.name if resolved else query} again.")
+        else:
+            print(f"No trusted application matched: {query}")
 
     def show_history(self):
         """Show release milestones and persistent project history."""

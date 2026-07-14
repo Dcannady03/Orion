@@ -1,7 +1,19 @@
-"""Shared Orion services."""
+"""Orion service implementations."""
 
-from orion.services.project_context import ProjectContext
-from orion.services.registry import ServiceRegistry
-from orion.services.workspace import WorkspaceManager
+from orion.services.discovery import (
+    Application,
+    ApplicationCatalog,
+    ApplicationDiscoveryService,
+    ApplicationLauncherService,
+    ApplicationMatch,
+    ApplicationMatcher,
+)
 
-__all__ = ["ProjectContext", "ServiceRegistry", "WorkspaceManager"]
+__all__ = [
+    "Application",
+    "ApplicationCatalog",
+    "ApplicationDiscoveryService",
+    "ApplicationLauncherService",
+    "ApplicationMatch",
+    "ApplicationMatcher",
+]

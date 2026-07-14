@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.3 — Companion
+
+- Added conversational Y/N/A/Details application approvals.
+- Hid internal action UUIDs in normal mode.
+- Added persistent per-application trust and trust revocation.
+- Added numbered pending actions and developer mode.
+- Added workspace-isolated Companion settings.
+
 ## v0.3.1 — Safeguard
 
 - Added the central approval and policy engine.
@@ -69,3 +77,12 @@
 ## v0.1.0 — First Light
 
 - Completed Orion's initial foundation and first successful boot.
+
+## v0.3.2 — Discovery
+
+- Added persistent application catalog generated from Windows Start Menu and desktop shortcuts.
+- Added fuzzy application matching and personal aliases.
+- Added `apps scan`, `apps list`, `apps find`, `app alias`, and `open` commands.
+- Added Windows Search fallback for unknown application names.
+- Routed application launches through the Action Service, approval engine, and audit history.
+- Added Discovery unit tests.

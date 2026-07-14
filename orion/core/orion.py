@@ -22,6 +22,10 @@ from orion.intelligence.brain import Brain
 from orion.services.registry import ServiceRegistry
 from orion.services.workspace import WorkspaceManager
 from orion.services.project_context import ProjectContext
+from orion.services.companion import CompanionSettings, ActionTrustStore
+from orion.services.discovery import (
+    ApplicationCatalog, ApplicationDiscoveryService, ApplicationMatcher, ApplicationLauncherService,
+)
 from orion.memory.session import SessionMemory
 from orion.conversation import ConversationService
 from orion.knowledge import KnowledgeIndex
@@ -81,6 +85,12 @@ class Orion:
         self.action_service = self.services.register(
             "actions", ActionService(self.action_history)
         )
+        self.companion_settings = self.services.register(
+            "companion_settings", CompanionSettings(self.workspace_manager.root)
+        )
+        self.action_trust = self.services.register(
+            "action_trust", ActionTrustStore(self.workspace_manager.root)
+        )
         self.action_service.register_handler(
             "echo", lambda action: action.parameters.get("message", "")
         )
@@ -90,6 +100,33 @@ class Orion:
         self.action_service.approval.set_policy(
             "protected_echo", PolicyDecision.REQUIRE_APPROVAL,
             "Protected demonstration actions require explicit approval.",
+        )
+
+        # Phase 3 application discovery and launch services. The catalog is
+        # generated from Windows Start Menu/Desktop shortcuts and augmented by
+        # user aliases rather than a hardcoded application list.
+        self.application_catalog = self.services.register(
+            "application_catalog", ApplicationCatalog(self.workspace_manager.root)
+        )
+        self.discovery_service = self.services.register(
+            "discovery", ApplicationDiscoveryService(self.application_catalog)
+        )
+        self.application_matcher = self.services.register(
+            "application_matcher", ApplicationMatcher(self.application_catalog)
+        )
+        self.application_launcher = self.services.register(
+            "application_launcher", ApplicationLauncherService(self.application_matcher)
+        )
+        self.action_service.register_handler(
+            "open_app",
+            lambda action: self.application_launcher.launch(
+                action.parameters.get("name", ""),
+                allow_search_fallback=action.parameters.get("allow_search_fallback", True),
+            ),
+        )
+        self.action_service.approval.set_policy(
+            "open_app", PolicyDecision.REQUIRE_APPROVAL,
+            "Launching applications requires explicit approval.",
         )
 
         # Plugin system. Plugins may register services and commands without
