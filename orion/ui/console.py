@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - graceful fallback
 
 
 BASE_COMMANDS = (
-    "help", "status", "settings", "about", "profile", "config", "services",
+    "help", "status", "briefing", "settings", "about", "profile", "config", "services",
     "plugins", "workspace", "files", "ls", "remember", "recall", "memory",
     "forget", "clear memory", "project init", "project status", "project info",
     "project resume", "project rules", "index build", "index status", "index find",
@@ -80,6 +80,21 @@ class Console:
         if self.session is not None:
             return self.session.prompt(f"{label}> ")
         return input(f"{label}> ")
+
+
+    @staticmethod
+    def render_briefing(briefing, *, developer_mode: bool = False) -> None:
+        """Render a provider-neutral Morning Star briefing."""
+        print("Today's Briefing")
+        print("-" * 50)
+        if not briefing.items:
+            print("  No briefing items are available yet.")
+        for item in briefing.items:
+            print(f"  {item.icon} {item.title}: {item.message}")
+        if developer_mode and briefing.errors:
+            print("  Provider diagnostics:")
+            for error in briefing.errors:
+                print(f"    [X] {error.provider}: {error.message}")
 
     @staticmethod
     def success(message: str) -> None:

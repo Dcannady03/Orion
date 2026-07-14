@@ -1,19 +1,21 @@
-"""Orion service implementations."""
+"""Shared Orion services."""
 
-from orion.services.discovery import (
-    Application,
-    ApplicationCatalog,
-    ApplicationDiscoveryService,
-    ApplicationLauncherService,
-    ApplicationMatch,
-    ApplicationMatcher,
+from .briefing import (
+    Briefing,
+    BriefingItem,
+    BriefingPriority,
+    BriefingProvider,
+    BriefingProviderError,
+    BriefingService,
+    SystemBriefingProvider,
 )
 
 __all__ = [
-    "Application",
-    "ApplicationCatalog",
-    "ApplicationDiscoveryService",
-    "ApplicationLauncherService",
-    "ApplicationMatch",
-    "ApplicationMatcher",
+    "Briefing",
+    "BriefingItem",
+    "BriefingPriority",
+    "BriefingProvider",
+    "BriefingProviderError",
+    "BriefingService",
+    "SystemBriefingProvider",
 ]

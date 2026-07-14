@@ -34,6 +34,9 @@ class CommandRouter:
         elif command_lower == "status":
             self.show_status()
 
+        elif command_lower == "briefing":
+            self.show_briefing()
+
         elif command_lower == "config":
             self.show_config()
 
@@ -309,6 +312,7 @@ class CommandRouter:
         print("    developer on|off           Toggle diagnostic details")
         print()
         print("  System")
+        print("    briefing                   Show the current Morning Star briefing")
         print("    status                     Show system health")
         print("    workspace [path]           View or change workspace")
         print("    plugins                    Show loaded plugins")
@@ -340,6 +344,7 @@ class CommandRouter:
             ("Knowledge Index", index_state),
             ("Project Context", project_state),
             ("Plugins", f"{self.orion.plugin_manager.loaded_count()} loaded / {self.orion.plugin_manager.failed_count()} failed"),
+            ("Briefing", f"{len(self.orion.briefing_service.provider_names())} providers"),
             ("Services", f"{len(self.orion.services)} registered"),
         )
         print("\nOrion Status")
@@ -347,6 +352,14 @@ class CommandRouter:
         width = max(len(label) for label, _ in rows)
         for label, value in rows:
             print(f"  {label:<{width}}  {value}")
+
+    def show_briefing(self):
+        """Build and display the latest provider-neutral briefing."""
+        print()
+        self.orion.console.render_briefing(
+            self.orion.briefing_service.build(),
+            developer_mode=self.orion.companion_settings.developer_mode,
+        )
 
     def show_services(self):
         """Display registered services and their implementation types."""

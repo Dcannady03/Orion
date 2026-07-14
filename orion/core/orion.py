@@ -20,6 +20,7 @@ from orion.core.router import CommandRouter
 from orion.intelligence.factory import AIProviderFactory
 from orion.intelligence.brain import Brain
 from orion.services.registry import ServiceRegistry
+from orion.services.briefing import BriefingService, SystemBriefingProvider
 from orion.services.workspace import WorkspaceManager
 from orion.services.project_context import ProjectContext
 from orion.services.companion import CompanionSettings, ActionTrustStore
@@ -119,6 +120,11 @@ class Orion:
         self.application_launcher = self.services.register(
             "application_launcher", ApplicationLauncherService(self.application_matcher)
         )
+
+        # Morning Star briefing providers contribute independently. Startup only
+        # knows how to render the resulting briefing, not where facts came from.
+        self.briefing_service = self.services.register("briefing", BriefingService())
+        self.briefing_service.register_provider(SystemBriefingProvider(self))
         self.action_service.register_handler(
             "open_app",
             lambda action: self.application_launcher.launch(
@@ -158,13 +164,10 @@ class Orion:
         print()
         self.console.success("Configuration loaded")
         self.console.success("User profile loaded")
-        self.console.success(f"Workspace ready: {self.workspace_manager.root.name}")
-        self.console.success(f"AI provider ready: {self.ai_provider.name()}")
-        app_count = len(self.application_catalog.applications())
-        self.console.success(f"Application library ready: {app_count} discovered")
-        self.console.success(f"Trust settings loaded: {len(self.action_trust.entries())} trusted")
         print()
-        print("System ready. What would you like to do today?")
+        self.console.render_briefing(self.briefing_service.build(), developer_mode=self.companion_settings.developer_mode)
+        print()
+        print("Ready when you are.")
         print("=" * 50)
         self.command_loop()
 

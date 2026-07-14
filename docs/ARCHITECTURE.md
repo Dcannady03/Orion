@@ -38,3 +38,10 @@ Workspace changes rebind Project Context so each project keeps independent, port
 ## Knowledge Index
 
 `KnowledgeIndex` is a read-only structural workspace service. It inventories files and uses Python's AST to identify classes, functions, and imports. TODO markers and test files are also recorded. The resulting portable JSON index is stored under the active workspace's `.orion/` directory and is rebound whenever the workspace changes.
+
+## Morning Star Briefing Architecture
+
+Startup depends only on `BriefingService`. Integrations implement the `BriefingProvider`
+contract and register independently. The service validates items, sorts them by priority,
+and isolates provider failures. This prevents Weather, Email, Calendar, Docker, or any
+future integration from becoming a hard dependency of Orion startup.

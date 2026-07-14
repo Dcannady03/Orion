@@ -31,10 +31,9 @@ tested, documented milestones.
 - [x] **v0.3.1 — Safeguard:** approval policies and protected execution
 - [x] **v0.3.2 — Discovery:** application discovery, aliases, matching, and safe launch
 - [x] **v0.3.3 — Companion:** conversational approvals, trust, Developer Mode, and polished CLI
+- [x] **v0.3.4 — Morning Star:** modular briefing service and provider-driven startup dashboard
 
 ### Planned releases
-
-- [ ] **v0.3.4 — Morning Star:** modular briefing service and startup dashboard
 - [ ] **v0.3.5 — Weather:** current conditions, forecasts, and briefing provider
 - [ ] **v0.3.6 — Calendar:** agenda access and briefing provider
 - [ ] **v0.3.7 — Email:** inbox access, sending, and briefing provider
@@ -79,11 +78,10 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.3.3 — Companion: COMPLETE**
+**v0.3.4 — Morning Star: COMPLETE**
 
-Companion is Orion's finished CLI experience milestone. It preserves engineering-grade
-action IDs, policies, and audit records internally while presenting conversational
-approvals, persistent trust, command history, completion, readable status, and a
-friendly default interface.
+Morning Star introduces Orion's provider-neutral home screen. Independent services can
+contribute prioritized, truthful briefing items without modifying startup code. Provider
+failures are isolated and visible in Developer Mode.
 
-**Next milestone:** v0.3.4 — Morning Star.
+**Next milestone:** v0.3.5 — Weather.

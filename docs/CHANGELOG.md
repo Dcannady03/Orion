@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.4 — Morning Star
+
+- Added a first-class, provider-neutral Briefing Service.
+- Added validated briefing items with critical, important, and informational priorities.
+- Added provider registration, replacement, removal, and deterministic ordering.
+- Isolated provider failures so one integration cannot prevent Orion from starting.
+- Added a truthful built-in System provider using live workspace, AI, and application state.
+- Integrated the briefing into startup without coupling startup code to future services.
+- Added the `briefing` command and briefing-provider count to `status`.
+- Added Developer Mode diagnostics for failed briefing providers.
+- Added five focused tests; the full suite now contains 76 passing tests.
+
+
 ## v0.3.3 — Companion
 
 - Added conversational `Y`, `N`, `A`, and `D` application approvals.
