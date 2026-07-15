@@ -30,3 +30,21 @@ class ConfigManager:
             value = value[key]
 
         return value
+
+    def set(self, key_path: str, value) -> None:
+        """Set a nested configuration value in memory."""
+        keys = key_path.split(".")
+        current = self.config
+        for key in keys[:-1]:
+            child = current.get(key)
+            if not isinstance(child, dict):
+                child = {}
+                current[key] = child
+            current = child
+        current[keys[-1]] = value
+
+    def save(self) -> None:
+        """Persist the current configuration without discarding unrelated keys."""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.config_path.open("w", encoding="utf-8") as file:
+            yaml.safe_dump(self.config, file, sort_keys=False, allow_unicode=True)

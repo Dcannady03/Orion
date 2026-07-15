@@ -22,7 +22,14 @@ from orion.intelligence.brain import Brain
 from orion.services.registry import ServiceRegistry
 from orion.services.briefing import BriefingService, SystemBriefingProvider
 from orion.services.weather import WeatherBriefingProvider, WeatherService
+from orion.services.calendar import (
+    CalendarBriefingProvider, CalendarProvider, CalendarService,
+    GoogleCalendarClient, MicrosoftCalendarClient,
+)
 from orion.services.workspace import WorkspaceManager
+from orion.services.ai_control import AIControlService
+from orion.services.provider_manager import ProviderManager
+from orion.services.vault import VaultService
 from orion.services.project_context import ProjectContext
 from orion.services.companion import CompanionSettings, ActionTrustStore
 from orion.services.discovery import (
@@ -146,6 +153,49 @@ class Orion:
             ),
         )
         self.briefing_service.register_provider(WeatherBriefingProvider(self.weather_service))
+
+        # Constellation keeps Calendar provider-neutral. Google and Microsoft
+        # may be enabled independently and their events are merged by time.
+        calendar_enabled = bool(self.config_manager.get("calendar.enabled", False))
+        calendar_timezone = self.config_manager.get("calendar.timezone", "") or self.profile_manager.timezone
+        calendar_providers = []
+
+        google_enabled = bool(self.config_manager.get("calendar.google.enabled", calendar_enabled))
+        calendar_providers.append(CalendarProvider(
+            "google",
+            self.config_manager.get("calendar.google.name", "Personal Google"),
+            GoogleCalendarClient(
+                self.config_manager.get("calendar.google.credentials_path", "config/google-calendar-credentials.json"),
+                self.config_manager.get("calendar.google.token_path", ".orion/google-calendar-token.json"),
+            ),
+            self.config_manager.get("calendar.google.calendar_id", "primary"),
+            google_enabled,
+        ))
+
+        microsoft_enabled = bool(self.config_manager.get("calendar.microsoft.enabled", False))
+        calendar_providers.append(CalendarProvider(
+            "microsoft",
+            self.config_manager.get("calendar.microsoft.name", "Personal Outlook"),
+            MicrosoftCalendarClient(
+                self.config_manager.get("calendar.microsoft.client_id", ""),
+                self.config_manager.get("calendar.microsoft.token_path", ".orion/microsoft-calendar-token.json"),
+                tenant=self.config_manager.get("calendar.microsoft.tenant", "common"),
+                timeout=float(self.config_manager.get("calendar.microsoft.timeout_seconds", 10.0)),
+            ),
+            enabled=microsoft_enabled,
+        ))
+
+        self.calendar_service = self.services.register(
+            "calendar", CalendarService(
+                enabled=calendar_enabled,
+                timezone=calendar_timezone,
+                providers=calendar_providers,
+                user_name=self.user_name,
+                provider_state_writer=self._save_calendar_provider_state,
+                provider_config_writer=self._save_calendar_provider_config,
+            ),
+        )
+        self.briefing_service.register_provider(CalendarBriefingProvider(self.calendar_service))
         self.action_service.register_handler(
             "open_app",
             lambda action: self.application_launcher.launch(
@@ -166,6 +216,9 @@ class Orion:
 
         # Core systems
         self.ai_provider = AIProviderFactory(self.config_manager).create()
+        self.ai_control = self.services.register(
+            "ai_control", AIControlService(self.ai_provider, self.config_manager)
+        )
         self.brain = Brain(
             ai_provider=self.ai_provider,
             config_manager=self.config_manager,
@@ -173,23 +226,29 @@ class Orion:
             memory=self.session_memory,
             services=self.services,
         )
+        self.provider_manager = self.services.register(
+            "provider_manager", ProviderManager(self, self.config_manager)
+        )
+        self.vault = self.services.register(
+            "vault", VaultService(self.config_manager, self.provider_manager, self.provider_manager.secrets)
+        )
+        self.vault.migrate_legacy_store()
         self.router = CommandRouter(self)
         self.console = Console(self)
 
+    def _save_calendar_provider_state(self, provider_key: str, enabled: bool) -> None:
+        self.config_manager.set("calendar.enabled", True)
+        self.config_manager.set(f"calendar.{provider_key}.enabled", enabled)
+        self.config_manager.save()
+
+    def _save_calendar_provider_config(self, provider_key: str, field: str, value: str) -> None:
+        self.config_manager.set(f"calendar.{provider_key}.{field}", value)
+        self.config_manager.save()
+
     def start(self):
         """Start Orion and enter the polished Companion command loop."""
-        self.banner()
-        hour = datetime.now().hour
-        greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
-        print(f"{greeting}, {self.user_name}.")
-        print()
-        self.console.success("Configuration loaded")
-        self.console.success("User profile loaded")
-        print()
-        self.console.render_briefing(self.briefing_service.build(), developer_mode=self.companion_settings.developer_mode)
-        print()
-        print("Ready when you are.")
-        print("=" * 50)
+        briefing = self.briefing_service.build()
+        self.console.render_home(self, briefing)
         self.command_loop()
 
     def command_loop(self):

@@ -7,6 +7,8 @@ Responsible for:
 - Keeping command handling out of main.py
 """
 
+from getpass import getpass
+
 
 class CommandRouter:
     """Routes commands entered into Orion's CLI."""
@@ -31,6 +33,9 @@ class CommandRouter:
         if command_lower == "help":
             self.show_help()
 
+        elif command_lower == "home":
+            self.show_home()
+
         elif command_lower == "status":
             self.show_status()
 
@@ -39,6 +44,57 @@ class CommandRouter:
 
         elif command_lower == "weather" or command_lower.startswith("weather "):
             self.show_weather(raw_command)
+
+        elif command_lower == "calendar" or command_lower.startswith("calendar "):
+            self.show_calendar(raw_command)
+
+        elif command_lower in {"change ollama model", "ollama model", "ollama models", "ai models"}:
+            self.change_ollama_model()
+
+        elif command_lower in {"vault", "vault list"}:
+            self.show_vault()
+
+        elif command_lower.startswith("vault add "):
+            self.vault_add(raw_command[len("vault add "):].strip())
+
+        elif command_lower.startswith("vault remove "):
+            self.vault_remove(raw_command[len("vault remove "):].strip())
+
+        elif command_lower in {"vault health", "vault test"}:
+            self.vault_health()
+
+        elif command_lower == "ai providers":
+            self.show_ai_providers()
+
+        elif command_lower.startswith("ai provider configure "):
+            self.configure_ai_provider(raw_command[len("ai provider configure "):].strip())
+
+        elif command_lower.startswith("ai provider use "):
+            self.use_ai_provider(raw_command[len("ai provider use "):].strip())
+
+        elif command_lower.startswith("ai provider models "):
+            self.show_provider_models(raw_command[len("ai provider models "):].strip())
+
+        elif command_lower in {"ai", "ai status"}:
+            self.show_ai_status()
+
+        elif command_lower.startswith("ai use "):
+            self.use_ai_model(raw_command[len("ai use "):].strip())
+
+        elif command_lower.startswith("use "):
+            self.use_ai_model(raw_command[len("use "):].strip())
+
+        elif command_lower.startswith("switch to "):
+            self.use_ai_model(raw_command[len("switch to "):].strip())
+
+        elif command_lower == "ai profiles":
+            self.show_ai_profiles()
+
+        elif command_lower.startswith("ai profile "):
+            self.activate_ai_profile(raw_command[len("ai profile "):].strip())
+
+        elif command_lower in {"benchmark models", "ai benchmark"}:
+            self.benchmark_ai_models()
 
         elif command_lower == "config":
             self.show_config()
@@ -274,11 +330,16 @@ class CommandRouter:
             prompt = raw_command[4:].strip()
             if self._looks_like_weather(prompt):
                 self.show_weather(prompt)
+            elif self._looks_like_calendar(prompt):
+                self.show_calendar(prompt)
             else:
                 self.ask_ai(prompt)
 
         elif self._looks_like_weather(raw_command):
             self.show_weather(raw_command)
+
+        elif self._looks_like_calendar(raw_command):
+            self.show_calendar(raw_command)
 
         elif command_lower in ["exit", "quit"]:
             print("Shutting down Orion.")
@@ -320,9 +381,31 @@ class CommandRouter:
         print("    settings                   Show Companion preferences")
         print("    developer on|off           Toggle diagnostic details")
         print()
+        print("  AI Control Center")
+        print("    ai status                  Show active model and capabilities")
+        print("    ai models                  Scan and select installed models")
+        print("    ai use <model|fastest>     Switch directly or by recommendation")
+        print("    ai profile <name>          Activate a saved behavior profile")
+        print("    ai benchmark               Compare local response latency")
+        print()
         print("  System")
+        print("    change ollama model        Choose from locally installed Ollama models")
+        print("    vault                      Open Orion Vault")
+        print("    vault add <provider>       Securely add Gemini or OpenAI credentials")
+        print("    vault health               Verify configured credentials")
+        print("    ai providers               Show Ollama, OpenAI, and Gemini connections")
+        print("    ai provider configure ...  Connect a cloud AI provider")
+        print("    ai provider use ...        Change Orion's active provider")
         print("    weather [location]         Show live weather and today's forecast")
         print("    weather tomorrow           Show tomorrow's forecast")
+        print("    calendar [today|tomorrow]  Show your merged calendar agenda")
+        print("    calendar next              Show your next event")
+        print("    calendar connect <provider> Authorize Google or Microsoft Calendar")
+        print("    calendar enable <provider>  Enable a calendar provider")
+        print("    calendar disable <provider> Disable a calendar provider")
+        print("    calendar configure <provider> Save provider settings")
+        print("    calendar providers         List configured calendar providers")
+        print("    home                       Show the Orion Home command center")
         print("    briefing                   Show the current Morning Star briefing")
         print("    status                     Show system health")
         print("    workspace [path]           View or change workspace")
@@ -357,6 +440,7 @@ class CommandRouter:
             ("Plugins", f"{self.orion.plugin_manager.loaded_count()} loaded / {self.orion.plugin_manager.failed_count()} failed"),
             ("Briefing", f"{len(self.orion.briefing_service.provider_names())} providers"),
             ("Weather", self.orion.weather_service.get_status().message),
+            ("Calendar", self.orion.calendar_service.get_status().message),
             ("Services", f"{len(self.orion.services)} registered"),
         )
         print("\nOrion Status")
@@ -383,6 +467,34 @@ class CommandRouter:
         print(f"Weather unavailable: {result.error}")
         if self.orion.companion_settings.developer_mode:
             print(f"Service status: {self.orion.weather_service.get_status().state.value}")
+
+    @staticmethod
+    def _looks_like_calendar(text: str) -> bool:
+        value = text.strip().lower()
+        calendar_phrases = (
+            "calendar", "schedule", "agenda", "next meeting", "next event",
+            "appointments", "am i free", "do i have anything", "what do i have today",
+            "what's on my calendar", "what is on my calendar",
+        )
+        return any(phrase in value for phrase in calendar_phrases)
+
+    def show_calendar(self, request: str):
+        """Read connected calendar providers directly instead of asking the language model."""
+        result = self.orion.calendar_service.handle_request(request)
+        if result.success:
+            print(result.output)
+            return
+        print(f"Calendar unavailable: {result.error}")
+        if not self.orion.calendar_service.enabled or not self.orion.calendar_service.active_providers():
+            print("Run 'calendar providers', then 'calendar enable <provider>'.")
+        if self.orion.companion_settings.developer_mode:
+            print(f"Service status: {self.orion.calendar_service.get_status().state.value}")
+
+    def show_home(self):
+        """Refresh and render Orion Home."""
+        print()
+        briefing = self.orion.briefing_service.build()
+        self.orion.console.render_home(self.orion, briefing)
 
     def show_briefing(self):
         """Build and display the latest provider-neutral briefing."""
@@ -427,6 +539,352 @@ class CommandRouter:
         print(f"Path: {record.path}")
         if record.error:
             print(f"Error: {record.error}")
+
+    def _ai_service(self):
+        service = getattr(self.orion, "ai_control", None)
+        if service is not None:
+            return service
+        # Compatibility for lightweight test doubles.
+        from orion.services.ai_control import AIControlService
+        return AIControlService(self.orion.ai_provider, self.orion.config_manager)
+
+    def change_ollama_model(self):
+        """Interactively select one of Ollama's locally installed models."""
+        provider = self.orion.ai_provider
+        if not hasattr(provider, "list_models") or not hasattr(provider, "select_model"):
+            print("Ollama is not Orion's active AI provider.")
+            return
+        print("Scanning Ollama for installed models...")
+        try:
+            models = self._ai_service().models()
+        except (ConnectionError, OSError, ValueError) as exc:
+            print(f"Ollama unavailable: {exc}")
+            return
+        if not models:
+            print("No Ollama models were found.")
+            print("Install one with: ollama pull <model>")
+            return
+        current = provider.model
+        print("\nInstalled Ollama Models")
+        print("-" * 64)
+        for index, model in enumerate(models, 1):
+            marker = "  [current]" if model.name == current else ""
+            tags = ", ".join(model.tags)
+            print(f"  {index}. {model.name}{marker}")
+            print(f"     {model.parameter_size} | {model.size_label} | Context {model.context_label} | {tags}")
+        print("  0. Cancel")
+        while True:
+            choice = input("\nWhich model would you like to use? ").strip()
+            if choice in {"", "0", "cancel", "q", "quit"}:
+                print("Model selection cancelled.")
+                return
+            try:
+                selected_index = int(choice) - 1
+            except ValueError:
+                print(f"Enter a number from 1 to {len(models)}, or 0 to cancel.")
+                continue
+            if not 0 <= selected_index < len(models):
+                print(f"Enter a number from 1 to {len(models)}, or 0 to cancel.")
+                continue
+            selected = models[selected_index].name
+            break
+        self._select_ai_model(selected)
+
+    def _select_ai_model(self, selected: str):
+        service = self._ai_service()
+        current = self.orion.ai_provider.model
+        default_before = service.default_model()
+        print(f"Loading {selected}...")
+        try:
+            previous, active = service.select(selected, persist=False)
+        except (ConnectionError, OSError, ValueError) as exc:
+            print(f"Could not change model: {exc}")
+            return
+        if active == previous:
+            print(f"Orion is already using {active}.")
+            if active == default_before:
+                print(f"{active} is already your default model.")
+            return
+
+        print(f"\n[OK] {active} is loaded and ready.")
+        print(f"Switched to {active}.")
+        print("The new model is active now. No restart is required.")
+        print(f"\nWould you like to make {active} your default model?")
+        print("[Y] Yes")
+        print("[N] No")
+        make_default = input("> ").strip().lower()
+        if make_default in {"", "y", "yes"}:
+            try:
+                service.set_default(active)
+            except (OSError, ValueError) as exc:
+                print(f"Could not save the default model: {exc}")
+                print(f"Using {active} for this session only.")
+                return
+            print("\n[OK] Default model updated.")
+            print(f"Orion will now start with {active} by default.")
+        else:
+            print(f"\nUsing {active} for this session only.")
+            print(f"Your default model remains {default_before}.")
+
+    def use_ai_model(self, request: str):
+        """Switch by model name or a transparent recommendation keyword."""
+        if not request:
+            print("Usage: ai use <model|fastest|coding|reasoning|vision>")
+            return
+        service = self._ai_service()
+        keyword = request.lower().replace("the ", "").replace(" model", "").strip()
+        try:
+            if keyword in {"fast", "fastest", "lightweight", "coding", "code", "reasoning", "best", "overall", "vision"}:
+                model = service.recommend(keyword)
+                if model is None:
+                    print(f"No installed model matches the '{request}' capability.")
+                    return
+                print(f"Recommended model for {request}: {model.name}")
+                request = model.name
+            self._select_ai_model(request)
+        except (ConnectionError, OSError, ValueError) as exc:
+            print(f"Could not change model: {exc}")
+
+    def show_vault(self):
+        print("=" * 62)
+        print(f"{'ORION VAULT':^62}")
+        print("=" * 62)
+        print(f"Storage: {self.orion.vault.path}")
+        print("Secrets are hidden and kept outside config/default.yaml.")
+        print("-" * 62)
+        print("AI Providers")
+        for entry in self.orion.vault.list_entries():
+            state = "[OK]" if entry.configured else "[--]"
+            label = entry.key.title()
+            print(f"  {state} {label:<12} {entry.source}")
+        print("-" * 62)
+        print("Commands: vault add <gemini|openai> | vault remove <provider>")
+        print("          vault health | ai provider use <provider>")
+
+    def vault_add(self, provider: str):
+        key = provider.lower().strip()
+        if key not in {"openai", "gemini"}:
+            print("Usage: vault add <openai|gemini>")
+            return
+        print(f"Add {key.title()} to Orion Vault")
+        print("The key will not be displayed or saved in config/default.yaml.")
+        api_key = getpass("API key: ").strip()
+        if not api_key:
+            print("Vault update cancelled.")
+            return
+        try:
+            self.orion.vault.add(key, api_key)
+            models = self.orion.provider_manager.models(key)
+        except (ConnectionError, OSError, ValueError) as exc:
+            print(f"Could not add {key.title()}: {exc}")
+            return
+        print(f"[OK] {key.title()} saved and verified.")
+        print(f"[OK] {len(models)} compatible model(s) discovered.")
+        default_model = self.orion.config_manager.get(f"providers.{key}.model", "")
+        if models:
+            print("Available models:")
+            for index, model in enumerate(models[:12], start=1):
+                marker = " [current]" if model == default_model else ""
+                print(f"  {index}. {model}{marker}")
+            choice = input(f"Choose a default model [Enter keeps {default_model}]: ").strip()
+            if choice:
+                try:
+                    selected = models[int(choice)-1] if choice.isdigit() and 1 <= int(choice) <= len(models) else choice
+                    self.orion.config_manager.set(f"providers.{key}.model", selected)
+                    self.orion.config_manager.save()
+                    print(f"[OK] Default {key.title()} model: {selected}")
+                except (IndexError, ValueError):
+                    print("Model selection skipped.")
+        make_active = input(f"Make {key.title()} Orion's active provider? [y/N]: ").strip().lower()
+        if make_active in {"y", "yes"}:
+            try:
+                active = self.orion.provider_manager.activate(key)
+                print(f"[OK] Active AI provider: {active.name()}")
+            except (ConnectionError, OSError, ValueError) as exc:
+                print(f"Saved, but could not activate provider: {exc}")
+
+    def vault_remove(self, provider: str):
+        key = provider.lower().strip()
+        if key not in {"openai", "gemini"}:
+            print("Usage: vault remove <openai|gemini>")
+            return
+        answer = input(f"Remove {key.title()} credentials from Orion Vault? [y/N]: ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("Vault unchanged.")
+            return
+        self.orion.vault.remove(key)
+        print(f"[OK] {key.title()} removed from Orion Vault.")
+        if self.orion.config_manager.get("providers.default", "ollama") == "ollama":
+            try:
+                self.orion.provider_manager.activate("ollama")
+            except (ConnectionError, OSError, ValueError):
+                pass
+
+    def vault_health(self):
+        print("Vault Health")
+        print("-" * 62)
+        results = self.orion.vault.health(self.orion.provider_manager.models)
+        healthy = 0
+        configured = 0
+        for result in results:
+            if result.configured:
+                configured += 1
+            if result.healthy:
+                healthy += 1
+            state = "[OK]" if result.healthy else "[--]"
+            print(f"  {state} {result.key.title():<12} {result.message}")
+        print("-" * 62)
+        print(f"Healthy: {healthy}/{len(results)} | Configured: {configured}/{len(results)}")
+
+    def show_ai_providers(self):
+        """Display configured AI engines in the Polaris federation."""
+        manager = self.orion.provider_manager
+        print("AI Providers")
+        print("-" * 62)
+        for item in manager.statuses():
+            marker = "[ACTIVE]" if item.active else "[--]"
+            state = "Ready" if item.enabled and item.configured else ("Needs API key" if item.enabled else "Disabled")
+            print(f"{marker:<8} {item.key.title():<10} {state:<16} {item.model}")
+        print("-" * 62)
+        print("Commands: ai provider configure <openai|gemini>")
+        print("          ai provider use <ollama|openai|gemini>")
+        print("          ai provider models <provider>")
+
+    def configure_ai_provider(self, provider: str):
+        key = provider.lower().strip()
+        if key not in {"openai", "gemini"}:
+            print("Usage: ai provider configure <openai|gemini>")
+            return
+        print(f"Configure {key.title()}")
+        print("API keys are stored separately from config/default.yaml.")
+        api_key = getpass("API key: ").strip()
+        if not api_key:
+            print("Configuration cancelled.")
+            return
+        default_model = "gpt-4.1-mini" if key == "openai" else "gemini-2.5-flash"
+        model = input(f"Default model [{default_model}]: ").strip() or default_model
+        try:
+            self.orion.provider_manager.configure(key, api_key, model)
+            models = self.orion.provider_manager.models(key)
+        except (ConnectionError, OSError, ValueError) as exc:
+            print(f"Could not configure {key.title()}: {exc}")
+            return
+        print(f"[OK] {key.title()} connected. {len(models)} compatible model(s) discovered.")
+        make_active = input(f"Make {key.title()} Orion's active provider? [Y/n]: ").strip().lower()
+        if make_active in {"", "y", "yes"}:
+            try:
+                active = self.orion.provider_manager.activate(key)
+            except (ConnectionError, OSError, ValueError) as exc:
+                print(f"Provider saved but could not be activated: {exc}")
+                return
+            print(f"[OK] Active AI: {active.name()}")
+
+    def use_ai_provider(self, provider: str):
+        try:
+            active = self.orion.provider_manager.activate(provider)
+        except (ConnectionError, OSError, ValueError) as exc:
+            print(f"Could not activate provider: {exc}")
+            return
+        print(f"[OK] Active AI provider: {active.name()}")
+        print("This provider will be used the next time Orion starts.")
+
+    def show_provider_models(self, provider: str):
+        try:
+            models = self.orion.provider_manager.models(provider)
+        except (ConnectionError, OSError, ValueError) as exc:
+            print(f"Could not list models: {exc}")
+            return
+        print(f"{provider.title()} Models")
+        print("-" * 62)
+        for index, model in enumerate(models, start=1):
+            print(f"  {index}. {model}")
+        if not models:
+            print("  No compatible models found.")
+
+    def show_ai_status(self):
+        """Display Orion's AI Control Center summary."""
+        provider = self.orion.ai_provider
+        print("=" * 62)
+        print(f"{'AI CONTROL CENTER':^62}")
+        print("=" * 62)
+        provider_key = self.orion.config_manager.get("providers.default", "ollama")
+        print(f"Provider        : {provider.__class__.__name__.replace('Provider', '')}")
+        current_model = getattr(provider, "model", "Unknown")
+        default_model = self.orion.config_manager.get(f"providers.{provider_key}.model", current_model)
+        print(f"Current model   : {current_model}")
+        print(f"Default model   : {default_model}")
+        print(f"Session override: {'Enabled' if current_model != default_model else 'None'}")
+        print(f"Active profile  : {str(self.orion.config_manager.get('ai.active_profile', 'balanced')).title()}")
+        print(f"Temperature     : {self.orion.config_manager.get('ai.temperature', 0.5)}")
+        print("Status          : Online")
+        try:
+            models = self._ai_service().models()
+            current = next((item for item in models if item.name == provider.model), None)
+            print(f"Installed       : {len(models)} models")
+            if current:
+                capabilities = set(current.tags)
+                print("-" * 62)
+                print("Capabilities")
+                for capability in ("Chat", "Coding", "Vision", "Speech", "Embeddings"):
+                    available = capability == "Chat" or capability in capabilities
+                    print(f"  {'[OK]' if available else '[--]'} {capability}")
+                print("-" * 62)
+                print("Model details")
+                print(f"  Parameters    : {current.parameter_size}")
+                print(f"  Context       : {current.context_label}")
+                print(f"  Disk size     : {current.size_label}")
+        except ConnectionError as exc:
+            print(f"Ollama         : Offline ({exc})")
+        print("-" * 62)
+        print("Commands: ai providers | ai models | ai use <model> | ai profiles | ai benchmark")
+
+    def show_ai_profiles(self):
+        service = self._ai_service()
+        active = self.orion.config_manager.get("ai.active_profile", "balanced")
+        print("AI Profiles")
+        print("-" * 50)
+        for name, profile in service.PROFILES.items():
+            marker = " [active]" if name == active else ""
+            print(f"  {name}{marker}: {profile['description']}")
+
+    def activate_ai_profile(self, name: str):
+        try:
+            result = self._ai_service().activate_profile(name)
+        except (ConnectionError, OSError, ValueError) as exc:
+            print(f"Could not activate AI profile: {exc}")
+            return
+        print(f"AI profile activated: {result['name']}")
+        print(f"Model: {result['model']} | Temperature: {result['temperature']}")
+
+    def benchmark_ai_models(self):
+        """Run an intentionally small, opt-in latency check across chat-capable models."""
+        service = self._ai_service()
+        try:
+            models = [item for item in service.models() if "Speech" not in item.tags and "Embeddings" not in item.tags]
+        except ConnectionError as exc:
+            print(f"Ollama unavailable: {exc}")
+            return
+        if not models:
+            print("No chat-capable Ollama models were found.")
+            return
+        print(f"Quick benchmark will load {len(models)} models and may use significant RAM/VRAM.")
+        confirm = input("Continue? [y/N]: ").strip().lower()
+        if confirm not in {"y", "yes"}:
+            print("Benchmark cancelled.")
+            return
+        results = []
+        for model in models:
+            print(f"Testing {model.name}...")
+            try:
+                results.append(service.quick_benchmark(model.name))
+            except Exception as exc:
+                results.append({"model": model.name, "seconds": None, "response": str(exc)})
+        print("\nQuick Model Benchmark")
+        print("-" * 64)
+        for result in sorted(results, key=lambda item: item["seconds"] if item["seconds"] is not None else float("inf")):
+            elapsed = f"{result['seconds']:.2f}s" if result["seconds"] is not None else "failed"
+            print(f"  {result['model']:<36} {elapsed}")
+        print("Latency is measured locally; Orion does not invent a quality score.")
 
     def show_config(self):
         """Display loaded configuration."""
@@ -617,14 +1075,31 @@ class CommandRouter:
         except (FileNotFoundError, ValueError, OSError) as exc:
             print(f"Project Context Error: {exc}")
             return
-        print("Project Context:")
-        print(f"  Name: {data.get('name', '')}")
+        print("Project Status:")
+        context_matches = self.orion.project_context.matches_workspace()
+        print(f"  Active Workspace: {self.orion.workspace_manager.root}")
+        print(f"  Context State: {'Current' if context_matches else 'Copied or stale metadata'}")
+        print(f"  Name: {data.get('name', '') if context_matches else self.orion.workspace_manager.root.name}")
         print(f"  Version: {data.get('version', '')}")
         print(f"  Phase: {data.get('phase', '')}")
         print(f"  Current Goal: {data.get('current_goal', '')}")
         print(f"  Workspace: {self.orion.project_context.workspace_root}")
         print(f"  Tasks: {metrics.get('tasks_open', 0)} open, {metrics.get('tasks_completed', 0)} completed")
         print(f"  History Entries: {metrics.get('history_entries', 0)}")
+        try:
+            index = self.orion.knowledge_index.ensure_fresh()
+            stats = index.get("stats", {})
+            print(f"  Index: Fresh ({index.get('built_at', '')})")
+            print(f"  Files: {stats.get('files', 0)}")
+            print(f"  Python Files: {stats.get('python_files', 0)}")
+            print(f"  Classes: {stats.get('classes', 0)}")
+            print(f"  Functions: {stats.get('functions', 0)}")
+            print(f"  Tests: {stats.get('tests', 0)}")
+            print(f"  TODO/FIXME: {stats.get('todos', 0)}")
+        except (OSError, ValueError) as exc:
+            print(f"  Index: Unavailable ({exc})")
+        if not context_matches:
+            print("  Note: Run 'project init' in a clean workspace or update project fields before relying on saved project context.")
         if verbose:
             print(f"  Description: {data.get('description', '')}")
             print(f"  Preferred Model: {data.get('preferred_model', '')}")

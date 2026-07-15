@@ -71,6 +71,26 @@ class WeatherTests(unittest.TestCase):
         service.handle_request("weather in Sacramento")
         self.assertEqual(client.geocoded, ["Sacramento"])
 
+
+    def test_recent_weather_report_is_reused_without_second_network_call(self):
+        client = FakeClient()
+        service = WeatherService("Yuba City", client=client)
+        first = service.handle_request("weather")
+        second = service.handle_request("good morning, how is the weather today?")
+        self.assertTrue(first.success)
+        self.assertTrue(second.success)
+        self.assertEqual(len(client.forecasts), 1)
+
+    def test_cached_weather_is_used_when_refresh_temporarily_fails(self):
+        client = FakeClient()
+        service = WeatherService("Yuba City", client=client)
+        first = service.get_weather()
+        service._report_cache["yuba city"] = (0.0, first)
+        client.forecast = Mock(side_effect=WeatherError("HTTP Error 503: Service Unavailable"))
+        cached = service.get_weather()
+        self.assertEqual(cached.temperature, first.temperature)
+        self.assertEqual(service.get_status().state, ServiceState.DEGRADED)
+
     def test_weather_error_returns_failed_service_result(self):
         client = Mock()
         client.geocode.side_effect = WeatherError("offline")

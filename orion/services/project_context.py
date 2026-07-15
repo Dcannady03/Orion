@@ -155,6 +155,17 @@ class ProjectContext:
             raise ValueError("project.json must contain a JSON object.")
         return deepcopy(data)
 
+
+    def matches_workspace(self) -> bool:
+        """Return False when portable metadata was copied from another workspace."""
+        if not self.initialized:
+            return False
+        try:
+            stored = str(self.project().get("workspace", "")).strip()
+            return not stored or Path(stored).expanduser().resolve() == self._root
+        except (FileNotFoundError, ValueError, OSError):
+            return False
+
     def set_field(self, field: str, value: str) -> dict[str, Any]:
         self._require_initialized()
         normalized = field.strip().lower().replace("-", "_").replace(" ", "_")

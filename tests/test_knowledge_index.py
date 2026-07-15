@@ -52,6 +52,19 @@ class KnowledgeIndexTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 index.status()
 
+    def test_stale_index_from_other_workspace_is_not_used_as_context(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".orion").mkdir()
+            (root / ".orion" / "knowledge-index.json").write_text(
+                json.dumps({"workspace": str(root / "old-project"), "stats": {"files": 78, "classes": 50}}),
+                encoding="utf-8",
+            )
+            index = KnowledgeIndex(root)
+            with self.assertRaises(ValueError):
+                index.status()
+            self.assertEqual(index.summary(), "")
+
 
 if __name__ == "__main__":
     unittest.main()

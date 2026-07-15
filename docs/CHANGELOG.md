@@ -1,4 +1,54 @@
+
+## [0.3.8.1] - 2026-07-15
+
+### Changed
+- Ollama model switches now ask whether the selected model should become Orion's startup default.
+- Session-only model changes no longer overwrite `config/default.yaml`.
+- `ai status` now shows current, default, and session-override model state.
+
+## 0.3.7 — AI Control Center
+
+- Added provider-neutral AI Control Center service.
+- Added rich Ollama model metadata and capability labels.
+- Added natural-language model switching and recommendations.
+- Added persistent AI profiles and safe opt-in model benchmarking.
+- Full regression suite: 115 tests passing.
+
+
+## 0.3.6.5 — Constellation: Model Selector
+
+- Added an interactive Ollama model scanner and numbered selector.
+- Model changes persist and take effect immediately without restart.
+- Added aliases, help/completion support, and regression coverage.
+## [0.3.6.4] - 2026-07-15
+
+### Fixed
+- Reused fresh weather results for five minutes instead of immediately calling Open-Meteo again.
+- Added cached-report fallback when a temporary weather refresh returns an HTTP 503 or other service error.
+- Added regression coverage for duplicate requests and temporary weather outages.
+
 # Changelog
+
+## [0.3.6.1] - 2026-07-14 — Constellation
+
+- Refactored Calendar into a provider-neutral coordinator.
+- Added Microsoft Graph support for Outlook and Microsoft 365 calendars.
+- Added multi-provider event merging and source labels.
+- Added provider-specific connect commands and provider listing.
+- Prevented implicit OAuth during startup.
+- Added Microsoft token isolation and setup documentation.
+- Expanded the regression suite to 98 tests.
+
+## v0.3.6 — Calendar
+
+- Added an optional Google Calendar service using read-only OAuth access.
+- Added `calendar`, `calendar today`, `calendar tomorrow`, `calendar next`, and `calendar connect`.
+- Routed schedule, agenda, appointment, next-event, and availability questions directly to CalendarService.
+- Added natural agenda and focused free/busy responses without relying on the LLM for calendar facts.
+- Added a fault-isolated Calendar briefing provider showing today's event count and next event.
+- Added Calendar health to `status`, help, and command completion.
+- Added secure credential and token paths to `.gitignore`.
+- Added eight focused Calendar tests; the complete suite now contains 95 passing tests.
 
 ### v0.3.5 Weather conversational refinement
 
@@ -132,3 +182,10 @@
 - Fixed geocoding for profile locations containing a region, such as `Yuba City, California`.
 - Weather now sends only the city name to Open-Meteo and uses state/country qualifiers to select the correct result.
 - Added support for common state abbreviations such as `CA`.
+
+## 0.4.0 — Polaris
+
+- Introduced the AI Federation foundation with Ollama, OpenAI, and Gemini providers.
+- Added provider-aware configuration and switching through the AI Control Center.
+- Added separate local API-key storage; normal configuration files never contain API keys.
+- Added 5 federation tests; full suite passes 127 tests.

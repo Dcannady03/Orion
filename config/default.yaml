@@ -1,44 +1,64 @@
 orion:
   name: Orion
-  version: 0.3.5
-  codename: Weather
-  
-
+  version: 0.4.1
+  codename: Polaris
 providers:
-  default: ollama
+  default: gemini
+  secrets_path: .orion/vault.yaml
   openai:
     enabled: false
     model: gpt-4.1-mini
+    base_url: https://api.openai.com/v1
+    timeout_seconds: 60
+  gemini:
+    enabled: true
+    model: gemini-2.5-flash
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    timeout_seconds: 60
   ollama:
     enabled: true
     base_url: http://localhost:11434
     model: qwen3.6:35b
-
 workspace:
   default_path: .
-
 memory:
   enabled: true
   database_path: data/orion_memory.sqlite
-
 voice:
   enabled: false
   wake_word: Orion
-
 safety:
   require_approval: true
   dangerous_actions:
-    - delete_file
-    - restart_service
-    - shutdown
-    - run_shell_command
+  - delete_file
+  - restart_service
+  - shutdown
+  - run_shell_command
 plugins:
   path: plugins
   enabled: true
-
-
 weather:
-  # Empty uses profile.yaml's location field.
-  location: ""
+  location: ''
   units: imperial
   timeout_seconds: 5
+calendar:
+  enabled: true
+  timezone: ''
+  google:
+    enabled: true
+    name: Personal Google
+    calendar_id: primary
+    credentials_path: config/google-calendar-credentials.json
+    token_path: .orion/google-calendar-token.json
+  microsoft:
+    enabled: false
+    name: Personal Outlook
+    client_id: ''
+    tenant: common
+    token_path: .orion/microsoft-calendar-token.json
+    timeout_seconds: 10
+ai:
+  active_profile: balanced
+  temperature: 0.5
+vault:
+  path: .orion/vault.yaml

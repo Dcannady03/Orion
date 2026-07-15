@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
   "workspace": "C:\\Users\\dcann\\Documents\\GitHub\\First Light",
-  "built_at": "2026-07-13T15:27:45.283034+00:00",
+  "built_at": "2026-07-15T14:34:55.440276+00:00",
   "stats": {
-    "files": 78,
-    "python_files": 55,
-    "classes": 50,
-    "functions": 271,
-    "imports": 180,
-    "todos": 1,
-    "tests": 13
+    "files": 132,
+    "python_files": 86,
+    "classes": 131,
+    "functions": 648,
+    "imports": 400,
+    "todos": 2,
+    "tests": 26
   },
   "files": [
     {
@@ -20,17 +20,32 @@
     {
       "path": ".gitignore",
       "extension": "",
-      "size": 386
+      "size": 186
+    },
+    {
+      "path": "CHANGELOG.md",
+      "extension": ".md",
+      "size": 3638
     },
     {
       "path": "config/default.yaml",
       "extension": ".yaml",
-      "size": 546
+      "size": 1388
     },
     {
       "path": "config/default.yaml.old",
       "extension": ".old",
       "size": 497
+    },
+    {
+      "path": "config/default.yaml.tmp",
+      "extension": ".tmp",
+      "size": 0
+    },
+    {
+      "path": "config/google-calendar-credentials.json",
+      "extension": ".json",
+      "size": 401
     },
     {
       "path": "config/profile.yaml",
@@ -40,12 +55,12 @@
     {
       "path": "docs/ARCHITECTURE.md",
       "extension": ".md",
-      "size": 2085
+      "size": 2460
     },
     {
       "path": "docs/CHANGELOG.md",
       "extension": ".md",
-      "size": 2844
+      "size": 9580
     },
     {
       "path": "docs/CONSTITUTION.md",
@@ -58,6 +73,26 @@
       "size": 1201
     },
     {
+      "path": "docs/RELEASE_CHECKLIST_v0.3.3.md",
+      "extension": ".md",
+      "size": 713
+    },
+    {
+      "path": "docs/RELEASE_CHECKLIST_v0.3.4.md",
+      "extension": ".md",
+      "size": 441
+    },
+    {
+      "path": "docs/RELEASE_CHECKLIST_v0.3.5.md",
+      "extension": ".md",
+      "size": 466
+    },
+    {
+      "path": "docs/RELEASE_CHECKLIST_v0.3.6.md",
+      "extension": ".md",
+      "size": 470
+    },
+    {
       "path": "docs/RELEASE_NOTES_v0.2.4.md",
       "extension": ".md",
       "size": 626
@@ -66,6 +101,86 @@
       "path": "docs/RELEASE_NOTES_v0.2.5.md",
       "extension": ".md",
       "size": 769
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.2.md",
+      "extension": ".md",
+      "size": 655
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.3.md",
+      "extension": ".md",
+      "size": 1880
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.4.md",
+      "extension": ".md",
+      "size": 1617
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.5.md",
+      "extension": ".md",
+      "size": 1620
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.6.1.md",
+      "extension": ".md",
+      "size": 1723
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.6.2.md",
+      "extension": ".md",
+      "size": 1246
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.6.3.md",
+      "extension": ".md",
+      "size": 1319
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.6.4.md",
+      "extension": ".md",
+      "size": 523
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.6.5.md",
+      "extension": ".md",
+      "size": 673
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.6.md",
+      "extension": ".md",
+      "size": 1478
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.7.md",
+      "extension": ".md",
+      "size": 905
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.8.1.md",
+      "extension": ".md",
+      "size": 672
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.8.md",
+      "extension": ".md",
+      "size": 730
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.3.9.md",
+      "extension": ".md",
+      "size": 485
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.4.0.md",
+      "extension": ".md",
+      "size": 1350
+    },
+    {
+      "path": "docs/RELEASE_NOTES_v0.4.1.md",
+      "extension": ".md",
+      "size": 785
     },
     {
       "path": "docs/releases/v0.1.0.md",
@@ -95,7 +210,7 @@
     {
       "path": "docs/ROADMAP.md",
       "extension": ".md",
-      "size": 1044
+      "size": 2889
     },
     {
       "path": "docs/SERVICES.md",
@@ -106,6 +221,31 @@
       "path": "orion/__init__.py",
       "extension": ".py",
       "size": 0
+    },
+    {
+      "path": "orion/actions/__init__.py",
+      "extension": ".py",
+      "size": 414
+    },
+    {
+      "path": "orion/actions/approval.py",
+      "extension": ".py",
+      "size": 1350
+    },
+    {
+      "path": "orion/actions/history.py",
+      "extension": ".py",
+      "size": 1739
+    },
+    {
+      "path": "orion/actions/models.py",
+      "extension": ".py",
+      "size": 1680
+    },
+    {
+      "path": "orion/actions/service.py",
+      "extension": ".py",
+      "size": 4894
     },
     {
       "path": "orion/agents/__init__.py",
@@ -125,7 +265,7 @@
     {
       "path": "orion/conversation/context.py",
       "extension": ".py",
-      "size": 2294
+      "size": 2756
     },
     {
       "path": "orion/conversation/message.py",
@@ -145,12 +285,17 @@
     {
       "path": "orion/core/config.py",
       "extension": ".py",
-      "size": 851
+      "size": 1560
+    },
+    {
+      "path": "orion/core/onboarding.py",
+      "extension": ".py",
+      "size": 10895
     },
     {
       "path": "orion/core/orion.py",
       "extension": ".py",
-      "size": 4043
+      "size": 11721
     },
     {
       "path": "orion/core/profile.py",
@@ -160,7 +305,7 @@
     {
       "path": "orion/core/router.py",
       "extension": ".py",
-      "size": 31922
+      "size": 69273
     },
     {
       "path": "orion/intelligence/__init__.py",
@@ -175,7 +320,12 @@
     {
       "path": "orion/intelligence/factory.py",
       "extension": ".py",
-      "size": 1458
+      "size": 2439
+    },
+    {
+      "path": "orion/intelligence/gemini_provider.py",
+      "extension": ".py",
+      "size": 2657
     },
     {
       "path": "orion/intelligence/identity.py",
@@ -190,17 +340,22 @@
     {
       "path": "orion/intelligence/ollama_provider.py",
       "extension": ".py",
-      "size": 1420
+      "size": 4702
     },
     {
       "path": "orion/intelligence/openai_provider.py",
       "extension": ".py",
-      "size": 580
+      "size": 2391
     },
     {
       "path": "orion/intelligence/provider.py",
       "extension": ".py",
       "size": 524
+    },
+    {
+      "path": "orion/intelligence/secrets.py",
+      "extension": ".py",
+      "size": 3104
     },
     {
       "path": "orion/knowledge/__init__.py",
@@ -210,12 +365,12 @@
     {
       "path": "orion/knowledge/index.py",
       "extension": ".py",
-      "size": 7287
+      "size": 8540
     },
     {
       "path": "orion/main.py",
       "extension": ".py",
-      "size": 178
+      "size": 976
     },
     {
       "path": "orion/memory/__init__.py",
@@ -255,17 +410,62 @@
     {
       "path": "orion/services/__init__.py",
       "extension": ".py",
-      "size": 263
+      "size": 354
+    },
+    {
+      "path": "orion/services/ai_control.py",
+      "extension": ".py",
+      "size": 8449
+    },
+    {
+      "path": "orion/services/base.py",
+      "extension": ".py",
+      "size": 998
+    },
+    {
+      "path": "orion/services/briefing.py",
+      "extension": ".py",
+      "size": 4329
+    },
+    {
+      "path": "orion/services/calendar.py",
+      "extension": ".py",
+      "size": 23977
+    },
+    {
+      "path": "orion/services/companion.py",
+      "extension": ".py",
+      "size": 3491
+    },
+    {
+      "path": "orion/services/discovery.py",
+      "extension": ".py",
+      "size": 10502
     },
     {
       "path": "orion/services/project_context.py",
       "extension": ".py",
-      "size": 12359
+      "size": 12793
+    },
+    {
+      "path": "orion/services/provider_manager.py",
+      "extension": ".py",
+      "size": 3010
     },
     {
       "path": "orion/services/registry.py",
       "extension": ".py",
       "size": 3939
+    },
+    {
+      "path": "orion/services/vault.py",
+      "extension": ".py",
+      "size": 3711
+    },
+    {
+      "path": "orion/services/weather.py",
+      "extension": ".py",
+      "size": 16644
     },
     {
       "path": "orion/services/workspace.py",
@@ -293,9 +493,14 @@
       "size": 0
     },
     {
+      "path": "orion/ui/console.py",
+      "extension": ".py",
+      "size": 6162
+    },
+    {
       "path": "orion/version.py",
       "extension": ".py",
-      "size": 45
+      "size": 99
     },
     {
       "path": "orion/voice/__init__.py",
@@ -325,12 +530,12 @@
     {
       "path": "README.md",
       "extension": ".md",
-      "size": 286
+      "size": 6940
     },
     {
       "path": "requirements.txt",
       "extension": ".txt",
-      "size": 13
+      "size": 188
     },
     {
       "path": "setup_orion.py",
@@ -338,9 +543,29 @@
       "size": 1096
     },
     {
+      "path": "tests/test_actions.py",
+      "extension": ".py",
+      "size": 2662
+    },
+    {
+      "path": "tests/test_ai_control.py",
+      "extension": ".py",
+      "size": 4122
+    },
+    {
       "path": "tests/test_brain_conversation.py",
       "extension": ".py",
       "size": 1406
+    },
+    {
+      "path": "tests/test_briefing.py",
+      "extension": ".py",
+      "size": 3052
+    },
+    {
+      "path": "tests/test_calendar.py",
+      "extension": ".py",
+      "size": 9074
     },
     {
       "path": "tests/test_code_skill.py",
@@ -348,19 +573,44 @@
       "size": 2013
     },
     {
+      "path": "tests/test_companion.py",
+      "extension": ".py",
+      "size": 3725
+    },
+    {
+      "path": "tests/test_companion_console.py",
+      "extension": ".py",
+      "size": 1909
+    },
+    {
       "path": "tests/test_conversation.py",
       "extension": ".py",
       "size": 1838
     },
     {
+      "path": "tests/test_discovery.py",
+      "extension": ".py",
+      "size": 5559
+    },
+    {
       "path": "tests/test_knowledge_context.py",
       "extension": ".py",
-      "size": 883
+      "size": 1785
     },
     {
       "path": "tests/test_knowledge_index.py",
       "extension": ".py",
-      "size": 2375
+      "size": 2976
+    },
+    {
+      "path": "tests/test_ollama_model_selection.py",
+      "extension": ".py",
+      "size": 3320
+    },
+    {
+      "path": "tests/test_onboarding.py",
+      "extension": ".py",
+      "size": 4298
     },
     {
       "path": "tests/test_plugin_manager.py",
@@ -370,7 +620,17 @@
     {
       "path": "tests/test_project_context.py",
       "extension": ".py",
-      "size": 2659
+      "size": 3184
+    },
+    {
+      "path": "tests/test_provider_federation.py",
+      "extension": ".py",
+      "size": 4044
+    },
+    {
+      "path": "tests/test_safeguard.py",
+      "extension": ".py",
+      "size": 2814
     },
     {
       "path": "tests/test_search_plugin.py",
@@ -393,9 +653,19 @@
       "size": 2520
     },
     {
+      "path": "tests/test_vault.py",
+      "extension": ".py",
+      "size": 2855
+    },
+    {
       "path": "tests/test_waypoint.py",
       "extension": ".py",
       "size": 2418
+    },
+    {
+      "path": "tests/test_weather.py",
+      "extension": ".py",
+      "size": 7723
     },
     {
       "path": "tests/test_workspace.py",
@@ -404,6 +674,192 @@
     }
   ],
   "symbols": [
+    {
+      "kind": "class",
+      "name": "PolicyDecision",
+      "path": "orion/actions/approval.py",
+      "line": 10
+    },
+    {
+      "kind": "class",
+      "name": "ActionPolicy",
+      "path": "orion/actions/approval.py",
+      "line": 17
+    },
+    {
+      "kind": "class",
+      "name": "ApprovalEngine",
+      "path": "orion/actions/approval.py",
+      "line": 23
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/actions/approval.py",
+      "line": 26
+    },
+    {
+      "kind": "function",
+      "name": "set_policy",
+      "path": "orion/actions/approval.py",
+      "line": 29
+    },
+    {
+      "kind": "function",
+      "name": "evaluate",
+      "path": "orion/actions/approval.py",
+      "line": 35
+    },
+    {
+      "kind": "function",
+      "name": "policies",
+      "path": "orion/actions/approval.py",
+      "line": 42
+    },
+    {
+      "kind": "class",
+      "name": "ActionHistory",
+      "path": "orion/actions/history.py",
+      "line": 12
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/actions/history.py",
+      "line": 13
+    },
+    {
+      "kind": "function",
+      "name": "bind",
+      "path": "orion/actions/history.py",
+      "line": 17
+    },
+    {
+      "kind": "function",
+      "name": "path",
+      "path": "orion/actions/history.py",
+      "line": 25
+    },
+    {
+      "kind": "function",
+      "name": "record",
+      "path": "orion/actions/history.py",
+      "line": 28
+    },
+    {
+      "kind": "function",
+      "name": "entries",
+      "path": "orion/actions/history.py",
+      "line": 42
+    },
+    {
+      "kind": "function",
+      "name": "utc_now",
+      "path": "orion/actions/models.py",
+      "line": 11
+    },
+    {
+      "kind": "class",
+      "name": "ActionStatus",
+      "path": "orion/actions/models.py",
+      "line": 15
+    },
+    {
+      "kind": "class",
+      "name": "Action",
+      "path": "orion/actions/models.py",
+      "line": 26
+    },
+    {
+      "kind": "class",
+      "name": "ActionResult",
+      "path": "orion/actions/models.py",
+      "line": 50
+    },
+    {
+      "kind": "function",
+      "name": "__post_init__",
+      "path": "orion/actions/models.py",
+      "line": 35
+    },
+    {
+      "kind": "function",
+      "name": "to_dict",
+      "path": "orion/actions/models.py",
+      "line": 43
+    },
+    {
+      "kind": "function",
+      "name": "to_dict",
+      "path": "orion/actions/models.py",
+      "line": 58
+    },
+    {
+      "kind": "class",
+      "name": "ActionService",
+      "path": "orion/actions/service.py",
+      "line": 14
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/actions/service.py",
+      "line": 15
+    },
+    {
+      "kind": "function",
+      "name": "register_handler",
+      "path": "orion/actions/service.py",
+      "line": 21
+    },
+    {
+      "kind": "function",
+      "name": "create",
+      "path": "orion/actions/service.py",
+      "line": 31
+    },
+    {
+      "kind": "function",
+      "name": "get",
+      "path": "orion/actions/service.py",
+      "line": 48
+    },
+    {
+      "kind": "function",
+      "name": "pending",
+      "path": "orion/actions/service.py",
+      "line": 55
+    },
+    {
+      "kind": "function",
+      "name": "approve",
+      "path": "orion/actions/service.py",
+      "line": 58
+    },
+    {
+      "kind": "function",
+      "name": "deny",
+      "path": "orion/actions/service.py",
+      "line": 66
+    },
+    {
+      "kind": "function",
+      "name": "execute",
+      "path": "orion/actions/service.py",
+      "line": 74
+    },
+    {
+      "kind": "function",
+      "name": "run",
+      "path": "orion/actions/service.py",
+      "line": 95
+    },
+    {
+      "kind": "function",
+      "name": "handler_types",
+      "path": "orion/actions/service.py",
+      "line": 99
+    },
     {
       "kind": "class",
       "name": "ContextBuilder",
@@ -555,34 +1011,136 @@
       "line": 23
     },
     {
+      "kind": "function",
+      "name": "set",
+      "path": "orion/core/config.py",
+      "line": 34
+    },
+    {
+      "kind": "function",
+      "name": "save",
+      "path": "orion/core/config.py",
+      "line": 46
+    },
+    {
+      "kind": "class",
+      "name": "FirstContactResult",
+      "path": "orion/core/onboarding.py",
+      "line": 26
+    },
+    {
+      "kind": "class",
+      "name": "FirstContact",
+      "path": "orion/core/onboarding.py",
+      "line": 33
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/core/onboarding.py",
+      "line": 36
+    },
+    {
+      "kind": "function",
+      "name": "is_required",
+      "path": "orion/core/onboarding.py",
+      "line": 50
+    },
+    {
+      "kind": "function",
+      "name": "run",
+      "path": "orion/core/onboarding.py",
+      "line": 60
+    },
+    {
+      "kind": "function",
+      "name": "_show_welcome",
+      "path": "orion/core/onboarding.py",
+      "line": 145
+    },
+    {
+      "kind": "function",
+      "name": "_show_summary",
+      "path": "orion/core/onboarding.py",
+      "line": 154
+    },
+    {
+      "kind": "function",
+      "name": "_ask",
+      "path": "orion/core/onboarding.py",
+      "line": 169
+    },
+    {
+      "kind": "function",
+      "name": "_yes_no",
+      "path": "orion/core/onboarding.py",
+      "line": 181
+    },
+    {
+      "kind": "function",
+      "name": "_choose",
+      "path": "orion/core/onboarding.py",
+      "line": 193
+    },
+    {
+      "kind": "function",
+      "name": "_build_config",
+      "path": "orion/core/onboarding.py",
+      "line": 207
+    },
+    {
+      "kind": "function",
+      "name": "_backup_existing",
+      "path": "orion/core/onboarding.py",
+      "line": 251
+    },
+    {
+      "kind": "function",
+      "name": "_write_yaml",
+      "path": "orion/core/onboarding.py",
+      "line": 258
+    },
+    {
       "kind": "class",
       "name": "Orion",
       "path": "orion/core/orion.py",
-      "line": 31
+      "line": 47
     },
     {
       "kind": "function",
       "name": "__init__",
       "path": "orion/core/orion.py",
-      "line": 34
+      "line": 50
+    },
+    {
+      "kind": "function",
+      "name": "_save_calendar_provider_state",
+      "path": "orion/core/orion.py",
+      "line": 239
+    },
+    {
+      "kind": "function",
+      "name": "_save_calendar_provider_config",
+      "path": "orion/core/orion.py",
+      "line": 244
     },
     {
       "kind": "function",
       "name": "start",
       "path": "orion/core/orion.py",
-      "line": 97
+      "line": 248
     },
     {
       "kind": "function",
       "name": "command_loop",
       "path": "orion/core/orion.py",
-      "line": 113
+      "line": 254
     },
     {
       "kind": "function",
       "name": "banner",
       "path": "orion/core/orion.py",
-      "line": 121
+      "line": 265
     },
     {
       "kind": "class",
@@ -636,253 +1194,487 @@
       "kind": "class",
       "name": "CommandRouter",
       "path": "orion/core/router.py",
-      "line": 11
+      "line": 13
     },
     {
       "kind": "function",
       "name": "__init__",
       "path": "orion/core/router.py",
-      "line": 14
+      "line": 16
     },
     {
       "kind": "function",
       "name": "handle",
       "path": "orion/core/router.py",
-      "line": 17
+      "line": 19
     },
     {
       "kind": "function",
       "name": "show_help",
       "path": "orion/core/router.py",
-      "line": 212
+      "line": 357
     },
     {
       "kind": "function",
       "name": "show_status",
       "path": "orion/core/router.py",
-      "line": 263
+      "line": 423
+    },
+    {
+      "kind": "function",
+      "name": "_looks_like_weather",
+      "path": "orion/core/router.py",
+      "line": 453
+    },
+    {
+      "kind": "function",
+      "name": "show_weather",
+      "path": "orion/core/router.py",
+      "line": 461
+    },
+    {
+      "kind": "function",
+      "name": "_looks_like_calendar",
+      "path": "orion/core/router.py",
+      "line": 472
+    },
+    {
+      "kind": "function",
+      "name": "show_calendar",
+      "path": "orion/core/router.py",
+      "line": 481
+    },
+    {
+      "kind": "function",
+      "name": "show_home",
+      "path": "orion/core/router.py",
+      "line": 493
+    },
+    {
+      "kind": "function",
+      "name": "show_briefing",
+      "path": "orion/core/router.py",
+      "line": 499
     },
     {
       "kind": "function",
       "name": "show_services",
       "path": "orion/core/router.py",
-      "line": 285
+      "line": 507
     },
     {
       "kind": "function",
       "name": "show_plugins",
       "path": "orion/core/router.py",
-      "line": 291
+      "line": 513
     },
     {
       "kind": "function",
       "name": "show_plugin_info",
       "path": "orion/core/router.py",
-      "line": 304
+      "line": 526
+    },
+    {
+      "kind": "function",
+      "name": "_ai_service",
+      "path": "orion/core/router.py",
+      "line": 543
+    },
+    {
+      "kind": "function",
+      "name": "change_ollama_model",
+      "path": "orion/core/router.py",
+      "line": 551
+    },
+    {
+      "kind": "function",
+      "name": "_select_ai_model",
+      "path": "orion/core/router.py",
+      "line": 593
+    },
+    {
+      "kind": "function",
+      "name": "use_ai_model",
+      "path": "orion/core/router.py",
+      "line": 629
+    },
+    {
+      "kind": "function",
+      "name": "show_vault",
+      "path": "orion/core/router.py",
+      "line": 648
+    },
+    {
+      "kind": "function",
+      "name": "vault_add",
+      "path": "orion/core/router.py",
+      "line": 664
+    },
+    {
+      "kind": "function",
+      "name": "vault_remove",
+      "path": "orion/core/router.py",
+      "line": 706
+    },
+    {
+      "kind": "function",
+      "name": "vault_health",
+      "path": "orion/core/router.py",
+      "line": 723
+    },
+    {
+      "kind": "function",
+      "name": "show_ai_providers",
+      "path": "orion/core/router.py",
+      "line": 739
+    },
+    {
+      "kind": "function",
+      "name": "configure_ai_provider",
+      "path": "orion/core/router.py",
+      "line": 753
+    },
+    {
+      "kind": "function",
+      "name": "use_ai_provider",
+      "path": "orion/core/router.py",
+      "line": 782
+    },
+    {
+      "kind": "function",
+      "name": "show_provider_models",
+      "path": "orion/core/router.py",
+      "line": 791
+    },
+    {
+      "kind": "function",
+      "name": "show_ai_status",
+      "path": "orion/core/router.py",
+      "line": 804
+    },
+    {
+      "kind": "function",
+      "name": "show_ai_profiles",
+      "path": "orion/core/router.py",
+      "line": 841
+    },
+    {
+      "kind": "function",
+      "name": "activate_ai_profile",
+      "path": "orion/core/router.py",
+      "line": 850
+    },
+    {
+      "kind": "function",
+      "name": "benchmark_ai_models",
+      "path": "orion/core/router.py",
+      "line": 859
     },
     {
       "kind": "function",
       "name": "show_config",
       "path": "orion/core/router.py",
-      "line": 321
+      "line": 889
     },
     {
       "kind": "function",
       "name": "show_profile",
       "path": "orion/core/router.py",
-      "line": 326
+      "line": 894
     },
     {
       "kind": "function",
       "name": "show_workspace",
       "path": "orion/core/router.py",
-      "line": 332
+      "line": 900
     },
     {
       "kind": "function",
       "name": "set_workspace",
       "path": "orion/core/router.py",
-      "line": 339
+      "line": 907
     },
     {
       "kind": "function",
       "name": "list_workspace",
       "path": "orion/core/router.py",
-      "line": 361
+      "line": 933
     },
     {
       "kind": "function",
       "name": "code_read",
       "path": "orion/core/router.py",
-      "line": 379
+      "line": 951
     },
     {
       "kind": "function",
       "name": "code_info",
       "path": "orion/core/router.py",
-      "line": 392
+      "line": 964
     },
     {
       "kind": "function",
       "name": "code_tree",
       "path": "orion/core/router.py",
-      "line": 407
+      "line": 979
     },
     {
       "kind": "function",
       "name": "remember",
       "path": "orion/core/router.py",
-      "line": 421
+      "line": 993
     },
     {
       "kind": "function",
       "name": "recall",
       "path": "orion/core/router.py",
-      "line": 435
+      "line": 1007
     },
     {
       "kind": "function",
       "name": "show_memory",
       "path": "orion/core/router.py",
-      "line": 447
+      "line": 1019
     },
     {
       "kind": "function",
       "name": "forget",
       "path": "orion/core/router.py",
-      "line": 457
+      "line": 1029
     },
     {
       "kind": "function",
       "name": "clear_memory",
       "path": "orion/core/router.py",
-      "line": 469
+      "line": 1041
     },
     {
       "kind": "function",
       "name": "project_init",
       "path": "orion/core/router.py",
-      "line": 479
+      "line": 1051
     },
     {
       "kind": "function",
       "name": "project_status",
       "path": "orion/core/router.py",
-      "line": 498
+      "line": 1070
     },
     {
       "kind": "function",
       "name": "project_set",
       "path": "orion/core/router.py",
-      "line": 520
+      "line": 1109
     },
     {
       "kind": "function",
       "name": "project_note",
       "path": "orion/core/router.py",
-      "line": 535
+      "line": 1124
     },
     {
       "kind": "function",
       "name": "project_checkpoint",
       "path": "orion/core/router.py",
-      "line": 544
+      "line": 1133
     },
     {
       "kind": "function",
       "name": "project_resume",
       "path": "orion/core/router.py",
-      "line": 559
+      "line": 1148
     },
     {
       "kind": "function",
       "name": "project_rules",
       "path": "orion/core/router.py",
-      "line": 584
+      "line": 1173
     },
     {
       "kind": "function",
       "name": "project_rule_add",
       "path": "orion/core/router.py",
-      "line": 597
+      "line": 1186
     },
     {
       "kind": "function",
       "name": "project_rule_remove",
       "path": "orion/core/router.py",
-      "line": 605
+      "line": 1194
     },
     {
       "kind": "function",
       "name": "index_build",
       "path": "orion/core/router.py",
-      "line": 615
+      "line": 1204
     },
     {
       "kind": "function",
       "name": "index_status",
       "path": "orion/core/router.py",
-      "line": 632
+      "line": 1221
     },
     {
       "kind": "function",
       "name": "index_symbols",
       "path": "orion/core/router.py",
-      "line": 647
+      "line": 1236
     },
     {
       "kind": "function",
       "name": "index_todos",
       "path": "orion/core/router.py",
-      "line": 658
+      "line": 1247
     },
     {
       "kind": "function",
       "name": "index_imports",
       "path": "orion/core/router.py",
-      "line": 668
+      "line": 1257
     },
     {
       "kind": "function",
       "name": "index_find",
       "path": "orion/core/router.py",
-      "line": 678
+      "line": 1267
+    },
+    {
+      "kind": "function",
+      "name": "action_echo",
+      "path": "orion/core/router.py",
+      "line": 1285
+    },
+    {
+      "kind": "function",
+      "name": "action_request",
+      "path": "orion/core/router.py",
+      "line": 1292
+    },
+    {
+      "kind": "function",
+      "name": "_pending_action_by_reference",
+      "path": "orion/core/router.py",
+      "line": 1303
+    },
+    {
+      "kind": "function",
+      "name": "_describe_action",
+      "path": "orion/core/router.py",
+      "line": 1314
+    },
+    {
+      "kind": "function",
+      "name": "action_pending",
+      "path": "orion/core/router.py",
+      "line": 1321
+    },
+    {
+      "kind": "function",
+      "name": "action_approve",
+      "path": "orion/core/router.py",
+      "line": 1333
+    },
+    {
+      "kind": "function",
+      "name": "action_deny",
+      "path": "orion/core/router.py",
+      "line": 1343
+    },
+    {
+      "kind": "function",
+      "name": "action_history",
+      "path": "orion/core/router.py",
+      "line": 1354
+    },
+    {
+      "kind": "function",
+      "name": "apps_scan",
+      "path": "orion/core/router.py",
+      "line": 1364
+    },
+    {
+      "kind": "function",
+      "name": "apps_list",
+      "path": "orion/core/router.py",
+      "line": 1372
+    },
+    {
+      "kind": "function",
+      "name": "apps_find",
+      "path": "orion/core/router.py",
+      "line": 1381
+    },
+    {
+      "kind": "function",
+      "name": "app_alias",
+      "path": "orion/core/router.py",
+      "line": 1390
+    },
+    {
+      "kind": "function",
+      "name": "open_app",
+      "path": "orion/core/router.py",
+      "line": 1405
+    },
+    {
+      "kind": "function",
+      "name": "set_developer_mode",
+      "path": "orion/core/router.py",
+      "line": 1470
+    },
+    {
+      "kind": "function",
+      "name": "show_companion_settings",
+      "path": "orion/core/router.py",
+      "line": 1477
+    },
+    {
+      "kind": "function",
+      "name": "show_trust",
+      "path": "orion/core/router.py",
+      "line": 1484
+    },
+    {
+      "kind": "function",
+      "name": "revoke_trust",
+      "path": "orion/core/router.py",
+      "line": 1497
     },
     {
       "kind": "function",
       "name": "show_history",
       "path": "orion/core/router.py",
-      "line": 695
+      "line": 1508
     },
     {
       "kind": "function",
       "name": "show_conversation",
       "path": "orion/core/router.py",
-      "line": 728
+      "line": 1541
     },
     {
       "kind": "function",
       "name": "search_conversation",
       "path": "orion/core/router.py",
-      "line": 743
+      "line": 1556
     },
     {
       "kind": "function",
       "name": "clear_conversation",
       "path": "orion/core/router.py",
-      "line": 757
+      "line": 1570
     },
     {
       "kind": "function",
       "name": "show_about",
       "path": "orion/core/router.py",
-      "line": 770
+      "line": 1583
     },
     {
       "kind": "function",
       "name": "ask_ai",
       "path": "orion/core/router.py",
-      "line": 798
+      "line": 1611
     },
     {
       "kind": "class",
@@ -912,19 +1704,61 @@
       "kind": "class",
       "name": "AIProviderFactory",
       "path": "orion/intelligence/factory.py",
-      "line": 11
+      "line": 9
     },
     {
       "kind": "function",
       "name": "__init__",
       "path": "orion/intelligence/factory.py",
-      "line": 14
+      "line": 10
     },
     {
       "kind": "function",
       "name": "create",
       "path": "orion/intelligence/factory.py",
-      "line": 17
+      "line": 16
+    },
+    {
+      "kind": "class",
+      "name": "GeminiProvider",
+      "path": "orion/intelligence/gemini_provider.py",
+      "line": 10
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/intelligence/gemini_provider.py",
+      "line": 11
+    },
+    {
+      "kind": "function",
+      "name": "name",
+      "path": "orion/intelligence/gemini_provider.py",
+      "line": 19
+    },
+    {
+      "kind": "function",
+      "name": "chat",
+      "path": "orion/intelligence/gemini_provider.py",
+      "line": 22
+    },
+    {
+      "kind": "function",
+      "name": "list_models",
+      "path": "orion/intelligence/gemini_provider.py",
+      "line": 41
+    },
+    {
+      "kind": "function",
+      "name": "select_model",
+      "path": "orion/intelligence/gemini_provider.py",
+      "line": 60
+    },
+    {
+      "kind": "function",
+      "name": "_raise",
+      "path": "orion/intelligence/gemini_provider.py",
+      "line": 64
     },
     {
       "kind": "class",
@@ -972,25 +1806,55 @@
       "kind": "class",
       "name": "OllamaProvider",
       "path": "orion/intelligence/ollama_provider.py",
-      "line": 13
+      "line": 14
     },
     {
       "kind": "function",
       "name": "__init__",
       "path": "orion/intelligence/ollama_provider.py",
-      "line": 16
+      "line": 17
     },
     {
       "kind": "function",
       "name": "name",
       "path": "orion/intelligence/ollama_provider.py",
-      "line": 20
+      "line": 21
+    },
+    {
+      "kind": "function",
+      "name": "_fetch_tags",
+      "path": "orion/intelligence/ollama_provider.py",
+      "line": 24
+    },
+    {
+      "kind": "function",
+      "name": "list_models",
+      "path": "orion/intelligence/ollama_provider.py",
+      "line": 39
+    },
+    {
+      "kind": "function",
+      "name": "list_model_details",
+      "path": "orion/intelligence/ollama_provider.py",
+      "line": 43
+    },
+    {
+      "kind": "function",
+      "name": "select_model",
+      "path": "orion/intelligence/ollama_provider.py",
+      "line": 64
+    },
+    {
+      "kind": "function",
+      "name": "warm_model",
+      "path": "orion/intelligence/ollama_provider.py",
+      "line": 72
     },
     {
       "kind": "function",
       "name": "chat",
       "path": "orion/intelligence/ollama_provider.py",
-      "line": 23
+      "line": 93
     },
     {
       "kind": "class",
@@ -1002,19 +1866,37 @@
       "kind": "function",
       "name": "__init__",
       "path": "orion/intelligence/openai_provider.py",
-      "line": 13
+      "line": 11
     },
     {
       "kind": "function",
       "name": "name",
       "path": "orion/intelligence/openai_provider.py",
-      "line": 16
+      "line": 19
     },
     {
       "kind": "function",
       "name": "chat",
       "path": "orion/intelligence/openai_provider.py",
-      "line": 19
+      "line": 22
+    },
+    {
+      "kind": "function",
+      "name": "list_models",
+      "path": "orion/intelligence/openai_provider.py",
+      "line": 44
+    },
+    {
+      "kind": "function",
+      "name": "select_model",
+      "path": "orion/intelligence/openai_provider.py",
+      "line": 53
+    },
+    {
+      "kind": "function",
+      "name": "_raise",
+      "path": "orion/intelligence/openai_provider.py",
+      "line": 57
     },
     {
       "kind": "class",
@@ -1033,6 +1915,48 @@
       "name": "name",
       "path": "orion/intelligence/provider.py",
       "line": 19
+    },
+    {
+      "kind": "class",
+      "name": "SecretStore",
+      "path": "orion/intelligence/secrets.py",
+      "line": 16
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/intelligence/secrets.py",
+      "line": 22
+    },
+    {
+      "kind": "function",
+      "name": "source",
+      "path": "orion/intelligence/secrets.py",
+      "line": 25
+    },
+    {
+      "kind": "function",
+      "name": "get_file_value",
+      "path": "orion/intelligence/secrets.py",
+      "line": 32
+    },
+    {
+      "kind": "function",
+      "name": "get",
+      "path": "orion/intelligence/secrets.py",
+      "line": 43
+    },
+    {
+      "kind": "function",
+      "name": "set",
+      "path": "orion/intelligence/secrets.py",
+      "line": 50
+    },
+    {
+      "kind": "function",
+      "name": "delete",
+      "path": "orion/intelligence/secrets.py",
+      "line": 73
     },
     {
       "kind": "class",
@@ -1084,51 +2008,69 @@
     },
     {
       "kind": "function",
+      "name": "is_fresh",
+      "path": "orion/knowledge/index.py",
+      "line": 145
+    },
+    {
+      "kind": "function",
+      "name": "ensure_fresh",
+      "path": "orion/knowledge/index.py",
+      "line": 162
+    },
+    {
+      "kind": "function",
       "name": "symbols",
       "path": "orion/knowledge/index.py",
-      "line": 139
+      "line": 168
     },
     {
       "kind": "function",
       "name": "todos",
       "path": "orion/knowledge/index.py",
-      "line": 143
+      "line": 172
     },
     {
       "kind": "function",
       "name": "imports",
       "path": "orion/knowledge/index.py",
-      "line": 146
+      "line": 175
     },
     {
       "kind": "function",
       "name": "query",
       "path": "orion/knowledge/index.py",
-      "line": 149
+      "line": 178
     },
     {
       "kind": "function",
       "name": "summary",
       "path": "orion/knowledge/index.py",
-      "line": 166
+      "line": 195
     },
     {
       "kind": "function",
       "name": "_ignored",
       "path": "orion/knowledge/index.py",
-      "line": 177
+      "line": 209
     },
     {
       "kind": "function",
       "name": "_is_test",
       "path": "orion/knowledge/index.py",
-      "line": 182
+      "line": 214
+    },
+    {
+      "kind": "function",
+      "name": "build_parser",
+      "path": "orion/main.py",
+      "line": 11
     },
     {
       "kind": "function",
       "name": "main",
       "path": "orion/main.py",
-      "line": 8
+      "line": 21
     },
     {
       "kind": "class",
@@ -1366,6 +2308,846 @@
     },
     {
       "kind": "class",
+      "name": "AIModelInfo",
+      "path": "orion/services/ai_control.py",
+      "line": 10
+    },
+    {
+      "kind": "class",
+      "name": "AIControlService",
+      "path": "orion/services/ai_control.py",
+      "line": 73
+    },
+    {
+      "kind": "function",
+      "name": "size_label",
+      "path": "orion/services/ai_control.py",
+      "line": 20
+    },
+    {
+      "kind": "function",
+      "name": "context_label",
+      "path": "orion/services/ai_control.py",
+      "line": 26
+    },
+    {
+      "kind": "function",
+      "name": "tags",
+      "path": "orion/services/ai_control.py",
+      "line": 34
+    },
+    {
+      "kind": "function",
+      "name": "_parameter_billions",
+      "path": "orion/services/ai_control.py",
+      "line": 56
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/ai_control.py",
+      "line": 84
+    },
+    {
+      "kind": "function",
+      "name": "models",
+      "path": "orion/services/ai_control.py",
+      "line": 88
+    },
+    {
+      "kind": "function",
+      "name": "select",
+      "path": "orion/services/ai_control.py",
+      "line": 96
+    },
+    {
+      "kind": "function",
+      "name": "default_model",
+      "path": "orion/services/ai_control.py",
+      "line": 121
+    },
+    {
+      "kind": "function",
+      "name": "set_default",
+      "path": "orion/services/ai_control.py",
+      "line": 125
+    },
+    {
+      "kind": "function",
+      "name": "recommend",
+      "path": "orion/services/ai_control.py",
+      "line": 135
+    },
+    {
+      "kind": "function",
+      "name": "activate_profile",
+      "path": "orion/services/ai_control.py",
+      "line": 159
+    },
+    {
+      "kind": "function",
+      "name": "quick_benchmark",
+      "path": "orion/services/ai_control.py",
+      "line": 174
+    },
+    {
+      "kind": "function",
+      "name": "_quality_key",
+      "path": "orion/services/ai_control.py",
+      "line": 186
+    },
+    {
+      "kind": "function",
+      "name": "_match_model",
+      "path": "orion/services/ai_control.py",
+      "line": 191
+    },
+    {
+      "kind": "class",
+      "name": "ServiceState",
+      "path": "orion/services/base.py",
+      "line": 9
+    },
+    {
+      "kind": "class",
+      "name": "ServiceStatus",
+      "path": "orion/services/base.py",
+      "line": 16
+    },
+    {
+      "kind": "class",
+      "name": "ServiceResult",
+      "path": "orion/services/base.py",
+      "line": 26
+    },
+    {
+      "kind": "class",
+      "name": "OrionService",
+      "path": "orion/services/base.py",
+      "line": 34
+    },
+    {
+      "kind": "function",
+      "name": "available",
+      "path": "orion/services/base.py",
+      "line": 21
+    },
+    {
+      "kind": "function",
+      "name": "name",
+      "path": "orion/services/base.py",
+      "line": 38
+    },
+    {
+      "kind": "function",
+      "name": "is_available",
+      "path": "orion/services/base.py",
+      "line": 40
+    },
+    {
+      "kind": "function",
+      "name": "get_status",
+      "path": "orion/services/base.py",
+      "line": 42
+    },
+    {
+      "kind": "function",
+      "name": "handle_request",
+      "path": "orion/services/base.py",
+      "line": 44
+    },
+    {
+      "kind": "class",
+      "name": "BriefingPriority",
+      "path": "orion/services/briefing.py",
+      "line": 9
+    },
+    {
+      "kind": "class",
+      "name": "BriefingItem",
+      "path": "orion/services/briefing.py",
+      "line": 18
+    },
+    {
+      "kind": "class",
+      "name": "BriefingProvider",
+      "path": "orion/services/briefing.py",
+      "line": 37
+    },
+    {
+      "kind": "class",
+      "name": "BriefingProviderError",
+      "path": "orion/services/briefing.py",
+      "line": 47
+    },
+    {
+      "kind": "class",
+      "name": "Briefing",
+      "path": "orion/services/briefing.py",
+      "line": 53
+    },
+    {
+      "kind": "class",
+      "name": "BriefingService",
+      "path": "orion/services/briefing.py",
+      "line": 58
+    },
+    {
+      "kind": "class",
+      "name": "SystemBriefingProvider",
+      "path": "orion/services/briefing.py",
+      "line": 106
+    },
+    {
+      "kind": "function",
+      "name": "__post_init__",
+      "path": "orion/services/briefing.py",
+      "line": 27
+    },
+    {
+      "kind": "function",
+      "name": "name",
+      "path": "orion/services/briefing.py",
+      "line": 41
+    },
+    {
+      "kind": "function",
+      "name": "get_briefing",
+      "path": "orion/services/briefing.py",
+      "line": 43
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/briefing.py",
+      "line": 61
+    },
+    {
+      "kind": "function",
+      "name": "_key",
+      "path": "orion/services/briefing.py",
+      "line": 65
+    },
+    {
+      "kind": "function",
+      "name": "register_provider",
+      "path": "orion/services/briefing.py",
+      "line": 71
+    },
+    {
+      "kind": "function",
+      "name": "remove_provider",
+      "path": "orion/services/briefing.py",
+      "line": 79
+    },
+    {
+      "kind": "function",
+      "name": "provider_names",
+      "path": "orion/services/briefing.py",
+      "line": 85
+    },
+    {
+      "kind": "function",
+      "name": "build",
+      "path": "orion/services/briefing.py",
+      "line": 88
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/briefing.py",
+      "line": 111
+    },
+    {
+      "kind": "function",
+      "name": "get_briefing",
+      "path": "orion/services/briefing.py",
+      "line": 114
+    },
+    {
+      "kind": "class",
+      "name": "CalendarError",
+      "path": "orion/services/calendar.py",
+      "line": 15
+    },
+    {
+      "kind": "class",
+      "name": "CalendarEvent",
+      "path": "orion/services/calendar.py",
+      "line": 20
+    },
+    {
+      "kind": "class",
+      "name": "CalendarClient",
+      "path": "orion/services/calendar.py",
+      "line": 35
+    },
+    {
+      "kind": "class",
+      "name": "CalendarProvider",
+      "path": "orion/services/calendar.py",
+      "line": 41
+    },
+    {
+      "kind": "class",
+      "name": "GoogleCalendarClient",
+      "path": "orion/services/calendar.py",
+      "line": 56
+    },
+    {
+      "kind": "class",
+      "name": "MicrosoftCalendarClient",
+      "path": "orion/services/calendar.py",
+      "line": 147
+    },
+    {
+      "kind": "class",
+      "name": "CalendarService",
+      "path": "orion/services/calendar.py",
+      "line": 234
+    },
+    {
+      "kind": "class",
+      "name": "CalendarBriefingProvider",
+      "path": "orion/services/calendar.py",
+      "line": 453
+    },
+    {
+      "kind": "function",
+      "name": "duration_minutes",
+      "path": "orion/services/calendar.py",
+      "line": 31
+    },
+    {
+      "kind": "function",
+      "name": "connect",
+      "path": "orion/services/calendar.py",
+      "line": 36
+    },
+    {
+      "kind": "function",
+      "name": "list_events",
+      "path": "orion/services/calendar.py",
+      "line": 37
+    },
+    {
+      "kind": "function",
+      "name": "connect",
+      "path": "orion/services/calendar.py",
+      "line": 48
+    },
+    {
+      "kind": "function",
+      "name": "list_events",
+      "path": "orion/services/calendar.py",
+      "line": 51
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/calendar.py",
+      "line": 61
+    },
+    {
+      "kind": "function",
+      "name": "_imports",
+      "path": "orion/services/calendar.py",
+      "line": 66
+    },
+    {
+      "kind": "function",
+      "name": "_load_credentials",
+      "path": "orion/services/calendar.py",
+      "line": 76
+    },
+    {
+      "kind": "function",
+      "name": "_save_token",
+      "path": "orion/services/calendar.py",
+      "line": 104
+    },
+    {
+      "kind": "function",
+      "name": "_build_service",
+      "path": "orion/services/calendar.py",
+      "line": 108
+    },
+    {
+      "kind": "function",
+      "name": "connect",
+      "path": "orion/services/calendar.py",
+      "line": 119
+    },
+    {
+      "kind": "function",
+      "name": "_parse_event_time",
+      "path": "orion/services/calendar.py",
+      "line": 123
+    },
+    {
+      "kind": "function",
+      "name": "list_events",
+      "path": "orion/services/calendar.py",
+      "line": 130
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/calendar.py",
+      "line": 153
+    },
+    {
+      "kind": "function",
+      "name": "_imports",
+      "path": "orion/services/calendar.py",
+      "line": 159
+    },
+    {
+      "kind": "function",
+      "name": "_cache_and_app",
+      "path": "orion/services/calendar.py",
+      "line": 167
+    },
+    {
+      "kind": "function",
+      "name": "_save_cache",
+      "path": "orion/services/calendar.py",
+      "line": 180
+    },
+    {
+      "kind": "function",
+      "name": "_token",
+      "path": "orion/services/calendar.py",
+      "line": 185
+    },
+    {
+      "kind": "function",
+      "name": "connect",
+      "path": "orion/services/calendar.py",
+      "line": 199
+    },
+    {
+      "kind": "function",
+      "name": "_parse_graph_time",
+      "path": "orion/services/calendar.py",
+      "line": 203
+    },
+    {
+      "kind": "function",
+      "name": "list_events",
+      "path": "orion/services/calendar.py",
+      "line": 212
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/calendar.py",
+      "line": 239
+    },
+    {
+      "kind": "function",
+      "name": "active_providers",
+      "path": "orion/services/calendar.py",
+      "line": 263
+    },
+    {
+      "kind": "function",
+      "name": "is_available",
+      "path": "orion/services/calendar.py",
+      "line": 266
+    },
+    {
+      "kind": "function",
+      "name": "get_status",
+      "path": "orion/services/calendar.py",
+      "line": 269
+    },
+    {
+      "kind": "function",
+      "name": "provider_summary",
+      "path": "orion/services/calendar.py",
+      "line": 279
+    },
+    {
+      "kind": "function",
+      "name": "enable_provider",
+      "path": "orion/services/calendar.py",
+      "line": 287
+    },
+    {
+      "kind": "function",
+      "name": "disable_provider",
+      "path": "orion/services/calendar.py",
+      "line": 303
+    },
+    {
+      "kind": "function",
+      "name": "configure_provider",
+      "path": "orion/services/calendar.py",
+      "line": 313
+    },
+    {
+      "kind": "function",
+      "name": "connect",
+      "path": "orion/services/calendar.py",
+      "line": 336
+    },
+    {
+      "kind": "function",
+      "name": "_day_bounds",
+      "path": "orion/services/calendar.py",
+      "line": 357
+    },
+    {
+      "kind": "function",
+      "name": "_list_merged",
+      "path": "orion/services/calendar.py",
+      "line": 362
+    },
+    {
+      "kind": "function",
+      "name": "events_for_day",
+      "path": "orion/services/calendar.py",
+      "line": 377
+    },
+    {
+      "kind": "function",
+      "name": "next_event",
+      "path": "orion/services/calendar.py",
+      "line": 380
+    },
+    {
+      "kind": "function",
+      "name": "is_free",
+      "path": "orion/services/calendar.py",
+      "line": 385
+    },
+    {
+      "kind": "function",
+      "name": "_format_event_portable",
+      "path": "orion/services/calendar.py",
+      "line": 397
+    },
+    {
+      "kind": "function",
+      "name": "format_day",
+      "path": "orion/services/calendar.py",
+      "line": 402
+    },
+    {
+      "kind": "function",
+      "name": "format_next",
+      "path": "orion/services/calendar.py",
+      "line": 411
+    },
+    {
+      "kind": "function",
+      "name": "_is_conversational",
+      "path": "orion/services/calendar.py",
+      "line": 420
+    },
+    {
+      "kind": "function",
+      "name": "handle_request",
+      "path": "orion/services/calendar.py",
+      "line": 424
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/calendar.py",
+      "line": 456
+    },
+    {
+      "kind": "function",
+      "name": "get_briefing",
+      "path": "orion/services/calendar.py",
+      "line": 459
+    },
+    {
+      "kind": "function",
+      "name": "_normalize",
+      "path": "orion/services/companion.py",
+      "line": 8
+    },
+    {
+      "kind": "class",
+      "name": "CompanionSettings",
+      "path": "orion/services/companion.py",
+      "line": 12
+    },
+    {
+      "kind": "class",
+      "name": "ActionTrustStore",
+      "path": "orion/services/companion.py",
+      "line": 39
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/companion.py",
+      "line": 15
+    },
+    {
+      "kind": "function",
+      "name": "bind",
+      "path": "orion/services/companion.py",
+      "line": 19
+    },
+    {
+      "kind": "function",
+      "name": "load",
+      "path": "orion/services/companion.py",
+      "line": 24
+    },
+    {
+      "kind": "function",
+      "name": "set_developer_mode",
+      "path": "orion/services/companion.py",
+      "line": 30
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/companion.py",
+      "line": 42
+    },
+    {
+      "kind": "function",
+      "name": "bind",
+      "path": "orion/services/companion.py",
+      "line": 46
+    },
+    {
+      "kind": "function",
+      "name": "load",
+      "path": "orion/services/companion.py",
+      "line": 51
+    },
+    {
+      "kind": "function",
+      "name": "trust",
+      "path": "orion/services/companion.py",
+      "line": 59
+    },
+    {
+      "kind": "function",
+      "name": "revoke",
+      "path": "orion/services/companion.py",
+      "line": 67
+    },
+    {
+      "kind": "function",
+      "name": "is_trusted",
+      "path": "orion/services/companion.py",
+      "line": 78
+    },
+    {
+      "kind": "function",
+      "name": "entries",
+      "path": "orion/services/companion.py",
+      "line": 81
+    },
+    {
+      "kind": "function",
+      "name": "_save",
+      "path": "orion/services/companion.py",
+      "line": 88
+    },
+    {
+      "kind": "class",
+      "name": "Application",
+      "path": "orion/services/discovery.py",
+      "line": 14
+    },
+    {
+      "kind": "class",
+      "name": "ApplicationMatch",
+      "path": "orion/services/discovery.py",
+      "line": 30
+    },
+    {
+      "kind": "class",
+      "name": "ApplicationCatalog",
+      "path": "orion/services/discovery.py",
+      "line": 36
+    },
+    {
+      "kind": "class",
+      "name": "ApplicationDiscoveryService",
+      "path": "orion/services/discovery.py",
+      "line": 107
+    },
+    {
+      "kind": "class",
+      "name": "ApplicationMatcher",
+      "path": "orion/services/discovery.py",
+      "line": 154
+    },
+    {
+      "kind": "class",
+      "name": "ApplicationLauncherService",
+      "path": "orion/services/discovery.py",
+      "line": 207
+    },
+    {
+      "kind": "function",
+      "name": "application_preference",
+      "path": "orion/services/discovery.py",
+      "line": 232
+    },
+    {
+      "kind": "function",
+      "name": "normalize_name",
+      "path": "orion/services/discovery.py",
+      "line": 237
+    },
+    {
+      "kind": "function",
+      "name": "friendly_name",
+      "path": "orion/services/discovery.py",
+      "line": 242
+    },
+    {
+      "kind": "function",
+      "name": "launch_application_path",
+      "path": "orion/services/discovery.py",
+      "line": 250
+    },
+    {
+      "kind": "function",
+      "name": "launch_windows_search",
+      "path": "orion/services/discovery.py",
+      "line": 257
+    },
+    {
+      "kind": "function",
+      "name": "key",
+      "path": "orion/services/discovery.py",
+      "line": 22
+    },
+    {
+      "kind": "function",
+      "name": "to_dict",
+      "path": "orion/services/discovery.py",
+      "line": 25
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/discovery.py",
+      "line": 39
+    },
+    {
+      "kind": "function",
+      "name": "bind",
+      "path": "orion/services/discovery.py",
+      "line": 48
+    },
+    {
+      "kind": "function",
+      "name": "load",
+      "path": "orion/services/discovery.py",
+      "line": 56
+    },
+    {
+      "kind": "function",
+      "name": "replace",
+      "path": "orion/services/discovery.py",
+      "line": 69
+    },
+    {
+      "kind": "function",
+      "name": "applications",
+      "path": "orion/services/discovery.py",
+      "line": 76
+    },
+    {
+      "kind": "function",
+      "name": "aliases",
+      "path": "orion/services/discovery.py",
+      "line": 79
+    },
+    {
+      "kind": "function",
+      "name": "set_alias",
+      "path": "orion/services/discovery.py",
+      "line": 82
+    },
+    {
+      "kind": "function",
+      "name": "remove_alias",
+      "path": "orion/services/discovery.py",
+      "line": 91
+    },
+    {
+      "kind": "function",
+      "name": "_write_catalog",
+      "path": "orion/services/discovery.py",
+      "line": 97
+    },
+    {
+      "kind": "function",
+      "name": "_write_aliases",
+      "path": "orion/services/discovery.py",
+      "line": 102
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/discovery.py",
+      "line": 112
+    },
+    {
+      "kind": "function",
+      "name": "default_roots",
+      "path": "orion/services/discovery.py",
+      "line": 117
+    },
+    {
+      "kind": "function",
+      "name": "scan",
+      "path": "orion/services/discovery.py",
+      "line": 133
+    },
+    {
+      "kind": "function",
+      "name": "_source_name",
+      "path": "orion/services/discovery.py",
+      "line": 149
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/discovery.py",
+      "line": 157
+    },
+    {
+      "kind": "function",
+      "name": "find",
+      "path": "orion/services/discovery.py",
+      "line": 160
+    },
+    {
+      "kind": "function",
+      "name": "resolve",
+      "path": "orion/services/discovery.py",
+      "line": 198
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/discovery.py",
+      "line": 210
+    },
+    {
+      "kind": "function",
+      "name": "launch",
+      "path": "orion/services/discovery.py",
+      "line": 220
+    },
+    {
+      "kind": "class",
       "name": "ProjectContext",
       "path": "orion/services/project_context.py",
       "line": 14
@@ -1456,75 +3238,135 @@
     },
     {
       "kind": "function",
+      "name": "matches_workspace",
+      "path": "orion/services/project_context.py",
+      "line": 159
+    },
+    {
+      "kind": "function",
       "name": "set_field",
       "path": "orion/services/project_context.py",
-      "line": 158
+      "line": 169
     },
     {
       "kind": "function",
       "name": "add_note",
       "path": "orion/services/project_context.py",
-      "line": 177
+      "line": 188
     },
     {
       "kind": "function",
       "name": "add_checkpoint",
       "path": "orion/services/project_context.py",
-      "line": 187
+      "line": 198
     },
     {
       "kind": "function",
       "name": "latest_checkpoint",
       "path": "orion/services/project_context.py",
-      "line": 201
+      "line": 212
     },
     {
       "kind": "function",
       "name": "add_rule",
       "path": "orion/services/project_context.py",
-      "line": 208
+      "line": 219
     },
     {
       "kind": "function",
       "name": "rules",
       "path": "orion/services/project_context.py",
-      "line": 223
+      "line": 234
     },
     {
       "kind": "function",
       "name": "remove_rule",
       "path": "orion/services/project_context.py",
-      "line": 234
+      "line": 245
     },
     {
       "kind": "function",
       "name": "resume",
       "path": "orion/services/project_context.py",
-      "line": 244
+      "line": 255
     },
     {
       "kind": "function",
       "name": "history",
       "path": "orion/services/project_context.py",
-      "line": 248
+      "line": 259
     },
     {
       "kind": "function",
       "name": "add_history",
       "path": "orion/services/project_context.py",
-      "line": 255
+      "line": 266
     },
     {
       "kind": "function",
       "name": "tasks",
       "path": "orion/services/project_context.py",
-      "line": 268
+      "line": 279
     },
     {
       "kind": "function",
       "name": "metrics",
       "path": "orion/services/project_context.py",
-      "line": 275
+      "line": 286
+    },
+    {
+      "kind": "class",
+      "name": "ProviderStatus",
+      "path": "orion/services/provider_manager.py",
+      "line": 11
+    },
+    {
+      "kind": "class",
+      "name": "ProviderManager",
+      "path": "orion/services/provider_manager.py",
+      "line": 19
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/provider_manager.py",
+      "line": 22
+    },
+    {
+      "kind": "function",
+      "name": "statuses",
+      "path": "orion/services/provider_manager.py",
+      "line": 27
+    },
+    {
+      "kind": "function",
+      "name": "configure",
+      "path": "orion/services/provider_manager.py",
+      "line": 36
+    },
+    {
+      "kind": "function",
+      "name": "activate",
+      "path": "orion/services/provider_manager.py",
+      "line": 46
+    },
+    {
+      "kind": "function",
+      "name": "models",
+      "path": "orion/services/provider_manager.py",
+      "line": 57
+    },
+    {
+      "kind": "function",
+      "name": "set_model",
+      "path": "orion/services/provider_manager.py",
+      "line": 61
+    },
+    {
+      "kind": "function",
+      "name": "_validate",
+      "path": "orion/services/provider_manager.py",
+      "line": 75
     },
     {
       "kind": "class",
@@ -1609,6 +3451,258 @@
       "name": "__len__",
       "path": "orion/services/registry.py",
       "line": 105
+    },
+    {
+      "kind": "class",
+      "name": "VaultEntry",
+      "path": "orion/services/vault.py",
+      "line": 18
+    },
+    {
+      "kind": "class",
+      "name": "VaultHealth",
+      "path": "orion/services/vault.py",
+      "line": 26
+    },
+    {
+      "kind": "class",
+      "name": "VaultService",
+      "path": "orion/services/vault.py",
+      "line": 33
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/vault.py",
+      "line": 36
+    },
+    {
+      "kind": "function",
+      "name": "path",
+      "path": "orion/services/vault.py",
+      "line": 46
+    },
+    {
+      "kind": "function",
+      "name": "list_entries",
+      "path": "orion/services/vault.py",
+      "line": 49
+    },
+    {
+      "kind": "function",
+      "name": "add",
+      "path": "orion/services/vault.py",
+      "line": 56
+    },
+    {
+      "kind": "function",
+      "name": "remove",
+      "path": "orion/services/vault.py",
+      "line": 62
+    },
+    {
+      "kind": "function",
+      "name": "health",
+      "path": "orion/services/vault.py",
+      "line": 70
+    },
+    {
+      "kind": "function",
+      "name": "migrate_legacy_store",
+      "path": "orion/services/vault.py",
+      "line": 85
+    },
+    {
+      "kind": "function",
+      "name": "_validate",
+      "path": "orion/services/vault.py",
+      "line": 99
+    },
+    {
+      "kind": "class",
+      "name": "WeatherError",
+      "path": "orion/services/weather.py",
+      "line": 17
+    },
+    {
+      "kind": "class",
+      "name": "WeatherLocation",
+      "path": "orion/services/weather.py",
+      "line": 22
+    },
+    {
+      "kind": "class",
+      "name": "DailyWeather",
+      "path": "orion/services/weather.py",
+      "line": 39
+    },
+    {
+      "kind": "class",
+      "name": "WeatherReport",
+      "path": "orion/services/weather.py",
+      "line": 48
+    },
+    {
+      "kind": "function",
+      "name": "weather_code_description",
+      "path": "orion/services/weather.py",
+      "line": 83
+    },
+    {
+      "kind": "class",
+      "name": "OpenMeteoClient",
+      "path": "orion/services/weather.py",
+      "line": 87
+    },
+    {
+      "kind": "class",
+      "name": "WeatherService",
+      "path": "orion/services/weather.py",
+      "line": 203
+    },
+    {
+      "kind": "class",
+      "name": "WeatherBriefingProvider",
+      "path": "orion/services/weather.py",
+      "line": 364
+    },
+    {
+      "kind": "function",
+      "name": "display_name",
+      "path": "orion/services/weather.py",
+      "line": 31
+    },
+    {
+      "kind": "function",
+      "name": "condition",
+      "path": "orion/services/weather.py",
+      "line": 61
+    },
+    {
+      "kind": "function",
+      "name": "today",
+      "path": "orion/services/weather.py",
+      "line": 65
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/weather.py",
+      "line": 93
+    },
+    {
+      "kind": "function",
+      "name": "_get_json",
+      "path": "orion/services/weather.py",
+      "line": 97
+    },
+    {
+      "kind": "function",
+      "name": "_location_parts",
+      "path": "orion/services/weather.py",
+      "line": 111
+    },
+    {
+      "kind": "function",
+      "name": "_result_score",
+      "path": "orion/services/weather.py",
+      "line": 118
+    },
+    {
+      "kind": "function",
+      "name": "geocode",
+      "path": "orion/services/weather.py",
+      "line": 138
+    },
+    {
+      "kind": "function",
+      "name": "forecast",
+      "path": "orion/services/weather.py",
+      "line": 160
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/weather.py",
+      "line": 208
+    },
+    {
+      "kind": "function",
+      "name": "is_available",
+      "path": "orion/services/weather.py",
+      "line": 218
+    },
+    {
+      "kind": "function",
+      "name": "get_status",
+      "path": "orion/services/weather.py",
+      "line": 221
+    },
+    {
+      "kind": "function",
+      "name": "resolve_location",
+      "path": "orion/services/weather.py",
+      "line": 228
+    },
+    {
+      "kind": "function",
+      "name": "get_weather",
+      "path": "orion/services/weather.py",
+      "line": 237
+    },
+    {
+      "kind": "function",
+      "name": "_requested_location",
+      "path": "orion/services/weather.py",
+      "line": 256
+    },
+    {
+      "kind": "function",
+      "name": "_day_index",
+      "path": "orion/services/weather.py",
+      "line": 268
+    },
+    {
+      "kind": "function",
+      "name": "_is_conversational_request",
+      "path": "orion/services/weather.py",
+      "line": 272
+    },
+    {
+      "kind": "function",
+      "name": "_has_greeting",
+      "path": "orion/services/weather.py",
+      "line": 277
+    },
+    {
+      "kind": "function",
+      "name": "_format_conversational",
+      "path": "orion/services/weather.py",
+      "line": 282
+    },
+    {
+      "kind": "function",
+      "name": "format_report",
+      "path": "orion/services/weather.py",
+      "line": 328
+    },
+    {
+      "kind": "function",
+      "name": "handle_request",
+      "path": "orion/services/weather.py",
+      "line": 356
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/services/weather.py",
+      "line": 369
+    },
+    {
+      "kind": "function",
+      "name": "get_briefing",
+      "path": "orion/services/weather.py",
+      "line": 372
     },
     {
       "kind": "class",
@@ -1774,6 +3868,96 @@
     },
     {
       "kind": "class",
+      "name": "OrionCompleter",
+      "path": "orion/ui/console.py",
+      "line": 41
+    },
+    {
+      "kind": "class",
+      "name": "Console",
+      "path": "orion/ui/console.py",
+      "line": 63
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/ui/console.py",
+      "line": 44
+    },
+    {
+      "kind": "function",
+      "name": "get_completions",
+      "path": "orion/ui/console.py",
+      "line": 47
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "orion/ui/console.py",
+      "line": 66
+    },
+    {
+      "kind": "function",
+      "name": "prompt",
+      "path": "orion/ui/console.py",
+      "line": 79
+    },
+    {
+      "kind": "function",
+      "name": "render_home",
+      "path": "orion/ui/console.py",
+      "line": 87
+    },
+    {
+      "kind": "function",
+      "name": "render_briefing",
+      "path": "orion/ui/console.py",
+      "line": 118
+    },
+    {
+      "kind": "function",
+      "name": "success",
+      "path": "orion/ui/console.py",
+      "line": 132
+    },
+    {
+      "kind": "function",
+      "name": "info",
+      "path": "orion/ui/console.py",
+      "line": 136
+    },
+    {
+      "kind": "function",
+      "name": "warning",
+      "path": "orion/ui/console.py",
+      "line": 140
+    },
+    {
+      "kind": "function",
+      "name": "error",
+      "path": "orion/ui/console.py",
+      "line": 144
+    },
+    {
+      "kind": "class",
+      "name": "_Blank",
+      "path": "orion/ui/console.py",
+      "line": 10
+    },
+    {
+      "kind": "function",
+      "name": "colorama_init",
+      "path": "orion/ui/console.py",
+      "line": 14
+    },
+    {
+      "kind": "function",
+      "name": "__getattr__",
+      "path": "orion/ui/console.py",
+      "line": 11
+    },
+    {
+      "kind": "class",
       "name": "CodePlugin",
       "path": "plugins/code/plugin.py",
       "line": 8
@@ -1888,6 +4072,96 @@
     },
     {
       "kind": "class",
+      "name": "ActionCoreTests",
+      "path": "tests/test_actions.py",
+      "line": 8
+    },
+    {
+      "kind": "function",
+      "name": "make_service",
+      "path": "tests/test_actions.py",
+      "line": 9
+    },
+    {
+      "kind": "function",
+      "name": "test_action_ids_are_unique_and_handler_executes",
+      "path": "tests/test_actions.py",
+      "line": 14
+    },
+    {
+      "kind": "function",
+      "name": "test_unknown_and_duplicate_handlers_are_rejected",
+      "path": "tests/test_actions.py",
+      "line": 25
+    },
+    {
+      "kind": "function",
+      "name": "test_handler_failure_is_recorded",
+      "path": "tests/test_actions.py",
+      "line": 33
+    },
+    {
+      "kind": "function",
+      "name": "test_action_history_is_isolated_by_workspace",
+      "path": "tests/test_actions.py",
+      "line": 44
+    },
+    {
+      "kind": "function",
+      "name": "test_approval_required_action_cannot_execute_early",
+      "path": "tests/test_actions.py",
+      "line": 51
+    },
+    {
+      "kind": "class",
+      "name": "AIControlTests",
+      "path": "tests/test_ai_control.py",
+      "line": 14
+    },
+    {
+      "kind": "function",
+      "name": "manager",
+      "path": "tests/test_ai_control.py",
+      "line": 15
+    },
+    {
+      "kind": "function",
+      "name": "test_recommends_smallest_model_for_fastest",
+      "path": "tests/test_ai_control.py",
+      "line": 21
+    },
+    {
+      "kind": "function",
+      "name": "test_natural_language_switch_can_be_saved_as_default",
+      "path": "tests/test_ai_control.py",
+      "line": 29
+    },
+    {
+      "kind": "function",
+      "name": "test_natural_language_switch_can_be_session_only",
+      "path": "tests/test_ai_control.py",
+      "line": 41
+    },
+    {
+      "kind": "function",
+      "name": "test_status_shows_session_override",
+      "path": "tests/test_ai_control.py",
+      "line": 53
+    },
+    {
+      "kind": "function",
+      "name": "test_profile_sets_temperature_and_model",
+      "path": "tests/test_ai_control.py",
+      "line": 65
+    },
+    {
+      "kind": "function",
+      "name": "test_model_tags_recognize_vision_and_coding",
+      "path": "tests/test_ai_control.py",
+      "line": 76
+    },
+    {
+      "kind": "class",
       "name": "FakeProvider",
       "path": "tests/test_brain_conversation.py",
       "line": 11
@@ -1936,6 +4210,216 @@
     },
     {
       "kind": "class",
+      "name": "_Provider",
+      "path": "tests/test_briefing.py",
+      "line": 12
+    },
+    {
+      "kind": "class",
+      "name": "BriefingServiceTests",
+      "path": "tests/test_briefing.py",
+      "line": 28
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "tests/test_briefing.py",
+      "line": 13
+    },
+    {
+      "kind": "function",
+      "name": "name",
+      "path": "tests/test_briefing.py",
+      "line": 19
+    },
+    {
+      "kind": "function",
+      "name": "get_briefing",
+      "path": "tests/test_briefing.py",
+      "line": 22
+    },
+    {
+      "kind": "function",
+      "name": "test_orders_by_priority_and_preserves_provider_order",
+      "path": "tests/test_briefing.py",
+      "line": 29
+    },
+    {
+      "kind": "function",
+      "name": "test_provider_failure_is_isolated",
+      "path": "tests/test_briefing.py",
+      "line": 42
+    },
+    {
+      "kind": "function",
+      "name": "test_duplicate_registration_requires_replace",
+      "path": "tests/test_briefing.py",
+      "line": 54
+    },
+    {
+      "kind": "function",
+      "name": "test_rejects_invalid_items",
+      "path": "tests/test_briefing.py",
+      "line": 65
+    },
+    {
+      "kind": "function",
+      "name": "test_system_provider_uses_live_orion_state",
+      "path": "tests/test_briefing.py",
+      "line": 71
+    },
+    {
+      "kind": "class",
+      "name": "FakeCalendarClient",
+      "path": "tests/test_calendar.py",
+      "line": 13
+    },
+    {
+      "kind": "function",
+      "name": "event",
+      "path": "tests/test_calendar.py",
+      "line": 26
+    },
+    {
+      "kind": "class",
+      "name": "CalendarTests",
+      "path": "tests/test_calendar.py",
+      "line": 31
+    },
+    {
+      "kind": "class",
+      "name": "FakeConnectableCalendarClient",
+      "path": "tests/test_calendar.py",
+      "line": 99
+    },
+    {
+      "kind": "class",
+      "name": "CalendarProviderTests",
+      "path": "tests/test_calendar.py",
+      "line": 110
+    },
+    {
+      "kind": "class",
+      "name": "CalendarProviderManagementTests",
+      "path": "tests/test_calendar.py",
+      "line": 160
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "tests/test_calendar.py",
+      "line": 14
+    },
+    {
+      "kind": "function",
+      "name": "list_events",
+      "path": "tests/test_calendar.py",
+      "line": 19
+    },
+    {
+      "kind": "function",
+      "name": "make_service",
+      "path": "tests/test_calendar.py",
+      "line": 32
+    },
+    {
+      "kind": "function",
+      "name": "test_disabled_calendar_reports_unavailable_without_network",
+      "path": "tests/test_calendar.py",
+      "line": 41
+    },
+    {
+      "kind": "function",
+      "name": "test_today_agenda_formats_events_in_time_order",
+      "path": "tests/test_calendar.py",
+      "line": 49
+    },
+    {
+      "kind": "function",
+      "name": "test_conversational_calendar_question_uses_natural_response",
+      "path": "tests/test_calendar.py",
+      "line": 56
+    },
+    {
+      "kind": "function",
+      "name": "test_tomorrow_uses_next_day_bounds",
+      "path": "tests/test_calendar.py",
+      "line": 63
+    },
+    {
+      "kind": "function",
+      "name": "test_next_event_searches_future_window",
+      "path": "tests/test_calendar.py",
+      "line": 70
+    },
+    {
+      "kind": "function",
+      "name": "test_free_afternoon_question_is_focused",
+      "path": "tests/test_calendar.py",
+      "line": 77
+    },
+    {
+      "kind": "function",
+      "name": "test_briefing_provider_returns_next_event",
+      "path": "tests/test_calendar.py",
+      "line": 83
+    },
+    {
+      "kind": "function",
+      "name": "test_disabled_briefing_provider_is_silent",
+      "path": "tests/test_calendar.py",
+      "line": 91
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "tests/test_calendar.py",
+      "line": 100
+    },
+    {
+      "kind": "function",
+      "name": "connect",
+      "path": "tests/test_calendar.py",
+      "line": 104
+    },
+    {
+      "kind": "function",
+      "name": "test_multiple_providers_merge_and_label_events",
+      "path": "tests/test_calendar.py",
+      "line": 111
+    },
+    {
+      "kind": "function",
+      "name": "test_connect_targets_requested_provider",
+      "path": "tests/test_calendar.py",
+      "line": 130
+    },
+    {
+      "kind": "function",
+      "name": "test_provider_listing_is_provider_neutral",
+      "path": "tests/test_calendar.py",
+      "line": 148
+    },
+    {
+      "kind": "function",
+      "name": "test_enable_and_disable_provider_persist_state",
+      "path": "tests/test_calendar.py",
+      "line": 161
+    },
+    {
+      "kind": "function",
+      "name": "test_configure_microsoft_saves_client_id",
+      "path": "tests/test_calendar.py",
+      "line": 181
+    },
+    {
+      "kind": "function",
+      "name": "test_enable_unknown_provider_is_friendly_error",
+      "path": "tests/test_calendar.py",
+      "line": 199
+    },
+    {
+      "kind": "class",
       "name": "CodeSkillTests",
       "path": "tests/test_code_skill.py",
       "line": 11
@@ -1966,6 +4450,66 @@
     },
     {
       "kind": "class",
+      "name": "CompanionTests",
+      "path": "tests/test_companion.py",
+      "line": 15
+    },
+    {
+      "kind": "function",
+      "name": "test_settings_and_trust_persist_and_rebind",
+      "path": "tests/test_companion.py",
+      "line": 16
+    },
+    {
+      "kind": "function",
+      "name": "_router",
+      "path": "tests/test_companion.py",
+      "line": 31
+    },
+    {
+      "kind": "function",
+      "name": "test_yes_approves_and_executes_without_printing_uuid",
+      "path": "tests/test_companion.py",
+      "line": 48
+    },
+    {
+      "kind": "function",
+      "name": "test_always_allow_is_persisted_and_skips_next_prompt",
+      "path": "tests/test_companion.py",
+      "line": 59
+    },
+    {
+      "kind": "function",
+      "name": "test_pending_actions_accept_friendly_queue_number",
+      "path": "tests/test_companion.py",
+      "line": 70
+    },
+    {
+      "kind": "class",
+      "name": "CompanionConsoleTests",
+      "path": "tests/test_companion_console.py",
+      "line": 10
+    },
+    {
+      "kind": "function",
+      "name": "test_base_command_completion_includes_open",
+      "path": "tests/test_companion_console.py",
+      "line": 11
+    },
+    {
+      "kind": "function",
+      "name": "test_application_completion_uses_catalog",
+      "path": "tests/test_companion_console.py",
+      "line": 18
+    },
+    {
+      "kind": "function",
+      "name": "test_home_command_is_available_and_renderer_shows_cards",
+      "path": "tests/test_companion_console.py",
+      "line": 27
+    },
+    {
+      "kind": "class",
       "name": "ConversationServiceTests",
       "path": "tests/test_conversation.py",
       "line": 10
@@ -1990,15 +4534,81 @@
     },
     {
       "kind": "class",
+      "name": "DiscoveryTests",
+      "path": "tests/test_discovery.py",
+      "line": 15
+    },
+    {
+      "kind": "function",
+      "name": "make_catalog",
+      "path": "tests/test_discovery.py",
+      "line": 16
+    },
+    {
+      "kind": "function",
+      "name": "test_scan_builds_persistent_catalog",
+      "path": "tests/test_discovery.py",
+      "line": 30
+    },
+    {
+      "kind": "function",
+      "name": "test_catalog_rebinds_without_leaking_aliases",
+      "path": "tests/test_discovery.py",
+      "line": 39
+    },
+    {
+      "kind": "function",
+      "name": "test_exact_fuzzy_and_alias_matching",
+      "path": "tests/test_discovery.py",
+      "line": 52
+    },
+    {
+      "kind": "function",
+      "name": "test_duplicate_shortcuts_do_not_create_false_ambiguity",
+      "path": "tests/test_discovery.py",
+      "line": 62
+    },
+    {
+      "kind": "function",
+      "name": "test_ambiguous_query_does_not_guess",
+      "path": "tests/test_discovery.py",
+      "line": 82
+    },
+    {
+      "kind": "function",
+      "name": "test_launcher_uses_direct_match_then_search_fallback",
+      "path": "tests/test_discovery.py",
+      "line": 88
+    },
+    {
+      "kind": "function",
+      "name": "test_open_app_runs_through_approval_action",
+      "path": "tests/test_discovery.py",
+      "line": 102
+    },
+    {
+      "kind": "class",
       "name": "KnowledgeContextTests",
       "path": "tests/test_knowledge_context.py",
       "line": 9
+    },
+    {
+      "kind": "class",
+      "name": "FreshKnowledgeContextTests",
+      "path": "tests/test_knowledge_context.py",
+      "line": 26
     },
     {
       "kind": "function",
       "name": "test_context_includes_only_compact_index_summary",
       "path": "tests/test_knowledge_context.py",
       "line": 10
+    },
+    {
+      "kind": "function",
+      "name": "test_context_rebuilds_index_after_source_change",
+      "path": "tests/test_knowledge_context.py",
+      "line": 27
     },
     {
       "kind": "class",
@@ -2023,6 +4633,138 @@
       "name": "test_requires_build_before_query",
       "path": "tests/test_knowledge_index.py",
       "line": 49
+    },
+    {
+      "kind": "function",
+      "name": "test_stale_index_from_other_workspace_is_not_used_as_context",
+      "path": "tests/test_knowledge_index.py",
+      "line": 55
+    },
+    {
+      "kind": "class",
+      "name": "_Response",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 14
+    },
+    {
+      "kind": "class",
+      "name": "OllamaModelTests",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 25
+    },
+    {
+      "kind": "class",
+      "name": "OllamaWarmModelTests",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 63
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 15
+    },
+    {
+      "kind": "function",
+      "name": "__enter__",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 17
+    },
+    {
+      "kind": "function",
+      "name": "__exit__",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 19
+    },
+    {
+      "kind": "function",
+      "name": "read",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 21
+    },
+    {
+      "kind": "function",
+      "name": "test_provider_lists_installed_models",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 26
+    },
+    {
+      "kind": "function",
+      "name": "test_router_changes_model_and_persists_it",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 32
+    },
+    {
+      "kind": "function",
+      "name": "test_router_cancel_keeps_current_model",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 50
+    },
+    {
+      "kind": "function",
+      "name": "test_warm_model_uses_non_streaming_generate_request",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 64
+    },
+    {
+      "kind": "function",
+      "name": "fake_urlopen",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 67
+    },
+    {
+      "kind": "class",
+      "name": "AnswerQueue",
+      "path": "tests/test_onboarding.py",
+      "line": 10
+    },
+    {
+      "kind": "class",
+      "name": "FirstContactTests",
+      "path": "tests/test_onboarding.py",
+      "line": 18
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "tests/test_onboarding.py",
+      "line": 11
+    },
+    {
+      "kind": "function",
+      "name": "__call__",
+      "path": "tests/test_onboarding.py",
+      "line": 14
+    },
+    {
+      "kind": "function",
+      "name": "test_missing_profile_requires_first_contact",
+      "path": "tests/test_onboarding.py",
+      "line": 19
+    },
+    {
+      "kind": "function",
+      "name": "test_existing_named_profile_skips_first_contact",
+      "path": "tests/test_onboarding.py",
+      "line": 25
+    },
+    {
+      "kind": "function",
+      "name": "test_guided_setup_writes_profile_and_service_choices",
+      "path": "tests/test_onboarding.py",
+      "line": 37
+    },
+    {
+      "kind": "function",
+      "name": "test_cancel_does_not_write_files",
+      "path": "tests/test_onboarding.py",
+      "line": 65
+    },
+    {
+      "kind": "function",
+      "name": "test_force_mode_backs_up_existing_files",
+      "path": "tests/test_onboarding.py",
+      "line": 81
     },
     {
       "kind": "class",
@@ -2073,6 +4815,12 @@
       "line": 10
     },
     {
+      "kind": "class",
+      "name": "ProjectWorkspaceValidationTests",
+      "path": "tests/test_project_context.py",
+      "line": 65
+    },
+    {
       "kind": "function",
       "name": "test_initialize_creates_portable_project_files",
       "path": "tests/test_project_context.py",
@@ -2101,6 +4849,96 @@
       "name": "test_bind_changes_project_workspace",
       "path": "tests/test_project_context.py",
       "line": 52
+    },
+    {
+      "kind": "function",
+      "name": "test_copied_project_metadata_does_not_match_new_workspace",
+      "path": "tests/test_project_context.py",
+      "line": 66
+    },
+    {
+      "kind": "class",
+      "name": "ProviderFederationTests",
+      "path": "tests/test_provider_federation.py",
+      "line": 15
+    },
+    {
+      "kind": "function",
+      "name": "manager",
+      "path": "tests/test_provider_federation.py",
+      "line": 16
+    },
+    {
+      "kind": "function",
+      "name": "test_secret_store_persists_separately",
+      "path": "tests/test_provider_federation.py",
+      "line": 30
+    },
+    {
+      "kind": "function",
+      "name": "test_factory_builds_cloud_providers",
+      "path": "tests/test_provider_federation.py",
+      "line": 37
+    },
+    {
+      "kind": "function",
+      "name": "test_openai_chat_uses_responses_api",
+      "path": "tests/test_provider_federation.py",
+      "line": 47
+    },
+    {
+      "kind": "function",
+      "name": "test_gemini_chat_uses_system_instruction",
+      "path": "tests/test_provider_federation.py",
+      "line": 57
+    },
+    {
+      "kind": "function",
+      "name": "test_provider_manager_switches_brain_and_persists",
+      "path": "tests/test_provider_federation.py",
+      "line": 66
+    },
+    {
+      "kind": "class",
+      "name": "SafeguardTests",
+      "path": "tests/test_safeguard.py",
+      "line": 8
+    },
+    {
+      "kind": "function",
+      "name": "make_service",
+      "path": "tests/test_safeguard.py",
+      "line": 9
+    },
+    {
+      "kind": "function",
+      "name": "test_policy_requires_approval_and_prevents_bypass",
+      "path": "tests/test_safeguard.py",
+      "line": 18
+    },
+    {
+      "kind": "function",
+      "name": "test_approved_action_executes_once",
+      "path": "tests/test_safeguard.py",
+      "line": 27
+    },
+    {
+      "kind": "function",
+      "name": "test_denied_action_cannot_be_approved_or_executed",
+      "path": "tests/test_safeguard.py",
+      "line": 38
+    },
+    {
+      "kind": "function",
+      "name": "test_policy_can_deny_at_creation",
+      "path": "tests/test_safeguard.py",
+      "line": 49
+    },
+    {
+      "kind": "function",
+      "name": "test_safe_policy_runs_without_approval",
+      "path": "tests/test_safeguard.py",
+      "line": 56
     },
     {
       "kind": "class",
@@ -2284,6 +5122,42 @@
     },
     {
       "kind": "class",
+      "name": "VaultTests",
+      "path": "tests/test_vault.py",
+      "line": 12
+    },
+    {
+      "kind": "function",
+      "name": "config",
+      "path": "tests/test_vault.py",
+      "line": 13
+    },
+    {
+      "kind": "function",
+      "name": "test_add_lists_and_removes_secret",
+      "path": "tests/test_vault.py",
+      "line": 27
+    },
+    {
+      "kind": "function",
+      "name": "test_environment_variable_takes_precedence",
+      "path": "tests/test_vault.py",
+      "line": 40
+    },
+    {
+      "kind": "function",
+      "name": "test_health_checks_configured_provider",
+      "path": "tests/test_vault.py",
+      "line": 48
+    },
+    {
+      "kind": "function",
+      "name": "test_migrates_legacy_secret_file",
+      "path": "tests/test_vault.py",
+      "line": 58
+    },
+    {
+      "kind": "class",
       "name": "WaypointTests",
       "path": "tests/test_waypoint.py",
       "line": 12
@@ -2305,6 +5179,150 @@
       "name": "test_context_builder_includes_mandatory_rules_and_checkpoint",
       "path": "tests/test_waypoint.py",
       "line": 37
+    },
+    {
+      "kind": "class",
+      "name": "FakeResponse",
+      "path": "tests/test_weather.py",
+      "line": 12
+    },
+    {
+      "kind": "class",
+      "name": "FakeClient",
+      "path": "tests/test_weather.py",
+      "line": 23
+    },
+    {
+      "kind": "class",
+      "name": "WeatherTests",
+      "path": "tests/test_weather.py",
+      "line": 50
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "tests/test_weather.py",
+      "line": 13
+    },
+    {
+      "kind": "function",
+      "name": "__enter__",
+      "path": "tests/test_weather.py",
+      "line": 15
+    },
+    {
+      "kind": "function",
+      "name": "__exit__",
+      "path": "tests/test_weather.py",
+      "line": 17
+    },
+    {
+      "kind": "function",
+      "name": "read",
+      "path": "tests/test_weather.py",
+      "line": 19
+    },
+    {
+      "kind": "function",
+      "name": "__init__",
+      "path": "tests/test_weather.py",
+      "line": 24
+    },
+    {
+      "kind": "function",
+      "name": "geocode",
+      "path": "tests/test_weather.py",
+      "line": 27
+    },
+    {
+      "kind": "function",
+      "name": "forecast",
+      "path": "tests/test_weather.py",
+      "line": 30
+    },
+    {
+      "kind": "function",
+      "name": "test_current_weather_formats_live_report",
+      "path": "tests/test_weather.py",
+      "line": 51
+    },
+    {
+      "kind": "function",
+      "name": "test_tomorrow_weather_uses_second_daily_forecast",
+      "path": "tests/test_weather.py",
+      "line": 59
+    },
+    {
+      "kind": "function",
+      "name": "test_explicit_location_is_geocoded_and_cached",
+      "path": "tests/test_weather.py",
+      "line": 67
+    },
+    {
+      "kind": "function",
+      "name": "test_recent_weather_report_is_reused_without_second_network_call",
+      "path": "tests/test_weather.py",
+      "line": 75
+    },
+    {
+      "kind": "function",
+      "name": "test_cached_weather_is_used_when_refresh_temporarily_fails",
+      "path": "tests/test_weather.py",
+      "line": 84
+    },
+    {
+      "kind": "function",
+      "name": "test_weather_error_returns_failed_service_result",
+      "path": "tests/test_weather.py",
+      "line": 94
+    },
+    {
+      "kind": "function",
+      "name": "test_briefing_provider_returns_important_item",
+      "path": "tests/test_weather.py",
+      "line": 103
+    },
+    {
+      "kind": "function",
+      "name": "test_geocode_splits_city_and_state_and_selects_matching_region",
+      "path": "tests/test_weather.py",
+      "line": 111
+    },
+    {
+      "kind": "function",
+      "name": "test_geocode_accepts_state_abbreviation",
+      "path": "tests/test_weather.py",
+      "line": 138
+    },
+    {
+      "kind": "function",
+      "name": "test_conversational_weather_preserves_greeting_and_uses_natural_summary",
+      "path": "tests/test_weather.py",
+      "line": 152
+    },
+    {
+      "kind": "function",
+      "name": "test_rain_question_returns_focused_answer",
+      "path": "tests/test_weather.py",
+      "line": 162
+    },
+    {
+      "kind": "function",
+      "name": "test_weather_command_keeps_detailed_report",
+      "path": "tests/test_weather.py",
+      "line": 168
+    },
+    {
+      "kind": "function",
+      "name": "test_wmo_unknown_code_is_not_silently_mislabeled",
+      "path": "tests/test_weather.py",
+      "line": 174
+    },
+    {
+      "kind": "function",
+      "name": "opener",
+      "path": "tests/test_weather.py",
+      "line": 128
     },
     {
       "kind": "class",
@@ -2332,6 +5350,136 @@
     }
   ],
   "imports": [
+    {
+      "module": "orion.actions.approval",
+      "path": "orion/actions/__init__.py",
+      "line": 2
+    },
+    {
+      "module": "orion.actions.history",
+      "path": "orion/actions/__init__.py",
+      "line": 3
+    },
+    {
+      "module": "orion.actions.models",
+      "path": "orion/actions/__init__.py",
+      "line": 4
+    },
+    {
+      "module": "orion.actions.service",
+      "path": "orion/actions/__init__.py",
+      "line": 5
+    },
+    {
+      "module": "__future__",
+      "path": "orion/actions/approval.py",
+      "line": 2
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/actions/approval.py",
+      "line": 4
+    },
+    {
+      "module": "enum",
+      "path": "orion/actions/approval.py",
+      "line": 5
+    },
+    {
+      "module": "orion.actions.models",
+      "path": "orion/actions/approval.py",
+      "line": 7
+    },
+    {
+      "module": "__future__",
+      "path": "orion/actions/history.py",
+      "line": 2
+    },
+    {
+      "module": "json",
+      "path": "orion/actions/history.py",
+      "line": 4
+    },
+    {
+      "module": "pathlib",
+      "path": "orion/actions/history.py",
+      "line": 5
+    },
+    {
+      "module": "threading",
+      "path": "orion/actions/history.py",
+      "line": 6
+    },
+    {
+      "module": "typing",
+      "path": "orion/actions/history.py",
+      "line": 7
+    },
+    {
+      "module": "orion.actions.models",
+      "path": "orion/actions/history.py",
+      "line": 9
+    },
+    {
+      "module": "__future__",
+      "path": "orion/actions/models.py",
+      "line": 2
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/actions/models.py",
+      "line": 4
+    },
+    {
+      "module": "datetime",
+      "path": "orion/actions/models.py",
+      "line": 5
+    },
+    {
+      "module": "enum",
+      "path": "orion/actions/models.py",
+      "line": 6
+    },
+    {
+      "module": "typing",
+      "path": "orion/actions/models.py",
+      "line": 7
+    },
+    {
+      "module": "uuid",
+      "path": "orion/actions/models.py",
+      "line": 8
+    },
+    {
+      "module": "__future__",
+      "path": "orion/actions/service.py",
+      "line": 2
+    },
+    {
+      "module": "collections.abc",
+      "path": "orion/actions/service.py",
+      "line": 4
+    },
+    {
+      "module": "typing",
+      "path": "orion/actions/service.py",
+      "line": 5
+    },
+    {
+      "module": "orion.actions.approval",
+      "path": "orion/actions/service.py",
+      "line": 7
+    },
+    {
+      "module": "orion.actions.history",
+      "path": "orion/actions/service.py",
+      "line": 8
+    },
+    {
+      "module": "orion.actions.models",
+      "path": "orion/actions/service.py",
+      "line": 9
+    },
     {
       "module": "orion.conversation.context",
       "path": "orion/conversation/__init__.py",
@@ -2413,6 +5561,41 @@
       "line": 6
     },
     {
+      "module": "__future__",
+      "path": "orion/core/onboarding.py",
+      "line": 9
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/core/onboarding.py",
+      "line": 11
+    },
+    {
+      "module": "pathlib",
+      "path": "orion/core/onboarding.py",
+      "line": 12
+    },
+    {
+      "module": "shutil",
+      "path": "orion/core/onboarding.py",
+      "line": 13
+    },
+    {
+      "module": "typing",
+      "path": "orion/core/onboarding.py",
+      "line": 14
+    },
+    {
+      "module": "yaml",
+      "path": "orion/core/onboarding.py",
+      "line": 16
+    },
+    {
+      "module": "orion.version",
+      "path": "orion/core/onboarding.py",
+      "line": 18
+    },
+    {
       "module": "orion.core.config",
       "path": "orion/core/orion.py",
       "line": 17
@@ -2443,34 +5626,94 @@
       "line": 22
     },
     {
-      "module": "orion.services.workspace",
+      "module": "orion.services.briefing",
       "path": "orion/core/orion.py",
       "line": 23
     },
     {
-      "module": "orion.services.project_context",
+      "module": "orion.services.weather",
       "path": "orion/core/orion.py",
       "line": 24
     },
     {
-      "module": "orion.memory.session",
+      "module": "orion.services.calendar",
       "path": "orion/core/orion.py",
       "line": 25
     },
     {
+      "module": "orion.services.workspace",
+      "path": "orion/core/orion.py",
+      "line": 29
+    },
+    {
+      "module": "orion.services.ai_control",
+      "path": "orion/core/orion.py",
+      "line": 30
+    },
+    {
+      "module": "orion.services.provider_manager",
+      "path": "orion/core/orion.py",
+      "line": 31
+    },
+    {
+      "module": "orion.services.vault",
+      "path": "orion/core/orion.py",
+      "line": 32
+    },
+    {
+      "module": "orion.services.project_context",
+      "path": "orion/core/orion.py",
+      "line": 33
+    },
+    {
+      "module": "orion.services.companion",
+      "path": "orion/core/orion.py",
+      "line": 34
+    },
+    {
+      "module": "orion.services.discovery",
+      "path": "orion/core/orion.py",
+      "line": 35
+    },
+    {
+      "module": "orion.memory.session",
+      "path": "orion/core/orion.py",
+      "line": 38
+    },
+    {
       "module": "orion.conversation",
       "path": "orion/core/orion.py",
-      "line": 26
+      "line": 39
     },
     {
       "module": "orion.knowledge",
       "path": "orion/core/orion.py",
-      "line": 27
+      "line": 40
     },
     {
       "module": "orion.plugins.manager",
       "path": "orion/core/orion.py",
-      "line": 28
+      "line": 41
+    },
+    {
+      "module": "orion.actions",
+      "path": "orion/core/orion.py",
+      "line": 42
+    },
+    {
+      "module": "orion.ui.console",
+      "path": "orion/core/orion.py",
+      "line": 43
+    },
+    {
+      "module": "datetime",
+      "path": "orion/core/orion.py",
+      "line": 44
+    },
+    {
+      "module": "orion.services.weather",
+      "path": "orion/core/orion.py",
+      "line": 146
     },
     {
       "module": "pathlib",
@@ -2481,6 +5724,16 @@
       "module": "yaml",
       "path": "orion/core/profile.py",
       "line": 11
+    },
+    {
+      "module": "getpass",
+      "path": "orion/core/router.py",
+      "line": 10
+    },
+    {
+      "module": "orion.services.ai_control",
+      "path": "orion/core/router.py",
+      "line": 548
     },
     {
       "module": "orion.intelligence.brain",
@@ -2510,12 +5763,37 @@
     {
       "module": "orion.intelligence.ollama_provider",
       "path": "orion/intelligence/factory.py",
-      "line": 7
+      "line": 3
     },
     {
       "module": "orion.intelligence.openai_provider",
       "path": "orion/intelligence/factory.py",
-      "line": 8
+      "line": 4
+    },
+    {
+      "module": "orion.intelligence.gemini_provider",
+      "path": "orion/intelligence/factory.py",
+      "line": 5
+    },
+    {
+      "module": "orion.intelligence.secrets",
+      "path": "orion/intelligence/factory.py",
+      "line": 6
+    },
+    {
+      "module": "__future__",
+      "path": "orion/intelligence/gemini_provider.py",
+      "line": 3
+    },
+    {
+      "module": "requests",
+      "path": "orion/intelligence/gemini_provider.py",
+      "line": 5
+    },
+    {
+      "module": "orion.intelligence.provider",
+      "path": "orion/intelligence/gemini_provider.py",
+      "line": 7
     },
     {
       "module": "json",
@@ -2533,6 +5811,21 @@
       "line": 10
     },
     {
+      "module": "orion.services.ai_control",
+      "path": "orion/intelligence/ollama_provider.py",
+      "line": 11
+    },
+    {
+      "module": "__future__",
+      "path": "orion/intelligence/openai_provider.py",
+      "line": 3
+    },
+    {
+      "module": "requests",
+      "path": "orion/intelligence/openai_provider.py",
+      "line": 5
+    },
+    {
       "module": "orion.intelligence.provider",
       "path": "orion/intelligence/openai_provider.py",
       "line": 7
@@ -2541,6 +5834,31 @@
       "module": "abc",
       "path": "orion/intelligence/provider.py",
       "line": 7
+    },
+    {
+      "module": "__future__",
+      "path": "orion/intelligence/secrets.py",
+      "line": 8
+    },
+    {
+      "module": "os",
+      "path": "orion/intelligence/secrets.py",
+      "line": 10
+    },
+    {
+      "module": "pathlib",
+      "path": "orion/intelligence/secrets.py",
+      "line": 11
+    },
+    {
+      "module": "stat",
+      "path": "orion/intelligence/secrets.py",
+      "line": 12
+    },
+    {
+      "module": "yaml",
+      "path": "orion/intelligence/secrets.py",
+      "line": 13
     },
     {
       "module": "orion.knowledge.index",
@@ -2593,9 +5911,24 @@
       "line": 12
     },
     {
-      "module": "orion.core.orion",
+      "module": "__future__",
+      "path": "orion/main.py",
+      "line": 3
+    },
+    {
+      "module": "argparse",
       "path": "orion/main.py",
       "line": 5
+    },
+    {
+      "module": "orion.core.onboarding",
+      "path": "orion/main.py",
+      "line": 7
+    },
+    {
+      "module": "orion.core.orion",
+      "path": "orion/main.py",
+      "line": 8
     },
     {
       "module": "orion.memory.session",
@@ -2698,19 +6031,199 @@
       "line": 10
     },
     {
-      "module": "orion.services.project_context",
+      "module": "base",
+      "path": "orion/services/__init__.py",
+      "line": 2
+    },
+    {
+      "module": "weather",
       "path": "orion/services/__init__.py",
       "line": 3
     },
     {
-      "module": "orion.services.registry",
-      "path": "orion/services/__init__.py",
+      "module": "__future__",
+      "path": "orion/services/ai_control.py",
+      "line": 3
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/services/ai_control.py",
+      "line": 5
+    },
+    {
+      "module": "time",
+      "path": "orion/services/ai_control.py",
+      "line": 6
+    },
+    {
+      "module": "__future__",
+      "path": "orion/services/base.py",
+      "line": 2
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/services/base.py",
       "line": 4
     },
     {
-      "module": "orion.services.workspace",
-      "path": "orion/services/__init__.py",
+      "module": "enum",
+      "path": "orion/services/base.py",
       "line": 5
+    },
+    {
+      "module": "typing",
+      "path": "orion/services/base.py",
+      "line": 6
+    },
+    {
+      "module": "__future__",
+      "path": "orion/services/briefing.py",
+      "line": 2
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/services/briefing.py",
+      "line": 4
+    },
+    {
+      "module": "enum",
+      "path": "orion/services/briefing.py",
+      "line": 5
+    },
+    {
+      "module": "typing",
+      "path": "orion/services/briefing.py",
+      "line": 6
+    },
+    {
+      "module": "__future__",
+      "path": "orion/services/calendar.py",
+      "line": 2
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/services/calendar.py",
+      "line": 4
+    },
+    {
+      "module": "datetime",
+      "path": "orion/services/calendar.py",
+      "line": 5
+    },
+    {
+      "module": "json",
+      "path": "orion/services/calendar.py",
+      "line": 6
+    },
+    {
+      "module": "pathlib",
+      "path": "orion/services/calendar.py",
+      "line": 7
+    },
+    {
+      "module": "typing",
+      "path": "orion/services/calendar.py",
+      "line": 8
+    },
+    {
+      "module": "zoneinfo",
+      "path": "orion/services/calendar.py",
+      "line": 9
+    },
+    {
+      "module": "orion.services.base",
+      "path": "orion/services/calendar.py",
+      "line": 11
+    },
+    {
+      "module": "orion.services.briefing",
+      "path": "orion/services/calendar.py",
+      "line": 12
+    },
+    {
+      "module": "google.auth.transport.requests",
+      "path": "orion/services/calendar.py",
+      "line": 68
+    },
+    {
+      "module": "google.oauth2.credentials",
+      "path": "orion/services/calendar.py",
+      "line": 69
+    },
+    {
+      "module": "google_auth_oauthlib.flow",
+      "path": "orion/services/calendar.py",
+      "line": 70
+    },
+    {
+      "module": "googleapiclient.discovery",
+      "path": "orion/services/calendar.py",
+      "line": 71
+    },
+    {
+      "module": "msal",
+      "path": "orion/services/calendar.py",
+      "line": 161
+    },
+    {
+      "module": "requests",
+      "path": "orion/services/calendar.py",
+      "line": 162
+    },
+    {
+      "module": "__future__",
+      "path": "orion/services/companion.py",
+      "line": 2
+    },
+    {
+      "module": "json",
+      "path": "orion/services/companion.py",
+      "line": 4
+    },
+    {
+      "module": "pathlib",
+      "path": "orion/services/companion.py",
+      "line": 5
+    },
+    {
+      "module": "__future__",
+      "path": "orion/services/discovery.py",
+      "line": 2
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/services/discovery.py",
+      "line": 4
+    },
+    {
+      "module": "difflib",
+      "path": "orion/services/discovery.py",
+      "line": 5
+    },
+    {
+      "module": "json",
+      "path": "orion/services/discovery.py",
+      "line": 6
+    },
+    {
+      "module": "os",
+      "path": "orion/services/discovery.py",
+      "line": 7
+    },
+    {
+      "module": "pathlib",
+      "path": "orion/services/discovery.py",
+      "line": 8
+    },
+    {
+      "module": "subprocess",
+      "path": "orion/services/discovery.py",
+      "line": 9
+    },
+    {
+      "module": "typing",
+      "path": "orion/services/discovery.py",
+      "line": 10
     },
     {
       "module": "__future__",
@@ -2759,6 +6272,26 @@
     },
     {
       "module": "__future__",
+      "path": "orion/services/provider_manager.py",
+      "line": 3
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/services/provider_manager.py",
+      "line": 5
+    },
+    {
+      "module": "orion.intelligence.factory",
+      "path": "orion/services/provider_manager.py",
+      "line": 6
+    },
+    {
+      "module": "orion.intelligence.secrets",
+      "path": "orion/services/provider_manager.py",
+      "line": 7
+    },
+    {
+      "module": "__future__",
       "path": "orion/services/registry.py",
       "line": 3
     },
@@ -2776,6 +6309,86 @@
       "module": "typing",
       "path": "orion/services/registry.py",
       "line": 7
+    },
+    {
+      "module": "__future__",
+      "path": "orion/services/vault.py",
+      "line": 8
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/services/vault.py",
+      "line": 10
+    },
+    {
+      "module": "pathlib",
+      "path": "orion/services/vault.py",
+      "line": 11
+    },
+    {
+      "module": "typing",
+      "path": "orion/services/vault.py",
+      "line": 12
+    },
+    {
+      "module": "orion.intelligence.secrets",
+      "path": "orion/services/vault.py",
+      "line": 14
+    },
+    {
+      "module": "__future__",
+      "path": "orion/services/weather.py",
+      "line": 2
+    },
+    {
+      "module": "dataclasses",
+      "path": "orion/services/weather.py",
+      "line": 4
+    },
+    {
+      "module": "datetime",
+      "path": "orion/services/weather.py",
+      "line": 5
+    },
+    {
+      "module": "time",
+      "path": "orion/services/weather.py",
+      "line": 6
+    },
+    {
+      "module": "json",
+      "path": "orion/services/weather.py",
+      "line": 7
+    },
+    {
+      "module": "socket",
+      "path": "orion/services/weather.py",
+      "line": 8
+    },
+    {
+      "module": "typing",
+      "path": "orion/services/weather.py",
+      "line": 9
+    },
+    {
+      "module": "urllib.parse",
+      "path": "orion/services/weather.py",
+      "line": 10
+    },
+    {
+      "module": "urllib.request",
+      "path": "orion/services/weather.py",
+      "line": 11
+    },
+    {
+      "module": "orion.services.base",
+      "path": "orion/services/weather.py",
+      "line": 13
+    },
+    {
+      "module": "orion.services.briefing",
+      "path": "orion/services/weather.py",
+      "line": 14
     },
     {
       "module": "__future__",
@@ -2844,6 +6457,46 @@
     },
     {
       "module": "__future__",
+      "path": "orion/ui/console.py",
+      "line": 2
+    },
+    {
+      "module": "pathlib",
+      "path": "orion/ui/console.py",
+      "line": 4
+    },
+    {
+      "module": "typing",
+      "path": "orion/ui/console.py",
+      "line": 5
+    },
+    {
+      "module": "colorama",
+      "path": "orion/ui/console.py",
+      "line": 8
+    },
+    {
+      "module": "prompt_toolkit",
+      "path": "orion/ui/console.py",
+      "line": 18
+    },
+    {
+      "module": "prompt_toolkit.completion",
+      "path": "orion/ui/console.py",
+      "line": 19
+    },
+    {
+      "module": "prompt_toolkit.history",
+      "path": "orion/ui/console.py",
+      "line": 20
+    },
+    {
+      "module": "datetime",
+      "path": "orion/ui/console.py",
+      "line": 89
+    },
+    {
+      "module": "__future__",
       "path": "plugins/code/plugin.py",
       "line": 2
     },
@@ -2884,6 +6537,71 @@
     },
     {
       "module": "tempfile",
+      "path": "tests/test_actions.py",
+      "line": 2
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_actions.py",
+      "line": 3
+    },
+    {
+      "module": "orion.actions",
+      "path": "tests/test_actions.py",
+      "line": 5
+    },
+    {
+      "module": "io",
+      "path": "tests/test_ai_control.py",
+      "line": 1
+    },
+    {
+      "module": "tempfile",
+      "path": "tests/test_ai_control.py",
+      "line": 2
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_ai_control.py",
+      "line": 3
+    },
+    {
+      "module": "pathlib",
+      "path": "tests/test_ai_control.py",
+      "line": 4
+    },
+    {
+      "module": "types",
+      "path": "tests/test_ai_control.py",
+      "line": 5
+    },
+    {
+      "module": "unittest.mock",
+      "path": "tests/test_ai_control.py",
+      "line": 6
+    },
+    {
+      "module": "orion.core.config",
+      "path": "tests/test_ai_control.py",
+      "line": 8
+    },
+    {
+      "module": "orion.core.router",
+      "path": "tests/test_ai_control.py",
+      "line": 9
+    },
+    {
+      "module": "orion.intelligence.ollama_provider",
+      "path": "tests/test_ai_control.py",
+      "line": 10
+    },
+    {
+      "module": "orion.services.ai_control",
+      "path": "tests/test_ai_control.py",
+      "line": 11
+    },
+    {
+      "module": "tempfile",
       "path": "tests/test_brain_conversation.py",
       "line": 2
     },
@@ -2913,6 +6631,71 @@
       "line": 8
     },
     {
+      "module": "unittest",
+      "path": "tests/test_briefing.py",
+      "line": 1
+    },
+    {
+      "module": "types",
+      "path": "tests/test_briefing.py",
+      "line": 2
+    },
+    {
+      "module": "orion.services.briefing",
+      "path": "tests/test_briefing.py",
+      "line": 4
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_calendar.py",
+      "line": 1
+    },
+    {
+      "module": "datetime",
+      "path": "tests/test_calendar.py",
+      "line": 2
+    },
+    {
+      "module": "zoneinfo",
+      "path": "tests/test_calendar.py",
+      "line": 3
+    },
+    {
+      "module": "orion.services.base",
+      "path": "tests/test_calendar.py",
+      "line": 5
+    },
+    {
+      "module": "orion.services.calendar",
+      "path": "tests/test_calendar.py",
+      "line": 6
+    },
+    {
+      "module": "orion.services.calendar",
+      "path": "tests/test_calendar.py",
+      "line": 112
+    },
+    {
+      "module": "orion.services.calendar",
+      "path": "tests/test_calendar.py",
+      "line": 131
+    },
+    {
+      "module": "orion.services.calendar",
+      "path": "tests/test_calendar.py",
+      "line": 149
+    },
+    {
+      "module": "orion.services.calendar",
+      "path": "tests/test_calendar.py",
+      "line": 162
+    },
+    {
+      "module": "orion.services.calendar",
+      "path": "tests/test_calendar.py",
+      "line": 182
+    },
+    {
       "module": "tempfile",
       "path": "tests/test_code_skill.py",
       "line": 3
@@ -2936,6 +6719,91 @@
       "module": "orion.skills.code",
       "path": "tests/test_code_skill.py",
       "line": 8
+    },
+    {
+      "module": "io",
+      "path": "tests/test_companion.py",
+      "line": 1
+    },
+    {
+      "module": "tempfile",
+      "path": "tests/test_companion.py",
+      "line": 2
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_companion.py",
+      "line": 3
+    },
+    {
+      "module": "contextlib",
+      "path": "tests/test_companion.py",
+      "line": 4
+    },
+    {
+      "module": "pathlib",
+      "path": "tests/test_companion.py",
+      "line": 5
+    },
+    {
+      "module": "types",
+      "path": "tests/test_companion.py",
+      "line": 6
+    },
+    {
+      "module": "unittest.mock",
+      "path": "tests/test_companion.py",
+      "line": 7
+    },
+    {
+      "module": "orion.actions",
+      "path": "tests/test_companion.py",
+      "line": 9
+    },
+    {
+      "module": "orion.core.router",
+      "path": "tests/test_companion.py",
+      "line": 10
+    },
+    {
+      "module": "orion.services.companion",
+      "path": "tests/test_companion.py",
+      "line": 11
+    },
+    {
+      "module": "orion.services.discovery",
+      "path": "tests/test_companion.py",
+      "line": 12
+    },
+    {
+      "module": "tempfile",
+      "path": "tests/test_companion_console.py",
+      "line": 1
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_companion_console.py",
+      "line": 2
+    },
+    {
+      "module": "pathlib",
+      "path": "tests/test_companion_console.py",
+      "line": 3
+    },
+    {
+      "module": "unittest.mock",
+      "path": "tests/test_companion_console.py",
+      "line": 4
+    },
+    {
+      "module": "types",
+      "path": "tests/test_companion_console.py",
+      "line": 5
+    },
+    {
+      "module": "orion.ui.console",
+      "path": "tests/test_companion_console.py",
+      "line": 7
     },
     {
       "module": "tempfile",
@@ -2963,6 +6831,31 @@
       "line": 7
     },
     {
+      "module": "pathlib",
+      "path": "tests/test_discovery.py",
+      "line": 2
+    },
+    {
+      "module": "tempfile",
+      "path": "tests/test_discovery.py",
+      "line": 3
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_discovery.py",
+      "line": 4
+    },
+    {
+      "module": "orion.actions",
+      "path": "tests/test_discovery.py",
+      "line": 6
+    },
+    {
+      "module": "orion.services.discovery",
+      "path": "tests/test_discovery.py",
+      "line": 7
+    },
+    {
       "module": "tempfile",
       "path": "tests/test_knowledge_context.py",
       "line": 1
@@ -2988,6 +6881,16 @@
       "line": 6
     },
     {
+      "module": "os",
+      "path": "tests/test_knowledge_context.py",
+      "line": 36
+    },
+    {
+      "module": "time",
+      "path": "tests/test_knowledge_context.py",
+      "line": 36
+    },
+    {
       "module": "json",
       "path": "tests/test_knowledge_index.py",
       "line": 1
@@ -3011,6 +6914,81 @@
       "module": "orion.knowledge",
       "path": "tests/test_knowledge_index.py",
       "line": 6
+    },
+    {
+      "module": "io",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 1
+    },
+    {
+      "module": "json",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 2
+    },
+    {
+      "module": "tempfile",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 3
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 4
+    },
+    {
+      "module": "pathlib",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 5
+    },
+    {
+      "module": "types",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 6
+    },
+    {
+      "module": "unittest.mock",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 7
+    },
+    {
+      "module": "orion.core.config",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 9
+    },
+    {
+      "module": "orion.core.router",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 10
+    },
+    {
+      "module": "orion.intelligence.ollama_provider",
+      "path": "tests/test_ollama_model_selection.py",
+      "line": 11
+    },
+    {
+      "module": "tempfile",
+      "path": "tests/test_onboarding.py",
+      "line": 1
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_onboarding.py",
+      "line": 2
+    },
+    {
+      "module": "pathlib",
+      "path": "tests/test_onboarding.py",
+      "line": 3
+    },
+    {
+      "module": "yaml",
+      "path": "tests/test_onboarding.py",
+      "line": 5
+    },
+    {
+      "module": "orion.core.onboarding",
+      "path": "tests/test_onboarding.py",
+      "line": 7
     },
     {
       "module": "tempfile",
@@ -3066,6 +7044,81 @@
       "module": "orion.services.project_context",
       "path": "tests/test_project_context.py",
       "line": 7
+    },
+    {
+      "module": "shutil",
+      "path": "tests/test_project_context.py",
+      "line": 70
+    },
+    {
+      "module": "tempfile",
+      "path": "tests/test_provider_federation.py",
+      "line": 1
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_provider_federation.py",
+      "line": 2
+    },
+    {
+      "module": "pathlib",
+      "path": "tests/test_provider_federation.py",
+      "line": 3
+    },
+    {
+      "module": "types",
+      "path": "tests/test_provider_federation.py",
+      "line": 4
+    },
+    {
+      "module": "unittest.mock",
+      "path": "tests/test_provider_federation.py",
+      "line": 5
+    },
+    {
+      "module": "orion.core.config",
+      "path": "tests/test_provider_federation.py",
+      "line": 7
+    },
+    {
+      "module": "orion.intelligence.factory",
+      "path": "tests/test_provider_federation.py",
+      "line": 8
+    },
+    {
+      "module": "orion.intelligence.gemini_provider",
+      "path": "tests/test_provider_federation.py",
+      "line": 9
+    },
+    {
+      "module": "orion.intelligence.openai_provider",
+      "path": "tests/test_provider_federation.py",
+      "line": 10
+    },
+    {
+      "module": "orion.intelligence.secrets",
+      "path": "tests/test_provider_federation.py",
+      "line": 11
+    },
+    {
+      "module": "orion.services.provider_manager",
+      "path": "tests/test_provider_federation.py",
+      "line": 12
+    },
+    {
+      "module": "tempfile",
+      "path": "tests/test_safeguard.py",
+      "line": 2
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_safeguard.py",
+      "line": 3
+    },
+    {
+      "module": "orion.actions",
+      "path": "tests/test_safeguard.py",
+      "line": 5
     },
     {
       "module": "contextlib",
@@ -3178,6 +7231,46 @@
       "line": 9
     },
     {
+      "module": "os",
+      "path": "tests/test_vault.py",
+      "line": 1
+    },
+    {
+      "module": "tempfile",
+      "path": "tests/test_vault.py",
+      "line": 2
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_vault.py",
+      "line": 3
+    },
+    {
+      "module": "pathlib",
+      "path": "tests/test_vault.py",
+      "line": 4
+    },
+    {
+      "module": "unittest.mock",
+      "path": "tests/test_vault.py",
+      "line": 5
+    },
+    {
+      "module": "orion.core.config",
+      "path": "tests/test_vault.py",
+      "line": 7
+    },
+    {
+      "module": "orion.intelligence.secrets",
+      "path": "tests/test_vault.py",
+      "line": 8
+    },
+    {
+      "module": "orion.services.vault",
+      "path": "tests/test_vault.py",
+      "line": 9
+    },
+    {
       "module": "tempfile",
       "path": "tests/test_waypoint.py",
       "line": 2
@@ -3213,6 +7306,31 @@
       "line": 9
     },
     {
+      "module": "json",
+      "path": "tests/test_weather.py",
+      "line": 1
+    },
+    {
+      "module": "unittest",
+      "path": "tests/test_weather.py",
+      "line": 2
+    },
+    {
+      "module": "unittest.mock",
+      "path": "tests/test_weather.py",
+      "line": 3
+    },
+    {
+      "module": "orion.services.base",
+      "path": "tests/test_weather.py",
+      "line": 5
+    },
+    {
+      "module": "orion.services.weather",
+      "path": "tests/test_weather.py",
+      "line": 6
+    },
+    {
       "module": "tempfile",
       "path": "tests/test_workspace.py",
       "line": 3
@@ -3234,6 +7352,12 @@
     }
   ],
   "todos": [
+    {
+      "path": "orion/core/router.py",
+      "line": 1098,
+      "marker": "FIXME",
+      "text": "print(f\"  TODO/FIXME: {stats.get('todos', 0)}\")"
+    },
     {
       "path": "tests/test_knowledge_index.py",
       "line": 15,

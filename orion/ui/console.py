@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - graceful fallback
 
 
 BASE_COMMANDS = (
-    "help", "status", "briefing", "weather", "weather tomorrow", "settings", "about", "profile", "config", "services",
+    "help", "home", "status", "briefing", "ai", "ai status", "ai models", "ai profiles", "ai profile coding", "ai profile creative", "ai profile lightweight", "ai profile vision", "ai benchmark", "change ollama model", "ollama model", "weather", "weather tomorrow", "calendar", "calendar today", "calendar tomorrow", "calendar next", "calendar providers", "calendar enable google", "calendar enable microsoft", "calendar disable google", "calendar disable microsoft", "calendar configure google", "calendar configure microsoft", "calendar connect google", "calendar connect microsoft", "settings", "about", "profile", "config", "services",
     "plugins", "workspace", "files", "ls", "remember", "recall", "memory",
     "forget", "clear memory", "project init", "project status", "project info",
     "project resume", "project rules", "index build", "index status", "index find",
@@ -81,6 +81,38 @@ class Console:
             return self.session.prompt(f"{label}> ")
         return input(f"{label}> ")
 
+
+
+    @staticmethod
+    def render_home(orion, briefing) -> None:
+        """Render Orion Home as a compact, provider-neutral command center."""
+        from datetime import datetime
+
+        now = datetime.now()
+        hour = now.hour
+        greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+        location = orion.profile_manager.get("location", "") or "Location not set"
+        print("=" * 62)
+        print(f"{'ORION':^62}")
+        print(f"{'Personal AI Operating System':^62}")
+        print("=" * 62)
+        print(f"{greeting}, {orion.user_name}.")
+        print(f"{now.strftime('%A, %B %d, %Y  |  %I:%M %p')}")
+        print(f"{location}")
+        print("-" * 62)
+        if not briefing.items:
+            print("[i] No Home cards are available yet.")
+        for item in briefing.items:
+            print(f"{item.icon:<6} {item.title:<14} {item.message}")
+        if orion.companion_settings.developer_mode and briefing.errors:
+            print("-" * 62)
+            print("Provider diagnostics")
+            for error in briefing.errors:
+                print(f"[X] {error.provider}: {error.message}")
+        print("-" * 62)
+        print("Try: ask <question> | ai status | calendar today | weather")
+        print("I'm online and ready to help.")
+        print("=" * 62)
 
     @staticmethod
     def render_briefing(briefing, *, developer_mode: bool = False) -> None:

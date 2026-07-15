@@ -134,7 +134,36 @@ class KnowledgeIndex:
 
     def status(self) -> dict[str, Any]:
         data = self.load()
-        return {"built_at": data.get("built_at", ""), "workspace": data.get("workspace", ""), **data.get("stats", {})}
+        stored_workspace = str(data.get("workspace", ""))
+        if stored_workspace and Path(stored_workspace).expanduser().resolve() != self.root:
+            raise ValueError(
+                "Knowledge index belongs to a different workspace. Run 'index build' for the active workspace."
+            )
+        return {"built_at": data.get("built_at", ""), "workspace": stored_workspace, **data.get("stats", {})}
+
+
+    def is_fresh(self) -> bool:
+        """Return True when the index matches this workspace and no source changed later."""
+        try:
+            self.status()
+            index_mtime = self.path.stat().st_mtime
+        except (FileNotFoundError, ValueError, OSError):
+            return False
+        for path in self.root.rglob("*"):
+            if not path.is_file() or self._ignored(path) or path == self.path:
+                continue
+            try:
+                if path.stat().st_mtime > index_mtime:
+                    return False
+            except OSError:
+                continue
+        return True
+
+    def ensure_fresh(self) -> dict[str, Any]:
+        """Load a valid current index, rebuilding it when missing or stale."""
+        if not self.is_fresh():
+            return self.build()
+        return self.load()
 
     def symbols(self, kind: str | None = None) -> list[dict[str, Any]]:
         items = self.load().get("symbols", [])
@@ -166,9 +195,12 @@ class KnowledgeIndex:
     def summary(self) -> str:
         if not self.exists():
             return ""
-        stats = self.status()
+        try:
+            stats = self.status()
+        except (FileNotFoundError, ValueError):
+            return ""
         return (
-            "Workspace knowledge index: "
+            f"Current workspace '{self.root.name}' knowledge index: "
             f"{stats.get('files', 0)} files, {stats.get('classes', 0)} classes, "
             f"{stats.get('functions', 0)} functions, {stats.get('todos', 0)} TODO/FIXME items, "
             f"{stats.get('tests', 0)} test files."

@@ -13,6 +13,11 @@ class ContextBuilder:
 
     def build(self) -> str:
         sections: list[str] = []
+        if self.knowledge_index is not None:
+            sections.append(
+                f"Active workspace (authoritative): {self.knowledge_index.root}. "
+                "Live workspace facts below override any older claims in conversation history."
+            )
         messages = self.conversation.recent(self.max_messages)
         if messages:
             lines = [f"{message.role.title()}: {message.content}" for message in messages]
@@ -22,7 +27,8 @@ class ContextBuilder:
             if items:
                 lines = [f"- {key}: {value}" for key, value in items.items()]
                 sections.append("Session memory:\n" + "\n".join(lines))
-        if self.project_context is not None and self.project_context.initialized:
+        if (self.project_context is not None and self.project_context.initialized
+                and self.project_context.matches_workspace()):
             project = self.project_context.project()
             project_lines = [
                 f"- Name: {project.get('name', '')}",
@@ -41,6 +47,10 @@ class ContextBuilder:
             if rules:
                 sections.append("Mandatory project rules (must be followed):\n" + "\n".join(f"- {item['rule']}" for item in rules))
         if self.knowledge_index is not None:
+            try:
+                self.knowledge_index.ensure_fresh()
+            except (OSError, ValueError):
+                pass
             summary = self.knowledge_index.summary()
             if summary:
                 sections.append(summary)

@@ -35,7 +35,7 @@ tested, documented milestones.
 
 ### Planned releases
 - [x] **v0.3.5 — Weather:** current conditions, forecasts, location lookup, and briefing provider
-- [ ] **v0.3.6 — Calendar:** agenda access and briefing provider
+- [x] **v0.3.6 — Calendar:** agenda access, availability, next-event queries, and briefing provider
 - [ ] **v0.3.7 — Email:** inbox access, sending, and briefing provider
 - [ ] **v0.3.8 — Docker:** container discovery, control, and health checks
 - [ ] **v0.3.9 — Git:** repository status and approval-based operations
@@ -78,10 +78,14 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.3.5 — Weather: COMPLETE**
+**v0.3.6 — Calendar: COMPLETE**
 
-Weather adds Orion's first live external-information service using Open-Meteo. Weather
-requests are routed directly to structured service data rather than the LLM, and the
-Morning Star briefing gains a fault-isolated live forecast provider.
+Calendar adds optional read-only Google Calendar access, natural agenda and availability
+queries, next-event lookup, and a fault-isolated Morning Star provider. OAuth credentials
+remain local and are excluded from Git.
 
-**Next milestone:** v0.3.6 — Calendar.
+**Next milestone:** v0.3.7 — Email.
+
+## v0.3.6.1 — Constellation ✅
+
+- Multi-provider calendar support

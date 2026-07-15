@@ -61,3 +61,14 @@ class ProjectContextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ProjectWorkspaceValidationTests(unittest.TestCase):
+    def test_copied_project_metadata_does_not_match_new_workspace(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            original = ProjectContext(first)
+            original.initialize(name="Original")
+            import shutil
+            shutil.copytree(Path(first) / ".orion", Path(second) / ".orion")
+            copied = ProjectContext(second)
+            self.assertFalse(copied.matches_workspace())
+

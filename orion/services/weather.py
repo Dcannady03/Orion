@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import date
+from time import monotonic
 import json
 import socket
 from typing import Any, Callable
@@ -210,6 +211,8 @@ class WeatherService:
         self.client = client or OpenMeteoClient()
         self.user_name = user_name.strip()
         self._location_cache: dict[str, WeatherLocation] = {}
+        self._report_cache: dict[str, tuple[float, WeatherReport]] = {}
+        self._cache_ttl_seconds = 300.0
         self._last_error = ""
 
     def is_available(self) -> bool:
@@ -232,12 +235,21 @@ class WeatherService:
         return self._location_cache[key]
 
     def get_weather(self, location_query: str | None = None) -> WeatherReport:
+        cache_key = (location_query or self.default_location).strip().casefold()
+        cached = self._report_cache.get(cache_key)
+        now = monotonic()
+        if cached and now - cached[0] <= self._cache_ttl_seconds:
+            return cached[1]
+
         try:
             report = self.client.forecast(self.resolve_location(location_query), units=self.units)
+            self._report_cache[cache_key] = (now, report)
             self._last_error = ""
             return report
         except WeatherError as exc:
             self._last_error = str(exc)
+            if cached:
+                return cached[1]
             raise
 
     @staticmethod
