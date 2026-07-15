@@ -15,6 +15,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run the guided first-launch experience again",
     )
+    parser.add_argument(
+        "--discord",
+        action="store_true",
+        help="start the approved two-way Discord interface beside the CLI",
+    )
     return parser
 
 
@@ -30,7 +35,8 @@ def main(argv: list[str] | None = None):
         return 1
 
     orion = Orion()
-    orion.start()
+    discord_enabled = bool(orion.config_manager.get("connect.discord_bot.enabled", False))
+    orion.start(discord=args.discord or discord_enabled)
     return 0
 
 

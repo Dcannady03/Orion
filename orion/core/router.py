@@ -48,6 +48,50 @@ class CommandRouter:
         elif command_lower == "calendar" or command_lower.startswith("calendar "):
             self.show_calendar(raw_command)
 
+        elif command_lower in {"connect", "connect status"}:
+            self.show_connect()
+
+        elif command_lower in {"connect health", "connect test"}:
+            self.connect_health()
+
+        elif command_lower in {"connect add gmail", "email configure gmail"}:
+            self.connect_gmail()
+
+        elif command_lower in {"connect add discord", "discord configure"}:
+            self.connect_discord()
+
+        elif command_lower in {"connect add discord bot", "discord bot configure"}:
+            self.connect_discord_bot()
+
+        elif command_lower in {"discord bot status", "connect discord bot status"}:
+            self.discord_bot_status()
+        elif command_lower in {"connect debug", "discord debug"}:
+            self.connect_debug()
+
+        elif command_lower in {"connect enable discord bot", "discord bot enable"}:
+            self.set_discord_bot_enabled(True)
+
+        elif command_lower in {"connect disable discord bot", "discord bot disable"}:
+            self.set_discord_bot_enabled(False)
+
+        elif command_lower in {"email", "email inbox"}:
+            self.email_inbox()
+
+        elif command_lower == "email unread":
+            self.email_unread()
+
+        elif command_lower.startswith("email search "):
+            self.email_search(raw_command[len("email search "):].strip())
+
+        elif command_lower.startswith("email read "):
+            self.email_read(raw_command[len("email read "):].strip())
+
+        elif command_lower in {"email compose", "email send"}:
+            self.email_compose()
+
+        elif command_lower.startswith("discord send "):
+            self.discord_send(raw_command[len("discord send "):].strip())
+
         elif command_lower in {"change ollama model", "ollama model", "ollama models", "ai models"}:
             self.change_ollama_model()
 
@@ -328,12 +372,8 @@ class CommandRouter:
 
         elif command_lower.startswith("ask "):
             prompt = raw_command[4:].strip()
-            if self._looks_like_weather(prompt):
-                self.show_weather(prompt)
-            elif self._looks_like_calendar(prompt):
-                self.show_calendar(prompt)
-            else:
-                self.ask_ai(prompt)
+            result = self.orion.request_router.route(prompt)
+            print(result.output)
 
         elif self._looks_like_weather(raw_command):
             self.show_weather(raw_command)
@@ -644,6 +684,282 @@ class CommandRouter:
             self._select_ai_model(request)
         except (ConnectionError, OSError, ValueError) as exc:
             print(f"Could not change model: {exc}")
+
+    def show_connect(self):
+        print("=" * 62)
+        print(f"{'ORION CONNECT':^62}")
+        print("=" * 62)
+        for item in self.orion.connect_service.statuses():
+            state = "[OK]" if item.healthy else ("[!]" if item.configured else "[--]")
+            print(f"  {state} {item.name:<12} {item.detail}")
+        print("-" * 62)
+        print("Commands: connect add gmail | connect add discord | connect health")
+        print("          email inbox | email unread | email search <text>")
+        print("          email read <number|id> | email compose")
+        print("          discord send <message> | connect add discord bot")
+        print("          Start two-way Discord with: python -m orion.main --discord")
+
+    def connect_health(self):
+        print("Connect Health")
+        print("-" * 62)
+        for item in self.orion.connect_service.statuses():
+            state = "[OK]" if item.healthy else "[--]"
+            print(f"  {state} {item.name:<12} {item.detail}")
+
+    def connect_gmail(self):
+        print("Connect Gmail")
+        print("A browser window will open for Google authorization.")
+        print(f"OAuth file: {self.orion.connect_service.gmail.credentials_path}")
+        answer = input("Continue? [Y/n]: ").strip().lower()
+        if answer not in {"", "y", "yes"}:
+            print("Gmail connection cancelled.")
+            return
+        try:
+            self.orion.connect_service.gmail.connect()
+            profile = self.orion.connect_service.gmail.profile()
+            print(f"[OK] Gmail connected: {profile.get('emailAddress', 'account')}" )
+        except Exception as exc:
+            print(f"Could not connect Gmail: {exc}")
+
+    def connect_discord(self):
+        print("Connect Discord")
+        print("Create a webhook in the Discord channel you want Orion to post to.")
+        webhook = getpass("Webhook URL: ").strip()
+        if not webhook:
+            print("Discord connection cancelled.")
+            return
+        try:
+            self.orion.vault.add("discord", webhook)
+            self.orion.connect_service.discord.webhook_url = webhook
+            info = self.orion.connect_service.discord.health()
+            print(f"[OK] Discord connected: {info.get('name') or 'webhook'}")
+        except Exception as exc:
+            print(f"Could not connect Discord: {exc}")
+
+    def connect_discord_bot(self):
+        print("Connect Discord Bot")
+        print("This enables two-way DMs and @mentions through the Orion Brain.")
+        print("Create an application and bot in the Discord Developer Portal first.")
+        token = getpass("Bot token: ").strip()
+        if not token:
+            print("Discord bot setup cancelled.")
+            return
+
+        raw_owners = input(
+            "Owner Discord user ID(s), comma-separated (only owners may approve sensitive actions): "
+        ).strip()
+        allow_answer = input(
+            "Allow anyone in the approved channel(s) to talk to Orion? [y/N]: "
+        ).strip().lower()
+        allow_channel_members = allow_answer in {"y", "yes"}
+        raw_channels = input("Allowed channel ID(s), comma-separated: ").strip()
+        raw_roles = input("Required role ID(s), comma-separated [optional]: ").strip()
+
+        def parse_ids(raw_value):
+            return [int(value.strip()) for value in raw_value.split(",") if value.strip()]
+
+        try:
+            owner_ids = parse_ids(raw_owners)
+            channel_ids = parse_ids(raw_channels)
+            role_ids = parse_ids(raw_roles)
+        except ValueError:
+            print("Discord IDs must contain numbers only.")
+            return
+        if not owner_ids:
+            print("At least one owner Discord user ID is required.")
+            return
+        if not channel_ids:
+            print("At least one allowed Discord channel ID is required.")
+            return
+
+        self.orion.vault.add("discord_bot", token)
+        self.orion.config_manager.set("connect.discord_bot.owner_user_ids", owner_ids)
+        # Keep the legacy field synchronized for backward compatibility.
+        self.orion.config_manager.set("connect.discord_bot.allowed_user_ids", owner_ids)
+        self.orion.config_manager.set("connect.discord_bot.allow_channel_members", allow_channel_members)
+        self.orion.config_manager.set("connect.discord_bot.allowed_channel_ids", channel_ids)
+        self.orion.config_manager.set("connect.discord_bot.allowed_role_ids", role_ids)
+        self.orion.config_manager.set("connect.discord_bot.enabled", True)
+        self.orion.config_manager.save()
+        print("[OK] Discord bot credentials and access policy saved.")
+        access = "any member in the approved channel(s)" if allow_channel_members else "owners only"
+        print(
+            f"[OK] Access: {access}; {len(channel_ids)} channel(s), "
+            f"{len(role_ids)} role restriction(s), {len(owner_ids)} owner(s)."
+        )
+        print("Enable Message Content Intent in the Discord Developer Portal.")
+        print("Discord will start automatically the next time Orion launches.")
+
+    def discord_bot_status(self):
+        configured = bool(self.orion.vault.store.get("discord_bot"))
+        owners = self.orion.config_manager.get(
+            "connect.discord_bot.owner_user_ids",
+            self.orion.config_manager.get("connect.discord_bot.allowed_user_ids", []),
+        )
+        channels = self.orion.config_manager.get("connect.discord_bot.allowed_channel_ids", [])
+        roles = self.orion.config_manager.get("connect.discord_bot.allowed_role_ids", [])
+        allow_channel_members = bool(
+            self.orion.config_manager.get("connect.discord_bot.allow_channel_members", False)
+        )
+        enabled = bool(self.orion.config_manager.get("connect.discord_bot.enabled", False))
+        interface = getattr(self.orion, "discord_interface", None)
+        running = bool(interface)
+        print("Discord Bot Interface")
+        print("-" * 62)
+        print(f"Configured : {'Yes' if configured else 'No'}")
+        print(f"Enabled    : {'Yes' if enabled else 'No'}")
+        print(f"Running    : {'Yes' if running else 'No'}")
+        print(f"Access     : {'Channel members' if allow_channel_members else 'Owners only'}")
+        print(f"Owners     : {len(owners)}")
+        print(f"Channels   : {len(channels)} allowed")
+        print(f"Roles      : {len(roles)} required")
+        if configured and enabled and not running:
+            print("Restart Orion to start the Discord interface automatically.")
+
+    def connect_debug(self):
+        interface = getattr(self.orion, "discord_interface", None)
+        print("Discord Gateway Diagnostics")
+        print("-" * 62)
+        if interface is None:
+            configured = bool(self.orion.vault.store.get("discord_bot"))
+            enabled = bool(self.orion.config_manager.get("connect.discord_bot.enabled", False))
+            print(f"Configured       : {'Yes' if configured else 'No'}")
+            print(f"Enabled          : {'Yes' if enabled else 'No'}")
+            print("Runtime          : Offline")
+            return
+        d = interface.diagnostics
+        print(f"Runtime          : {d.state}")
+        print(f"Bot              : {d.bot_name or 'Connecting...'}")
+        print(f"Guilds           : {', '.join(d.guilds) if d.guilds else 'None'}")
+        print(f"Watching         : {', '.join(d.watching) if d.watching else 'None'}")
+        print(f"Access           : {'Channel members' if interface.policy.allow_channel_members else 'Owners only'}")
+        print(f"Owners           : {len(interface.policy.owner_user_ids)}")
+        print(f"Messages received: {d.messages_received}")
+        print(f"Replies sent     : {d.replies_sent}")
+        print(f"Ignored          : {d.ignored}")
+        print(f"Last user ID     : {d.last_user_id}")
+        print(f"Last channel ID  : {d.last_channel_id}")
+        print(f"Last route       : {d.last_route}")
+        print(f"Last request     : {d.last_request}")
+        print(f"Last ignore      : {d.last_ignore_reason}")
+        print(f"Last error       : {d.last_error}")
+
+    def set_discord_bot_enabled(self, enabled: bool):
+        if enabled and not self.orion.vault.store.get("discord_bot"):
+            print("Discord bot is not configured. Run: connect add discord bot")
+            return
+        self.orion.config_manager.set("connect.discord_bot.enabled", enabled)
+        self.orion.config_manager.save()
+        state = "enabled" if enabled else "disabled"
+        print(f"[OK] Discord bot interface {state}.")
+        if enabled:
+            print("Restart Orion to apply the change.")
+
+    def _mail_rows(self, query="in:inbox"):
+        messages = self.orion.connect_service.gmail.list_messages(query=query, limit=10)
+        self._last_email_messages = messages
+        if not messages:
+            print("No matching messages.")
+            return []
+        for index, item in enumerate(messages, start=1):
+            unread = "*" if item.unread else " "
+            print(f"{index:>2}. [{unread}] {item.subject}")
+            print(f"    From: {item.sender}")
+            if item.snippet:
+                print(f"    {item.snippet[:110]}")
+        return messages
+
+    def email_inbox(self):
+        print("Gmail Inbox")
+        print("-" * 62)
+        try:
+            self._mail_rows("in:inbox")
+        except Exception as exc:
+            print(f"Could not read Gmail: {exc}")
+
+    def email_unread(self):
+        try:
+            count = self.orion.connect_service.gmail.unread_count()
+            print(f"Unread Gmail messages: {count}")
+            if count:
+                self._mail_rows("in:inbox is:unread")
+        except Exception as exc:
+            print(f"Could not read Gmail: {exc}")
+
+    def email_search(self, query: str):
+        if not query:
+            print("Usage: email search <text>")
+            return
+        print(f"Gmail Search: {query}")
+        print("-" * 62)
+        try:
+            self._mail_rows(query)
+        except Exception as exc:
+            print(f"Could not search Gmail: {exc}")
+
+    def email_read(self, reference: str):
+        if not reference:
+            print("Usage: email read <number|id>")
+            return
+        message_id = reference
+        if reference.isdigit() and hasattr(self, "_last_email_messages"):
+            index = int(reference) - 1
+            if 0 <= index < len(self._last_email_messages):
+                message_id = self._last_email_messages[index].id
+        try:
+            item = self.orion.connect_service.gmail.read_message(message_id)
+            print(item.subject)
+            print(f"From: {item.sender}")
+            print("-" * 62)
+            print(item.snippet or "Message body preview unavailable.")
+        except Exception as exc:
+            print(f"Could not read Gmail message: {exc}")
+
+    def email_compose(self):
+        print("Compose Email")
+        to = input("To: ").strip()
+        subject = input("Subject: ").strip()
+        print("Body (finish with a single period on its own line):")
+        lines = []
+        while True:
+            line = input()
+            if line == ".":
+                break
+            lines.append(line)
+        body = "\n".join(lines).strip()
+        if not to or not subject or not body:
+            print("Email cancelled: recipient, subject, and body are required.")
+            return
+        print("-" * 62)
+        print(f"To: {to}\nSubject: {subject}\n\n{body}")
+        print("-" * 62)
+        answer = input("Send this email? [y/N]: ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("Email not sent.")
+            return
+        try:
+            self.orion.connect_service.gmail.send(to, subject, body)
+            print("[OK] Email sent.")
+        except Exception as exc:
+            print(f"Could not send email: {exc}")
+
+    def discord_send(self, message: str):
+        if not message:
+            print("Usage: discord send <message>")
+            return
+        print("Discord message preview")
+        print("-" * 62)
+        print(message)
+        print("-" * 62)
+        answer = input("Post this message? [y/N]: ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("Discord message not posted.")
+            return
+        try:
+            self.orion.connect_service.discord.send(message)
+            print("[OK] Discord message posted.")
+        except Exception as exc:
+            print(f"Could not post to Discord: {exc}")
 
     def show_vault(self):
         print("=" * 62)

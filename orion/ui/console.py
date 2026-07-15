@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - graceful fallback
 
 
 BASE_COMMANDS = (
-    "help", "home", "status", "briefing", "ai", "ai status", "ai models", "ai profiles", "ai profile coding", "ai profile creative", "ai profile lightweight", "ai profile vision", "ai benchmark", "change ollama model", "ollama model", "weather", "weather tomorrow", "calendar", "calendar today", "calendar tomorrow", "calendar next", "calendar providers", "calendar enable google", "calendar enable microsoft", "calendar disable google", "calendar disable microsoft", "calendar configure google", "calendar configure microsoft", "calendar connect google", "calendar connect microsoft", "settings", "about", "profile", "config", "services",
+    "help", "home", "status", "briefing", "connect", "connect status", "connect health", "connect add gmail", "connect add discord", "email", "email inbox", "email unread", "email search", "email read", "email compose", "discord send", "ai", "ai status", "ai models", "ai profiles", "ai profile coding", "ai profile creative", "ai profile lightweight", "ai profile vision", "ai benchmark", "change ollama model", "ollama model", "weather", "weather tomorrow", "calendar", "calendar today", "calendar tomorrow", "calendar next", "calendar providers", "calendar enable google", "calendar enable microsoft", "calendar disable google", "calendar disable microsoft", "calendar configure google", "calendar configure microsoft", "calendar connect google", "calendar connect microsoft", "settings", "about", "profile", "config", "services",
     "plugins", "workspace", "files", "ls", "remember", "recall", "memory",
     "forget", "clear memory", "project init", "project status", "project info",
     "project resume", "project rules", "index build", "index status", "index find",
@@ -110,7 +110,7 @@ class Console:
             for error in briefing.errors:
                 print(f"[X] {error.provider}: {error.message}")
         print("-" * 62)
-        print("Try: ask <question> | ai status | calendar today | weather")
+        print("Try: ask <question> | connect | ai status | calendar today | weather")
         print("I'm online and ready to help.")
         print("=" * 62)
 

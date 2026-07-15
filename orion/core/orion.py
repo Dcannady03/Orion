@@ -30,6 +30,8 @@ from orion.services.workspace import WorkspaceManager
 from orion.services.ai_control import AIControlService
 from orion.services.provider_manager import ProviderManager
 from orion.services.vault import VaultService
+from orion.services.connect import ConnectService, ConnectBriefingProvider, GmailClient, DiscordWebhookClient
+from orion.services.request_router import RequestRouterService
 from orion.services.project_context import ProjectContext
 from orion.services.companion import CompanionSettings, ActionTrustStore
 from orion.services.discovery import (
@@ -42,6 +44,10 @@ from orion.plugins.manager import PluginManager
 from orion.actions import ActionHistory, ActionService, PolicyDecision
 from orion.ui.console import Console
 from datetime import datetime
+import importlib
+import subprocess
+import sys
+from orion.interfaces.discord import DiscordBotInterface
 
 
 class Orion:
@@ -226,6 +232,11 @@ class Orion:
             memory=self.session_memory,
             services=self.services,
         )
+        self.request_router = self.services.register(
+            "request_router", RequestRouterService(
+                self.brain, self.weather_service, self.calendar_service
+            )
+        )
         self.provider_manager = self.services.register(
             "provider_manager", ProviderManager(self, self.config_manager)
         )
@@ -233,6 +244,24 @@ class Orion:
             "vault", VaultService(self.config_manager, self.provider_manager, self.provider_manager.secrets)
         )
         self.vault.migrate_legacy_store()
+
+        # Orion Connect unifies communication services behind one center.
+        self.connect_service = self.services.register(
+            "connect",
+            ConnectService(
+                GmailClient(
+                    self.config_manager.get("connect.gmail.credentials_path", "config/google-gmail-credentials.json"),
+                    self.config_manager.get("connect.gmail.token_path", ".orion/google-gmail-token.json"),
+                ),
+                DiscordWebhookClient(
+                    self.vault.store.get("discord"),
+                    timeout=float(self.config_manager.get("connect.discord.timeout_seconds", 10.0)),
+                ),
+                vault=self.vault,
+            ),
+        )
+        self.briefing_service.register_provider(ConnectBriefingProvider(self.connect_service))
+        self.discord_interface = None
         self.router = CommandRouter(self)
         self.console = Console(self)
 
@@ -245,11 +274,74 @@ class Orion:
         self.config_manager.set(f"calendar.{provider_key}.{field}", value)
         self.config_manager.save()
 
-    def start(self):
+    def start(self, *, discord: bool = False):
         """Start Orion and enter the polished Companion command loop."""
+        if discord:
+            self.start_discord_interface()
         briefing = self.briefing_service.build()
         self.console.render_home(self, briefing)
         self.command_loop()
+
+
+    def start_discord_interface(self):
+        """Start the optional two-way Discord gateway beside the CLI."""
+        token = self.vault.store.get("discord_bot")
+        owners = self.config_manager.get(
+            "connect.discord_bot.owner_user_ids",
+            self.config_manager.get("connect.discord_bot.allowed_user_ids", []),
+        )
+        channels = self.config_manager.get("connect.discord_bot.allowed_channel_ids", [])
+        roles = self.config_manager.get("connect.discord_bot.allowed_role_ids", [])
+        allow_channel_members = bool(
+            self.config_manager.get("connect.discord_bot.allow_channel_members", False)
+        )
+        interface = DiscordBotInterface(
+            self,
+            token,
+            owners,
+            channels,
+            roles,
+            allow_channel_members,
+        )
+        try:
+            interface.start()
+        except RuntimeError as exc:
+            if "discord.py" not in str(exc):
+                print(f"[WARN] Discord interface could not start: {exc}")
+                return None
+            print("\nDiscord Interface")
+            print("-" * 50)
+            print("The Discord interface requires the optional package: discord.py")
+            try:
+                answer = input("Would you like Orion to install it now? [Y/n]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = "n"
+            if answer not in {"", "y", "yes"}:
+                print("Discord was not started. Install later with:")
+                print(f'  "{sys.executable}" -m pip install -U discord.py')
+                return None
+            print("Installing discord.py...")
+            completed = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-U", "discord.py"],
+                check=False,
+            )
+            if completed.returncode != 0:
+                print("[WARN] Installation failed. Orion will continue without Discord.")
+                print(f'Try manually: "{sys.executable}" -m pip install -U discord.py')
+                return None
+            importlib.invalidate_caches()
+            print("[OK] discord.py installed.")
+            try:
+                interface.start()
+            except Exception as retry_exc:
+                print(f"[WARN] Discord still could not start: {retry_exc}")
+                print("Restart Orion and try again.")
+                return None
+        except Exception as exc:
+            print(f"[WARN] Discord interface could not start: {exc}")
+            return None
+        self.discord_interface = interface
+        return interface
 
     def command_loop(self):
         """Run Orion's interactive command loop with history and completion."""

@@ -1,3 +1,30 @@
+# Changelog
+
+## 0.4.3 — Signal: Two-Way Discord Interface
+
+- Added a real Discord bot interface for direct messages and `@Orion` mentions.
+- Routed Discord conversations through the same Orion Brain, identity, provider, and project context used by the CLI.
+- Added an explicit approved-user allowlist; unauthorized Discord accounts cannot invoke Orion.
+- Added `connect add discord bot` and `discord bot status`.
+- Added `--discord` startup mode and the `discord.py` runtime dependency.
+- Preserved Discord webhooks for approval-gated outbound notifications.
+- Added Discord interface regression coverage; 139 tests pass.
+
+
+## 0.4.2.1 — Connect: Discord Webhook Compatibility
+
+- Added an explicit Orion User-Agent to Discord webhook verification and posting requests.
+- Improved errors for revoked, invalid, or rejected Discord webhook URLs.
+- Added regression coverage for Discord HTTP request headers.
+
+# Orion v0.4.2 — Connect
+
+- Added the unified Orion Connect Center.
+- Added Gmail OAuth connection, inbox, unread count, search, message preview, and approval-gated sending.
+- Added secure Discord webhook configuration through Orion Vault and approval-gated posting.
+- Added Connect status, health checks, command completion, and a Home briefing card.
+- Added Connect service regression coverage.
+
 # Orion Changelog
 
 ## 0.4.1 — Polaris Vault
@@ -82,3 +109,25 @@
 - Added a separate local secret store with environment-variable precedence.
 - Preserved Ollama as the default provider and retained all existing model controls.
 - Added provider federation regression tests.
+
+## [0.4.3.1] - 2026-07-15
+
+### Added
+- Restricted the two-way Discord interface to explicitly allowed channel IDs.
+- Added optional Discord role requirements for server messages.
+- Added `connect enable discord bot` and `connect disable discord bot` commands.
+- Enabled automatic Discord gateway startup when the interface is configured and enabled.
+- Expanded Discord bot status with user, channel, role, enabled, and running state.
+
+## v0.4.3.2 — Signal: Shared Brain Routing
+- Routed Discord and CLI requests through shared Orion services before AI fallback.
+- Added graceful optional dependency installation for `discord.py`.
+
+## 0.4.3.6 - Signal Access Fix
+- Fixed Discord channel-wide access so approved channel members can converse without being configured as owners.
+- Kept DMs and sensitive computer/account actions owner-only.
+- Separated owner IDs from general channel access policy.
+- Switched mention detection to Discord's native mention handling.
+- Added detailed gateway diagnostics and ignore reasons.
+- Normalized `@Orion ask ...` requests before shared service routing.
+- Added regression coverage for channel members, owner boundaries, and sensitive requests.

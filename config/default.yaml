@@ -1,9 +1,9 @@
 orion:
   name: Orion
-  version: 0.4.1
-  codename: Polaris
+  version: 0.4.3.2
+  codename: Signal
 providers:
-  default: gemini
+  default: ollama
   secrets_path: .orion/vault.yaml
   openai:
     enabled: false
@@ -11,7 +11,7 @@ providers:
     base_url: https://api.openai.com/v1
     timeout_seconds: 60
   gemini:
-    enabled: true
+    enabled: false
     model: gemini-2.5-flash
     base_url: https://generativelanguage.googleapis.com/v1beta
     timeout_seconds: 60
@@ -19,6 +19,8 @@ providers:
     enabled: true
     base_url: http://localhost:11434
     model: qwen3.6:35b
+  discord_bot:
+    enabled: true
 workspace:
   default_path: .
 memory:
@@ -62,3 +64,13 @@ ai:
   temperature: 0.5
 vault:
   path: .orion/vault.yaml
+connect:
+  discord_bot:
+    enabled: true
+    allowed_user_ids: &id001
+    - 586250300705210390
+    allowed_channel_ids:
+    - 1526972631646081064
+    allowed_role_ids: []
+    owner_user_ids: *id001
+    allow_channel_members: true

@@ -238,7 +238,7 @@ class WeatherService:
         cache_key = (location_query or self.default_location).strip().casefold()
         cached = self._report_cache.get(cache_key)
         now = monotonic()
-        if cached and now - cached[0] <= self._cache_ttl_seconds:
+        if cached and cached[0] > 0 and now - cached[0] <= self._cache_ttl_seconds:
             return cached[1]
 
         try:

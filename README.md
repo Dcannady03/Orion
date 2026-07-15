@@ -186,3 +186,65 @@ vault remove gemini
 ```
 
 The local vault is stored at `.orion/vault.yaml`, excluded from Git, and written with owner-only permissions where supported. Environment variables (`GEMINI_API_KEY` and `OPENAI_API_KEY`) still take precedence. Existing `.orion/secrets.yaml` credentials are migrated automatically on first launch. Native Windows Credential Manager, macOS Keychain, and Linux Secret Service backends are planned behind the same Vault interface.
+
+## Orion Connect
+
+Orion Connect unifies communication services behind one center.
+
+```text
+connect
+connect health
+connect add gmail
+connect add discord
+email inbox
+email unread
+email search <text>
+email read <number|id>
+email compose
+discord send <message>
+```
+
+Gmail uses Google OAuth and stores its refresh token outside normal configuration. Discord webhooks are stored in Orion Vault. Sending email or posting to Discord always requires an explicit preview and confirmation.
+
+## Two-Way Discord Interface
+
+Orion can run a Discord bot beside the CLI so approved users can talk to the same Orion Brain from Discord.
+
+```text
+connect add discord bot
+discord bot status
+```
+
+Create a bot in the Discord Developer Portal, enable **Message Content Intent**, invite it to your server, then provide the bot token and your numeric Discord user ID. Start the interface with:
+
+```powershell
+python -m orion.main --discord
+```
+
+Orion replies to direct messages and server messages that mention `@Orion`. Messages from users not listed in `connect.discord_bot.allowed_user_ids` are refused. The existing Discord webhook remains available for approval-gated outbound notifications.
+
+## Restricted two-way Discord interface
+
+Configure the bot with:
+
+```text
+connect add discord bot
+```
+
+Orion asks for a bot token, approved user IDs, allowed channel IDs, and optional required human role IDs. Direct messages are limited to approved users. Server replies require an approved user, an allowed channel, an `@Orion` mention, and—when configured—one of the required roles.
+
+After configuration, the Discord interface starts automatically with Orion. It can be toggled with:
+
+```text
+connect enable discord bot
+connect disable discord bot
+discord bot status
+```
+
+Discord channel permissions should still restrict the Orion bot role to only the intended channel. Orion's internal allowlists provide a second security layer.
+
+## Shared Orion request routing
+
+CLI and Discord requests now use the same Orion request router. Live weather and calendar questions are answered by Orion services first; general questions fall back to the active AI provider.
+
+If the optional Discord package is missing, Orion offers to install it with the active Python interpreter instead of terminating with a traceback.

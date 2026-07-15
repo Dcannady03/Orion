@@ -31,7 +31,7 @@ class VaultHealth:
 
 
 class VaultService:
-    PROVIDERS = ("openai", "gemini")
+    PROVIDERS = ("openai", "gemini", "discord", "discord_bot")
 
     def __init__(self, config_manager, provider_manager=None, store: SecretStore | None = None):
         self.config = config_manager
@@ -50,7 +50,7 @@ class VaultService:
         entries = [VaultEntry("ollama", "AI Provider", True, "local")]
         for key in self.PROVIDERS:
             configured = bool(self.store.get(key))
-            entries.append(VaultEntry(key, "AI Provider", configured, self.store.source(key)))
+            entries.append(VaultEntry(key, "AI Provider" if key in {"openai", "gemini"} else "Communication", configured, self.store.source(key)))
         return entries
 
     def add(self, key: str, secret: str) -> None:
@@ -75,8 +75,11 @@ class VaultService:
                 results.append(VaultHealth(key, False, False, "Not configured"))
                 continue
             try:
-                models = checker(key) if checker else []
-                message = f"Connected; {len(models)} compatible model(s)" if checker else "Configured"
+                if key in {"openai", "gemini"} and checker:
+                    models = checker(key)
+                    message = f"Connected; {len(models)} compatible model(s)"
+                else:
+                    message = "Configured"
                 results.append(VaultHealth(key, True, True, message))
             except (ConnectionError, OSError, ValueError) as exc:
                 results.append(VaultHealth(key, True, False, str(exc)))
@@ -99,5 +102,5 @@ class VaultService:
     def _validate(cls, key: str) -> str:
         normalized = key.lower().strip()
         if normalized not in cls.PROVIDERS:
-            raise ValueError("Vault currently supports: openai, gemini")
+            raise ValueError("Vault currently supports: openai, gemini, discord, discord_bot")
         return normalized
