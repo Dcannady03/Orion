@@ -1,4 +1,5 @@
-# 🌌 Orion
+# <img width="1254" height="1254" alt="ChatGPT Image Jul 15, 2026, 08_47_57 AM" src="https://github.com/user-attachments/assets/e57fe00b-dc5a-49aa-82f5-5f829e4afbf1" />
+ Orion
 
 > **A Personal AI Operating System**
 
