@@ -15,6 +15,7 @@ Orion AI Operating System
 """
 
 from orion.core.config import ConfigManager
+from orion.core.paths import OrionPaths
 from orion.core.profile import ProfileManager
 from orion.core.router import CommandRouter
 from orion.intelligence.factory import AIProviderFactory
@@ -58,7 +59,9 @@ class Orion:
     """Main Orion application."""
 
     def __init__(self):
-        # Load configuration
+        # Load immutable application defaults plus mutable user data.
+        self.paths = OrionPaths()
+        self.paths.ensure()
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load()
 
@@ -185,7 +188,7 @@ class Orion:
             self.config_manager.get("calendar.google.name", "Personal Google"),
             GoogleCalendarClient(
                 self.config_manager.get("calendar.google.credentials_path", "config/google-calendar-credentials.json"),
-                self.config_manager.get("calendar.google.token_path", ".orion/google-calendar-token.json"),
+                str(self.paths.user_file(self.config_manager.get("calendar.google.token_path", "google-calendar-token.json"), category="tokens")),
             ),
             self.config_manager.get("calendar.google.calendar_id", "primary"),
             google_enabled,
@@ -197,7 +200,7 @@ class Orion:
             self.config_manager.get("calendar.microsoft.name", "Personal Outlook"),
             MicrosoftCalendarClient(
                 self.config_manager.get("calendar.microsoft.client_id", ""),
-                self.config_manager.get("calendar.microsoft.token_path", ".orion/microsoft-calendar-token.json"),
+                str(self.paths.user_file(self.config_manager.get("calendar.microsoft.token_path", "microsoft-calendar-token.json"), category="tokens")),
                 tenant=self.config_manager.get("calendar.microsoft.tenant", "common"),
                 timeout=float(self.config_manager.get("calendar.microsoft.timeout_seconds", 10.0)),
             ),
@@ -264,7 +267,7 @@ class Orion:
             ConnectService(
                 GmailClient(
                     self.config_manager.get("connect.gmail.credentials_path", "config/google-gmail-credentials.json"),
-                    self.config_manager.get("connect.gmail.token_path", ".orion/google-gmail-token.json"),
+                    str(self.paths.user_file(self.config_manager.get("connect.gmail.token_path", "google-gmail-token.json"), category="tokens")),
                 ),
                 DiscordWebhookClient(
                     self.vault.store.get("discord"),

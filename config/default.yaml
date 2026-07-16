@@ -1,12 +1,12 @@
 orion:
   name: Orion
-  version: 0.4.6
-  codename: Polaris
+  version: 0.5.0
+  codename: Foundation
 providers:
-  default: openai
-  secrets_path: .orion/vault.yaml
+  default: ollama
+  secrets_path: vault/vault.yaml
   openai:
-    enabled: true
+    enabled: false
     model: gpt-4.1-mini
     base_url: https://api.openai.com/v1
     timeout_seconds: 60
@@ -51,19 +51,19 @@ calendar:
     name: Personal Google
     calendar_id: primary
     credentials_path: config/google-calendar-credentials.json
-    token_path: .orion/google-calendar-token.json
+    token_path: google-calendar-token.json
   microsoft:
     enabled: false
     name: Personal Outlook
     client_id: ''
     tenant: common
-    token_path: .orion/microsoft-calendar-token.json
+    token_path: microsoft-calendar-token.json
     timeout_seconds: 10
 ai:
   active_profile: balanced
   temperature: 0.5
 vault:
-  path: .orion/vault.yaml
+  path: vault/vault.yaml
 connect:
   discord_bot:
     enabled: true

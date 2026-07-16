@@ -47,7 +47,7 @@ class LocalConfigurationTests(unittest.TestCase):
             home = Path(tmp) / "home"
             with patch.dict(os.environ, {}, clear=False), patch("pathlib.Path.home", return_value=home):
                 manager = ConfigManager()
-            self.assertEqual(manager.local_config_path, home / ".orion" / "config" / "local.yaml")
+            self.assertEqual(manager.local_config_path, home / ".orion" / "config.yaml")
 
     def test_recovers_discord_settings_from_latest_update_backup(self):
         with tempfile.TemporaryDirectory() as tmp:

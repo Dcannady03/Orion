@@ -1,2 +1,2 @@
-__version__ = "0.4.7.1"
-__codename__ = "Relay"
+__version__ = "0.5.0"
+__codename__ = "Foundation"

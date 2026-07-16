@@ -164,3 +164,11 @@
 - Added the first-class Home Center service and reusable snapshot contract.
 - Decoupled Home rendering from core service internals for future GUI and mobile interfaces.
 - Added Home Center tests; full suite passes 150 tests.
+
+## v0.5.0 — Foundation
+
+- Separated mutable user data from the Git installation.
+- Added centralized `OrionPaths` path management.
+- Moved configuration, profile, Vault, OAuth tokens, and update backups under `~/.orion`.
+- Added automatic migration from the previous local configuration and repository profile locations.
+- Updated self-update backups to preserve the external user-data directory without dirtying Git.

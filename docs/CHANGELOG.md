@@ -213,3 +213,8 @@
 - Decoupled the console Home renderer from Orion's internal services.
 - Routed startup and the `home` command through `HomeService`.
 - Added Home Center tests; full suite passes 150 tests.
+
+## v0.5.0 — Foundation
+
+- Introduced a true application-data boundary: Git contains code and defaults; `~/.orion` contains personal/runtime state.
+- Added migration coverage and update-safety tests.

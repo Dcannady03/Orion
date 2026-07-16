@@ -16,6 +16,7 @@ from typing import Callable
 import yaml
 
 from orion.version import __codename__, __version__
+from orion.core.paths import OrionPaths
 
 
 InputProvider = Callable[[str], str]
@@ -35,14 +36,16 @@ class FirstContact:
 
     def __init__(
         self,
-        config_path: str | Path = "config/default.yaml",
-        profile_path: str | Path = "config/profile.yaml",
+        config_path: str | Path | None = None,
+        profile_path: str | Path | None = None,
         *,
         input_provider: InputProvider = input,
         output_provider: OutputProvider = print,
     ) -> None:
-        self.config_path = Path(config_path)
-        self.profile_path = Path(profile_path)
+        paths = OrionPaths()
+        paths.ensure()
+        self.config_path = Path(config_path) if config_path is not None else paths.config
+        self.profile_path = Path(profile_path) if profile_path is not None else paths.profile
         self.input = input_provider
         self.output = output_provider
 

@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 
 from orion.services.git_service import GitError, GitService
+from orion.core.paths import OrionPaths
 
 
 @dataclass(frozen=True)
@@ -20,9 +21,11 @@ class UpdateCheck:
 
 
 class UpdateService:
-    def __init__(self, git: GitService, runtime_root: str | Path = ".orion") -> None:
+    def __init__(self, git: GitService, runtime_root: str | Path | None = None) -> None:
         self.git = git
-        self.runtime_root = Path(runtime_root)
+        self.paths = OrionPaths(install_root=git.root, user_root=runtime_root)
+        self.paths.ensure()
+        self.runtime_root = self.paths.user_root
 
     def check(self, *, fetch: bool = True) -> UpdateCheck:
         if fetch:
@@ -32,21 +35,18 @@ class UpdateService:
         return UpdateCheck(current, status.behind > 0, status.behind, status.ahead, status.branch, status.upstream)
 
     def backup(self) -> Path:
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         # Keep backups outside the Git working tree. Creating a backup under
         # .orion/backups before pulling would make an otherwise clean repository
         # dirty and cause GitService.pull() to cancel the update.
-        backup_root = self.git.root.parent / f"{self.git.root.name}-backups" / f"update-{timestamp}"
+        backup_root = self.paths.backups / f"update-{timestamp}"
         backup_root.mkdir(parents=True, exist_ok=False)
-        for relative in (Path("config"), Path(".orion")):
-            source = self.git.root / relative
+        for relative, source in ((Path("user-data"), self.runtime_root),):
             if not source.exists():
                 continue
             destination = backup_root / relative
-            if relative == Path(".orion"):
+            if source.is_dir():
                 self._copy_runtime(source, destination, backup_root.parent)
-            elif source.is_dir():
-                shutil.copytree(source, destination)
             else:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, destination)

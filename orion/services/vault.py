@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from orion.intelligence.secrets import SecretStore
+from orion.core.paths import OrionPaths
 
 
 @dataclass(frozen=True)
@@ -35,10 +36,10 @@ class VaultService:
 
     def __init__(self, config_manager, provider_manager=None, store: SecretStore | None = None):
         self.config = config_manager
-        path = self.config.get(
-            "vault.path",
-            self.config.get("providers.secrets_path", ".orion/vault.yaml"),
-        )
+        paths = OrionPaths()
+        paths.ensure()
+        configured = self.config.get("vault.path", self.config.get("providers.secrets_path", ""))
+        path = paths.vault if not configured or str(configured).startswith(".orion") else Path(configured)
         self.store = store or SecretStore(path)
         self.provider_manager = provider_manager
 

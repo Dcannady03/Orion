@@ -8,15 +8,25 @@ Responsible for:
 """
 
 from pathlib import Path
+import shutil
 import yaml
+
+from orion.core.paths import OrionPaths
 
 
 class ProfileManager:
     """Loads and reads Orion's user profile."""
 
-    def __init__(self, profile_path: str = "config/profile.yaml"):
-        self.profile_path = Path(profile_path)
+    def __init__(self, profile_path: str | Path | None = None):
+        self.paths = OrionPaths()
+        self.paths.ensure()
+        self.profile_path = Path(profile_path) if profile_path is not None else self.paths.profile
         self.profile = {}
+        if profile_path is None and not self.profile_path.exists():
+            legacy = self.paths.install_root / "config" / "profile.yaml"
+            if legacy.exists():
+                self.profile_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(legacy, self.profile_path)
 
     def load(self) -> dict:
         """Load the profile YAML file."""

@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from orion.core.paths import OrionPaths
+
 
 _MISSING = object()
 
@@ -41,14 +43,14 @@ class ConfigManager:
         local_config_path: str | Path | None = None,
     ):
         explicit_config = config_path is not None
-        self.config_path = Path(config_path or "config/default.yaml")
+        self.paths = OrionPaths()
+        self.paths.ensure()
+        self.config_path = Path(config_path) if explicit_config else self.paths.defaults
         self.layered = not explicit_config or local_config_path is not None
 
         if self.layered:
             configured_local = local_config_path or os.environ.get("ORION_LOCAL_CONFIG")
-            self.local_config_path = Path(configured_local) if configured_local else (
-                Path.home() / ".orion" / "config" / "local.yaml"
-            )
+            self.local_config_path = Path(configured_local) if configured_local else self.paths.config
         else:
             self.local_config_path = self.config_path
 
@@ -68,6 +70,9 @@ class ConfigManager:
 
         if self.local_config_path.exists():
             self.local_config = self._read_yaml(self.local_config_path)
+        elif self.paths.legacy_local_config.exists() and self.local_config_path == self.paths.config:
+            self.local_config = self._read_yaml(self.paths.legacy_local_config)
+            self._write_yaml(self.local_config_path, self.local_config)
         else:
             self.local_config = self._recover_local_overrides()
             if self.local_config:

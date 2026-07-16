@@ -35,39 +35,41 @@ class GitUpdateTests(unittest.TestCase):
             with self.assertRaisesRegex(GitError, "uncommitted"):
                 GitService(root).pull()
 
-    def test_update_backup_preserves_config_and_runtime_without_recursion(self):
-        with tempfile.TemporaryDirectory() as root:
+    def test_update_backup_preserves_external_user_data_without_recursion(self):
+        with tempfile.TemporaryDirectory() as parent:
+            root = Path(parent, "Orion")
+            user_root = Path(parent, "user-data")
+            root.mkdir()
             self.make_repo(root)
-            Path(root, "config").mkdir()
-            Path(root, "config", "default.yaml").write_text("orion: true\n")
-            Path(root, ".orion").mkdir()
-            Path(root, ".orion", "vault.json").write_text("secret")
-            backup = UpdateService(GitService(root)).backup()
-            self.assertTrue((backup / "config" / "default.yaml").exists())
-            self.assertTrue((backup / ".orion" / "vault.json").exists())
-            self.assertFalse((backup / ".orion" / "backups").exists())
+            user_root.mkdir()
+            (user_root / "config.yaml").write_text("orion: true\n")
+            (user_root / "vault").mkdir()
+            (user_root / "vault" / "vault.yaml").write_text("secret")
+            (user_root / "backups").mkdir()
+            (user_root / "backups" / "old.txt").write_text("skip")
 
+            backup = UpdateService(GitService(root), runtime_root=user_root).backup()
+
+            self.assertTrue((backup / "user-data" / "config.yaml").exists())
+            self.assertTrue((backup / "user-data" / "vault" / "vault.yaml").exists())
+            self.assertFalse((backup / "user-data" / "backups").exists())
 
     def test_update_backup_does_not_dirty_repository(self):
         with tempfile.TemporaryDirectory() as parent:
             root = Path(parent, "Orion")
+            user_root = Path(parent, "user-data")
             root.mkdir()
+            user_root.mkdir()
             self.make_repo(root)
-            Path(root, "config").mkdir()
-            Path(root, "config", "default.yaml").write_text("orion: true\n")
-            Path(root, ".orion").mkdir()
-            Path(root, ".orion", "vault.json").write_text("secret")
-            run(root, "add", "config/default.yaml", ".orion/vault.json")
-            run(root, "commit", "-m", "Add runtime fixtures")
+            (user_root / "config.yaml").write_text("orion: true\n")
 
             service = GitService(root)
-            backup = UpdateService(service).backup()
+            backup = UpdateService(service, runtime_root=user_root).backup()
 
             self.assertFalse(service.status().dirty)
             with self.assertRaises(ValueError):
                 backup.relative_to(root)
-            self.assertTrue((backup / "config" / "default.yaml").exists())
-            self.assertTrue((backup / ".orion" / "vault.json").exists())
+            self.assertTrue((backup / "user-data" / "config.yaml").exists())
 
     def test_non_repository_is_reported(self):
         with tempfile.TemporaryDirectory() as root:
