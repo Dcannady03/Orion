@@ -21,6 +21,7 @@ class AIProviderFactory:
             return OllamaProvider(
                 base_url=self.config_manager.get("providers.ollama.base_url", "http://localhost:11434"),
                 model=self.config_manager.get("providers.ollama.model", "llama3"),
+                timeout=float(self.config_manager.get("providers.ollama.timeout_seconds", 45)),
             )
         if provider_name == "openai":
             if not self.config_manager.get("providers.openai.enabled", False):

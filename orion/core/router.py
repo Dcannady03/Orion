@@ -128,6 +128,18 @@ class CommandRouter:
         elif command_lower.startswith("ai provider models "):
             self.show_provider_models(raw_command[len("ai provider models "):].strip())
 
+        elif command_lower == "ai route status":
+            self.show_ai_route_status()
+
+        elif command_lower == "ai route on":
+            self.set_ai_routing(True)
+
+        elif command_lower == "ai route off":
+            self.set_ai_routing(False)
+
+        elif command_lower in {"ai route explain", "ai route explain last"}:
+            self.explain_last_ai_route()
+
         elif command_lower in {"ai", "ai status"}:
             self.show_ai_status()
 
@@ -1225,7 +1237,48 @@ class CommandRouter:
         except ConnectionError as exc:
             print(f"Ollama         : Offline ({exc})")
         print("-" * 62)
-        print("Commands: ai providers | ai models | ai use <model> | ai profiles | ai benchmark")
+        print("Commands: ai providers | ai route status | ai use <model> | ai profiles | ai benchmark")
+
+    def show_ai_route_status(self):
+        service = self.orion.ai_routing
+        state = service.status()
+        print("AI Routing Engine")
+        print("-" * 62)
+        print(f"Enabled   : {'Yes' if state['enabled'] else 'No'}")
+        print(f"Profile   : {state['profile'].title()}")
+        providers = ", ".join(item.title() for item in state["ready_providers"]) or "None"
+        print(f"Providers : {providers}")
+        last = state.get("last_decision")
+        if last:
+            print(f"Last route: {last['provider']}:{last['model']} ({last['task_type']})")
+        else:
+            print("Last route: None")
+        print("-" * 62)
+        print("Commands: ai route on | ai route off | ai route explain last")
+        print("          ai profile <fast|balanced|coding|research>")
+
+    def set_ai_routing(self, enabled: bool):
+        self.orion.ai_routing.set_enabled(enabled)
+        print(f"[OK] Automatic AI routing {'enabled' if enabled else 'disabled'}.")
+
+    def explain_last_ai_route(self):
+        decision = self.orion.ai_routing.last_decision
+        if decision is None:
+            print("No routed AI request has been recorded in this session.")
+            return
+        print("Last AI Route")
+        print("-" * 62)
+        print(f"Profile   : {decision.profile.title()}")
+        print(f"Task      : {decision.task_type.title()}")
+        print(f"Provider  : {decision.provider.title()}")
+        print(f"Model     : {decision.model}")
+        print(f"Reason    : {decision.reason}")
+        fallback = ", ".join(item.title() for item in decision.fallbacks) or "None"
+        print(f"Fallbacks : {fallback}")
+        print(f"Duration  : {decision.duration_seconds:.3f}s")
+        print(f"Result    : {'Success' if decision.success else 'Failed'}")
+        if decision.error:
+            print(f"Error     : {decision.error}")
 
     def show_ai_profiles(self):
         service = self._ai_service()
@@ -1237,6 +1290,16 @@ class CommandRouter:
             print(f"  {name}{marker}: {profile['description']}")
 
     def activate_ai_profile(self, name: str):
+        key = name.lower().strip()
+        if key in self.orion.ai_routing.PROFILES:
+            try:
+                selected = self.orion.ai_routing.set_profile(key)
+            except ValueError as exc:
+                print(f"Could not activate AI profile: {exc}")
+                return
+            print(f"AI routing profile activated: {selected.title()}")
+            print(self.orion.ai_routing.PROFILES[selected])
+            return
         try:
             result = self._ai_service().activate_profile(name)
         except (ConnectionError, OSError, ValueError) as exc:

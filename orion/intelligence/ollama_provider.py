@@ -14,9 +14,10 @@ from orion.services.ai_control import AIModelInfo
 class OllamaProvider(AIProvider):
     """AI provider for local Ollama models."""
 
-    def __init__(self, base_url: str, model: str):
+    def __init__(self, base_url: str, model: str, timeout: float = 45.0):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.timeout = timeout
 
     def name(self) -> str:
         return f"ollama:{self.model}"
@@ -110,7 +111,7 @@ class OllamaProvider(AIProvider):
         )
 
         try:
-            with request.urlopen(req, timeout=120) as response:
+            with request.urlopen(req, timeout=self.timeout) as response:
                 body = response.read().decode("utf-8")
                 result = json.loads(body)
                 return result.get("response", "").strip()

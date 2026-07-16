@@ -30,6 +30,7 @@ class Brain:
         project_context = services.find("project_context") if services else None
         knowledge_index = services.find("knowledge_index") if services else None
         self.context_builder = ContextBuilder(self.conversation, memory, project_context, knowledge_index) if self.conversation else None
+        self.routing_service = None
         self.identity_prompt = IdentityPrompt(
             config_manager=config_manager,
             profile_manager=profile_manager,
@@ -59,7 +60,10 @@ class Brain:
             if context:
                 system_prompt += "\n\nUse this Orion context when it is relevant:\n" + context
 
-        response = self.ai_provider.chat(prompt, system_prompt=system_prompt)
+        if self.routing_service is not None and self.routing_service.enabled:
+            response = self.routing_service.route_chat(prompt, system_prompt=system_prompt)
+        else:
+            response = self.ai_provider.chat(prompt, system_prompt=system_prompt)
         if self.conversation and response:
             self.conversation.add("user", prompt)
             self.conversation.add("assistant", response)

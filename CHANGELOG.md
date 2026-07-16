@@ -1,3 +1,13 @@
+# v0.5.2 — Navigator
+
+- Added the AI Routing Engine with Fast, Balanced, Coding, and Research profiles.
+- Added transparent per-request provider selection across Ollama, OpenAI, and Gemini.
+- Added automatic fallback when a provider times out or fails.
+- Added `ai route status`, `ai route on`, `ai route off`, and `ai route explain last`.
+- Made Ollama request timeout configurable and set the default local model to `qwen3.5:9b`.
+- Added routing decision history for explainability.
+- Added automated routing and fallback coverage.
+
 # Changelog
 
 ## v0.5.1 — Lifeline
