@@ -47,6 +47,28 @@ class GitUpdateTests(unittest.TestCase):
             self.assertTrue((backup / ".orion" / "vault.json").exists())
             self.assertFalse((backup / ".orion" / "backups").exists())
 
+
+    def test_update_backup_does_not_dirty_repository(self):
+        with tempfile.TemporaryDirectory() as parent:
+            root = Path(parent, "Orion")
+            root.mkdir()
+            self.make_repo(root)
+            Path(root, "config").mkdir()
+            Path(root, "config", "default.yaml").write_text("orion: true\n")
+            Path(root, ".orion").mkdir()
+            Path(root, ".orion", "vault.json").write_text("secret")
+            run(root, "add", "config/default.yaml", ".orion/vault.json")
+            run(root, "commit", "-m", "Add runtime fixtures")
+
+            service = GitService(root)
+            backup = UpdateService(service).backup()
+
+            self.assertFalse(service.status().dirty)
+            with self.assertRaises(ValueError):
+                backup.relative_to(root)
+            self.assertTrue((backup / "config" / "default.yaml").exists())
+            self.assertTrue((backup / ".orion" / "vault.json").exists())
+
     def test_non_repository_is_reported(self):
         with tempfile.TemporaryDirectory() as root:
             with self.assertRaisesRegex(GitError, "not a Git repository"):

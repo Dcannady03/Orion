@@ -33,7 +33,10 @@ class UpdateService:
 
     def backup(self) -> Path:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_root = self.git.root / ".orion" / "backups" / f"update-{timestamp}"
+        # Keep backups outside the Git working tree. Creating a backup under
+        # .orion/backups before pulling would make an otherwise clean repository
+        # dirty and cause GitService.pull() to cancel the update.
+        backup_root = self.git.root.parent / f"{self.git.root.name}-backups" / f"update-{timestamp}"
         backup_root.mkdir(parents=True, exist_ok=False)
         for relative in (Path("config"), Path(".orion")):
             source = self.git.root / relative
