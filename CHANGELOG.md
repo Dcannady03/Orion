@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.6 — Polaris: OpenAI Connection
+
+- Added the guided `ai connect openai` command with hidden API-key entry and Vault-backed storage.
+- Added `ai test openai` to verify authentication through the Models endpoint without generating a model response.
+- Added `ai disconnect openai` with safe fallback to Ollama.
+- Added simple aliases (`ai configure openai`, `ai enable openai`, and `openai connect`).
+- Added CLI completion, help text, and OpenAI connection regression coverage.
+- Continued using the OpenAI Responses API for Orion conversations.
+
+# Changelog
+
 ## 0.4.3 — Signal: Two-Way Discord Interface
 
 - Added a real Discord bot interface for direct messages and `@Orion` mentions.
@@ -131,3 +142,16 @@
 - Added detailed gateway diagnostics and ignore reasons.
 - Normalized `@Orion ask ...` requests before shared service routing.
 - Added regression coverage for channel members, owner boundaries, and sensitive requests.
+
+## 0.4.5 — Horizon
+
+- Expanded Home Center with Tasks, Active Project, Recent Activity, and System Diagnostics cards.
+- Reused project context, action history, service registry, plugin manager, and knowledge index as canonical data sources.
+- Isolated individual Home card failures so a damaged project file cannot prevent Orion startup.
+- Added Home Center coverage; 152 automated tests pass.
+
+## 0.4.4 — Horizon
+
+- Added the first-class Home Center service and reusable snapshot contract.
+- Decoupled Home rendering from core service internals for future GUI and mobile interfaces.
+- Added Home Center tests; full suite passes 150 tests.

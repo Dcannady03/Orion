@@ -1,12 +1,12 @@
 orion:
   name: Orion
-  version: 0.4.3.2
-  codename: Signal
+  version: 0.4.6
+  codename: Polaris
 providers:
-  default: ollama
+  default: openai
   secrets_path: .orion/vault.yaml
   openai:
-    enabled: false
+    enabled: true
     model: gpt-4.1-mini
     base_url: https://api.openai.com/v1
     timeout_seconds: 60
@@ -67,10 +67,8 @@ vault:
 connect:
   discord_bot:
     enabled: true
-    allowed_user_ids: &id001
-    - 586250300705210390
-    allowed_channel_ids:
-    - 1526972631646081064
+    allowed_user_ids: []
+    allowed_channel_ids: []
     allowed_role_ids: []
-    owner_user_ids: *id001
-    allow_channel_members: true
+    owner_user_ids: []
+    allow_channel_members: false

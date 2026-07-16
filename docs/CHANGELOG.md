@@ -189,3 +189,18 @@
 - Added provider-aware configuration and switching through the AI Control Center.
 - Added separate local API-key storage; normal configuration files never contain API keys.
 - Added 5 federation tests; full suite passes 127 tests.
+
+## 0.4.5 — Horizon
+
+- Expanded Home Center with Tasks, Active Project, Recent Activity, and System Diagnostics cards.
+- Reused project context, action history, service registry, plugin manager, and knowledge index as canonical data sources.
+- Isolated individual Home card failures so a damaged project file cannot prevent Orion startup.
+- Added Home Center coverage; 152 automated tests pass.
+
+## 0.4.4 — Horizon
+
+- Promoted Home into a first-class registered service.
+- Added interface-neutral `HomeSnapshot` and `HomeCard` models.
+- Decoupled the console Home renderer from Orion's internal services.
+- Routed startup and the `home` command through `HomeService`.
+- Added Home Center tests; full suite passes 150 tests.

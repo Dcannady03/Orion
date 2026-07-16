@@ -1,4 +1,4 @@
-#<img width="1254" height="1254" alt="orion_icon" src="https://github.com/user-attachments/assets/789cf0e9-1713-4782-826b-6eff0b2bf56c" />
+<img width="1254" height="1254" alt="orion_icon" src="https://github.com/user-attachments/assets/789cf0e9-1713-4782-826b-6eff0b2bf56c" />
 
  Orion
 
@@ -272,6 +272,24 @@ Features planned:
 - Live status panels
 - Memory browser
 - Home dashboard
+
+---
+
+## Connect OpenAI
+
+Orion can connect to the OpenAI API while keeping the API key outside normal configuration and source control.
+
+```text
+ai connect openai
+ai test openai
+ai provider models openai
+ai provider use openai
+ai disconnect openai
+```
+
+`ai connect openai` prompts for the key with hidden input, stores it in Orion Vault, verifies the connection, discovers models, and optionally makes OpenAI active. `ai test openai` verifies authentication without generating an AI response.
+
+If the optional Discord package is missing, Orion offers to install it with the active Python interpreter instead of terminating with a traceback.
 
 ---
 

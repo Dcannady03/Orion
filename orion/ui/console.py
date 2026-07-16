@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - graceful fallback
 
 
 BASE_COMMANDS = (
-    "help", "home", "status", "briefing", "connect", "connect status", "connect health", "connect add gmail", "connect add discord", "email", "email inbox", "email unread", "email search", "email read", "email compose", "discord send", "ai", "ai status", "ai models", "ai profiles", "ai profile coding", "ai profile creative", "ai profile lightweight", "ai profile vision", "ai benchmark", "change ollama model", "ollama model", "weather", "weather tomorrow", "calendar", "calendar today", "calendar tomorrow", "calendar next", "calendar providers", "calendar enable google", "calendar enable microsoft", "calendar disable google", "calendar disable microsoft", "calendar configure google", "calendar configure microsoft", "calendar connect google", "calendar connect microsoft", "settings", "about", "profile", "config", "services",
+    "help", "home", "status", "briefing", "connect", "connect status", "connect health", "connect add gmail", "connect add discord", "email", "email inbox", "email unread", "email search", "email read", "email compose", "discord send", "ai", "ai status", "ai connect openai", "ai test openai", "ai disconnect openai", "ai providers", "ai models", "ai profiles", "ai profile coding", "ai profile creative", "ai profile lightweight", "ai profile vision", "ai benchmark", "change ollama model", "ollama model", "weather", "weather tomorrow", "calendar", "calendar today", "calendar tomorrow", "calendar next", "calendar providers", "calendar enable google", "calendar enable microsoft", "calendar disable google", "calendar disable microsoft", "calendar configure google", "calendar configure microsoft", "calendar connect google", "calendar connect microsoft", "settings", "about", "profile", "config", "services",
     "plugins", "workspace", "files", "ls", "remember", "recall", "memory",
     "forget", "clear memory", "project init", "project status", "project info",
     "project resume", "project rules", "index build", "index status", "index find",
@@ -84,31 +84,25 @@ class Console:
 
 
     @staticmethod
-    def render_home(orion, briefing) -> None:
-        """Render Orion Home as a compact, provider-neutral command center."""
-        from datetime import datetime
-
-        now = datetime.now()
-        hour = now.hour
-        greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
-        location = orion.profile_manager.get("location", "") or "Location not set"
+    def render_home(snapshot, *, developer_mode: bool = False) -> None:
+        """Render a reusable Home Center snapshot."""
         print("=" * 62)
         print(f"{'ORION':^62}")
         print(f"{'Personal AI Operating System':^62}")
         print("=" * 62)
-        print(f"{greeting}, {orion.user_name}.")
-        print(f"{now.strftime('%A, %B %d, %Y  |  %I:%M %p')}")
-        print(f"{location}")
+        print(f"{snapshot.greeting}, {snapshot.user_name}.")
+        print(snapshot.generated_at.strftime("%A, %B %d, %Y  |  %I:%M %p"))
+        print(snapshot.location)
         print("-" * 62)
-        if not briefing.items:
+        if not snapshot.cards:
             print("[i] No Home cards are available yet.")
-        for item in briefing.items:
-            print(f"{item.icon:<6} {item.title:<14} {item.message}")
-        if orion.companion_settings.developer_mode and briefing.errors:
+        for card in snapshot.cards:
+            print(f"{card.icon:<6} {card.title:<14} {card.message}")
+        if developer_mode and snapshot.provider_errors:
             print("-" * 62)
             print("Provider diagnostics")
-            for error in briefing.errors:
-                print(f"[X] {error.provider}: {error.message}")
+            for provider, message in snapshot.provider_errors:
+                print(f"[X] {provider}: {message}")
         print("-" * 62)
         print("Try: ask <question> | connect | ai status | calendar today | weather")
         print("I'm online and ready to help.")

@@ -21,6 +21,7 @@ from orion.intelligence.factory import AIProviderFactory
 from orion.intelligence.brain import Brain
 from orion.services.registry import ServiceRegistry
 from orion.services.briefing import BriefingService, SystemBriefingProvider
+from orion.services.home import HomeService
 from orion.services.weather import WeatherBriefingProvider, WeatherService
 from orion.services.calendar import (
     CalendarBriefingProvider, CalendarProvider, CalendarService,
@@ -261,6 +262,13 @@ class Orion:
             ),
         )
         self.briefing_service.register_provider(ConnectBriefingProvider(self.connect_service))
+
+        # Home Center is initialized after every briefing provider is registered so
+        # its snapshots include System, Weather, Calendar, and Connect cards.
+        self.home_service = self.services.register(
+            "home", HomeService(self, self.briefing_service)
+        )
+
         self.discord_interface = None
         self.router = CommandRouter(self)
         self.console = Console(self)
@@ -278,8 +286,7 @@ class Orion:
         """Start Orion and enter the polished Companion command loop."""
         if discord:
             self.start_discord_interface()
-        briefing = self.briefing_service.build()
-        self.console.render_home(self, briefing)
+        self.console.render_home(self.home_service.build(), developer_mode=self.companion_settings.developer_mode)
         self.command_loop()
 
 

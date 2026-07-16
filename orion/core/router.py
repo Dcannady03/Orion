@@ -110,6 +110,15 @@ class CommandRouter:
         elif command_lower == "ai providers":
             self.show_ai_providers()
 
+        elif command_lower in {"ai connect openai", "ai configure openai", "ai enable openai", "openai connect", "openai configure"}:
+            self.configure_ai_provider("openai")
+
+        elif command_lower in {"ai test openai", "openai test"}:
+            self.test_ai_provider("openai")
+
+        elif command_lower in {"ai disconnect openai", "ai disable openai", "openai disconnect"}:
+            self.disconnect_ai_provider("openai")
+
         elif command_lower.startswith("ai provider configure "):
             self.configure_ai_provider(raw_command[len("ai provider configure "):].strip())
 
@@ -434,6 +443,9 @@ class CommandRouter:
         print("    vault add <provider>       Securely add Gemini or OpenAI credentials")
         print("    vault health               Verify configured credentials")
         print("    ai providers               Show Ollama, OpenAI, and Gemini connections")
+        print("    ai connect openai          Securely connect the OpenAI API")
+        print("    ai test openai             Verify the saved OpenAI connection")
+        print("    ai disconnect openai       Remove OpenAI from Orion Vault")
         print("    ai provider configure ...  Connect a cloud AI provider")
         print("    ai provider use ...        Change Orion's active provider")
         print("    weather [location]         Show live weather and today's forecast")
@@ -533,8 +545,10 @@ class CommandRouter:
     def show_home(self):
         """Refresh and render Orion Home."""
         print()
-        briefing = self.orion.briefing_service.build()
-        self.orion.console.render_home(self.orion, briefing)
+        snapshot = self.orion.home_service.build()
+        self.orion.console.render_home(
+            snapshot, developer_mode=self.orion.companion_settings.developer_mode
+        )
 
     def show_briefing(self):
         """Build and display the latest provider-neutral briefing."""
@@ -1062,7 +1076,8 @@ class CommandRouter:
             state = "Ready" if item.enabled and item.configured else ("Needs API key" if item.enabled else "Disabled")
             print(f"{marker:<8} {item.key.title():<10} {state:<16} {item.model}")
         print("-" * 62)
-        print("Commands: ai provider configure <openai|gemini>")
+        print("Commands: ai connect openai | ai test openai")
+        print("          ai provider configure <openai|gemini>")
         print("          ai provider use <ollama|openai|gemini>")
         print("          ai provider models <provider>")
 
@@ -1094,6 +1109,37 @@ class CommandRouter:
                 print(f"Provider saved but could not be activated: {exc}")
                 return
             print(f"[OK] Active AI: {active.name()}")
+
+    def test_ai_provider(self, provider: str):
+        key = provider.lower().strip()
+        try:
+            models = self.orion.provider_manager.test_connection(key)
+        except (ConnectionError, OSError, ValueError) as exc:
+            print(f"[FAIL] {key.title()} connection failed: {exc}")
+            return
+        configured_model = self.orion.config_manager.get(f"providers.{key}.model", "")
+        print(f"[OK] {key.title()} API connection verified.")
+        print(f"     Credential source: {self.orion.vault.store.source(key)}")
+        print(f"     Models visible: {len(models)}")
+        if configured_model:
+            state = "available" if configured_model in models else "configured (not returned by model list)"
+            print(f"     Default model: {configured_model} [{state}]")
+
+    def disconnect_ai_provider(self, provider: str):
+        key = provider.lower().strip()
+        if key not in {"openai", "gemini"}:
+            print("Usage: ai disconnect <openai|gemini>")
+            return
+        answer = input(f"Disconnect {key.title()} and remove its API key from Orion Vault? [y/N]: ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("Provider unchanged.")
+            return
+        self.orion.vault.remove(key)
+        try:
+            active = self.orion.provider_manager.activate("ollama")
+            print(f"[OK] {key.title()} disconnected. Active AI: {active.name()}")
+        except (ConnectionError, OSError, ValueError):
+            print(f"[OK] {key.title()} disconnected. Restart Orion to reload the active provider.")
 
     def use_ai_provider(self, provider: str):
         try:

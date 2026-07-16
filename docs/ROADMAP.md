@@ -43,7 +43,10 @@ tested, documented milestones.
 - [ ] Approval-based shell execution
 - [ ] Routines and multi-step workflows
 
-## v0.4.x — Pathfinder: Diagnostics & Recovery
+## v0.4.x — Centers & Pathfinder
+
+- [x] **v0.4.4 — Horizon:** first-class Home Center and interface-neutral dashboard snapshots
+- [x] **v0.4.5 — Horizon:** Tasks, Project, Activity, and System cards with fault isolation
 
 - Dependency and service health graphs
 - Root-cause-oriented diagnostic runbooks
@@ -78,13 +81,13 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.3.6 — Calendar: COMPLETE**
+**v0.4.4 — Horizon: COMPLETE**
 
-Calendar adds optional read-only Google Calendar access, natural agenda and availability
-queries, next-event lookup, and a fault-isolated Morning Star provider. OAuth credentials
-remain local and are excluded from Git.
+Horizon promotes Home into a registered Orion service. The CLI now renders a detached
+Home snapshot that can later be shared by the AI Command Center GUI, web interface, and
+mobile companion. Morning Star remains the provider-neutral source of live cards.
 
-**Next milestone:** v0.3.7 — Email.
+**Next milestone:** expand Home with task, project, activity, and diagnostic providers.
 
 ## v0.3.6.1 — Constellation ✅
 

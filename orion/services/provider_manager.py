@@ -58,6 +58,15 @@ class ProviderManager:
         key = self._validate(provider)
         return AIProviderFactory(self.config, self.secrets).create(key).list_models()
 
+    def test_connection(self, provider: str) -> list[str]:
+        """Verify credentials without generating a billable model response."""
+        key = self._validate(provider)
+        if key == "ollama":
+            return self.models(key)
+        if not self.secrets.get(key):
+            raise ValueError(f"{key.title()} API key is not configured.")
+        return self.models(key)
+
     def set_model(self, provider: str, model: str, persist: bool = True):
         key = self._validate(provider)
         instance = AIProviderFactory(self.config, self.secrets).create(key)

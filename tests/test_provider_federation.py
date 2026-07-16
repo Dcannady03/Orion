@@ -79,6 +79,28 @@ class ProviderFederationTests(unittest.TestCase):
             self.assertIs(orion.brain.ai_provider, active)
             self.assertEqual(manager.get("providers.default"), "openai")
 
+    @patch("orion.intelligence.openai_provider.requests.get")
+    def test_openai_connection_test_uses_models_endpoint(self, get):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"data": [{"id": "gpt-test"}]}
+        get.return_value = response
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = self.manager(tmp)
+            store = SecretStore(Path(tmp) / "secrets.yaml")
+            store.set("openai", "sk-test")
+            orion = SimpleNamespace()
+            service = ProviderManager(orion, manager, store)
+            self.assertEqual(service.test_connection("openai"), ["gpt-test"])
+            self.assertTrue(get.call_args.args[0].endswith("/models"))
+
+    def test_openai_connection_test_requires_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = self.manager(tmp)
+            service = ProviderManager(SimpleNamespace(), manager, SecretStore(Path(tmp) / "secrets.yaml"))
+            with self.assertRaisesRegex(ValueError, "API key is not configured"):
+                service.test_connection("openai")
+
 
 if __name__ == "__main__":
     unittest.main()
