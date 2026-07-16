@@ -155,6 +155,24 @@ class CommandRouter:
         elif command_lower == "profile":
             self.show_profile()
 
+        elif command_lower in {"git", "git status"}:
+            self.git_status()
+
+        elif command_lower == "git log":
+            self.git_log()
+
+        elif command_lower in {"git diff", "git diff staged"}:
+            self.git_diff(staged=command_lower.endswith("staged"))
+
+        elif command_lower == "git pull":
+            self.git_pull()
+
+        elif command_lower == "git push":
+            self.git_push()
+
+        elif command_lower in {"update", "update check"}:
+            self.update_check(apply=command_lower == "update")
+
         elif command_lower == "services":
             self.show_services()
 
@@ -458,6 +476,11 @@ class CommandRouter:
         print("    calendar configure <provider> Save provider settings")
         print("    calendar providers         List configured calendar providers")
         print("    home                       Show the Orion Home command center")
+        print("    git status                 Show repository state")
+        print("    git log                    Show recent commits")
+        print("    git diff [staged]          Review local changes")
+        print("    git pull | git push        Approval-gated repository sync")
+        print("    update check | update      Check or safely update Orion")
         print("    briefing                   Show the current Morning Star briefing")
         print("    status                     Show system health")
         print("    workspace [path]           View or change workspace")
@@ -1285,6 +1308,7 @@ class CommandRouter:
         self.orion.application_catalog.bind(selected)
         self.orion.companion_settings.bind(selected)
         self.orion.action_trust.bind(selected)
+        self.orion.git_service.rebind(selected)
         print(f"Active workspace changed to: {selected}")
         if self.orion.project_context.initialized:
             print("Project memory recognized. Use 'project resume' to continue where you left off.")
@@ -1989,3 +2013,82 @@ class CommandRouter:
             print(response)
         else:
             print("No response received from AI provider.")
+    def git_status(self):
+        try:
+            status = self.orion.git_service.status()
+        except Exception as exc:
+            print(f"Git unavailable: {exc}")
+            return
+        print("Git Status")
+        print("-" * 62)
+        print(f"Branch    : {status.branch}")
+        print(f"Upstream  : {status.upstream or 'Not configured'}")
+        print(f"Ahead     : {status.ahead}")
+        print(f"Behind    : {status.behind}")
+        print(f"Working   : {'Changes present' if status.dirty else 'Clean'}")
+        for line in status.changes[:20]:
+            print(f"  {line}")
+
+    def git_log(self):
+        try:
+            print(self.orion.git_service.log() or "No commits found.")
+        except Exception as exc:
+            print(f"Could not read Git history: {exc}")
+
+    def git_diff(self, staged=False):
+        try:
+            print(self.orion.git_service.diff(staged=staged) or "No differences.")
+        except Exception as exc:
+            print(f"Could not read Git differences: {exc}")
+
+    def _confirm_sensitive_git(self, description):
+        print(f"Sensitive action: {description}")
+        return input("Approve? [y/N]: ").strip().lower() in {"y", "yes"}
+
+    def git_pull(self):
+        if not self._confirm_sensitive_git("fast-forward pull from origin"):
+            print("Git pull cancelled.")
+            return
+        try:
+            print(self.orion.git_service.pull() or "Already up to date.")
+        except Exception as exc:
+            print(f"Git pull failed: {exc}")
+
+    def git_push(self):
+        if not self._confirm_sensitive_git("push the current branch to origin"):
+            print("Git push cancelled.")
+            return
+        try:
+            print(self.orion.git_service.push() or "Push completed.")
+        except Exception as exc:
+            print(f"Git push failed: {exc}")
+
+    def update_check(self, apply=False):
+        try:
+            check = self.orion.update_service.check(fetch=True)
+        except Exception as exc:
+            print(f"Update check failed: {exc}")
+            return
+        print("Orion Update")
+        print("-" * 62)
+        print(f"Revision  : {check.current}")
+        print(f"Branch    : {check.branch}")
+        print(f"Upstream  : {check.upstream or 'Not configured'}")
+        print(f"Available : {'Yes' if check.available else 'No'}")
+        print(f"Behind    : {check.behind}")
+        if not apply:
+            return
+        if not check.available:
+            print("Orion is already up to date.")
+            return
+        if not self._confirm_sensitive_git("back up local data and update Orion"):
+            print("Update cancelled.")
+            return
+        try:
+            backup, output = self.orion.update_service.apply()
+            print(output or "Update completed.")
+            print(f"Backup: {backup}")
+            print("Restart Orion to load the updated code.")
+        except Exception as exc:
+            print(f"Update failed: {exc}")
+

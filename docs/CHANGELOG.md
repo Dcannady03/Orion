@@ -1,3 +1,12 @@
+## 0.4.7 — Relay: Git & Update Foundation
+
+- Added safe Git status, log, and diff commands.
+- Added approval-gated pull and push operations.
+- Added update checks and fast-forward-only self-updates.
+- Added runtime/config backups and dirty-tree protection.
+- Added active-workspace Git rebinding and dedicated installation update context.
+- Added Git/update regression coverage; 158 tests pass.
+
 
 ## [0.3.8.1] - 2026-07-15
 

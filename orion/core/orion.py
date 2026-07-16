@@ -22,6 +22,8 @@ from orion.intelligence.brain import Brain
 from orion.services.registry import ServiceRegistry
 from orion.services.briefing import BriefingService, SystemBriefingProvider
 from orion.services.home import HomeService
+from orion.services.git_service import GitService
+from orion.services.update import UpdateService
 from orion.services.weather import WeatherBriefingProvider, WeatherService
 from orion.services.calendar import (
     CalendarBriefingProvider, CalendarProvider, CalendarService,
@@ -45,6 +47,7 @@ from orion.plugins.manager import PluginManager
 from orion.actions import ActionHistory, ActionService, PolicyDecision
 from orion.ui.console import Console
 from datetime import datetime
+from pathlib import Path
 import importlib
 import subprocess
 import sys
@@ -118,6 +121,15 @@ class Orion:
         self.action_service.approval.set_policy(
             "protected_echo", PolicyDecision.REQUIRE_APPROVAL,
             "Protected demonstration actions require explicit approval.",
+        )
+
+        self.git_service = self.services.register(
+            "git", GitService(self.workspace_manager.root)
+        )
+        install_root = Path(__file__).resolve().parents[2]
+        self.install_git_service = GitService(install_root)
+        self.update_service = self.services.register(
+            "update", UpdateService(self.install_git_service)
         )
 
         # Phase 3 application discovery and launch services. The catalog is
