@@ -274,6 +274,8 @@ class Orion:
                     timeout=float(self.config_manager.get("connect.discord.timeout_seconds", 10.0)),
                 ),
                 vault=self.vault,
+                config_manager=self.config_manager,
+                discord_bot_runtime=lambda: self.discord_interface,
             ),
         )
         self.briefing_service.register_provider(ConnectBriefingProvider(self.connect_service))

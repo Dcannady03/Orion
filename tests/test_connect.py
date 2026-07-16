@@ -63,6 +63,62 @@ class ConnectTests(unittest.TestCase):
             with self.assertRaises((ConnectionError, RuntimeError)):
                 client.profile()
 
+class FakeConfig:
+    def __init__(self, values):
+        self.values = values
+
+    def get(self, key, default=None):
+        return self.values.get(key, default)
+
+
+class FakeVault:
+    def __init__(self, values):
+        self.store = values
+
+
+class FakeDiagnostics:
+    bot_name = 'Orion#9675'
+
+
+class FakeDiscordRuntime:
+    diagnostics = FakeDiagnostics()
+
+
+class DiscordBotConnectStatusTests(unittest.TestCase):
+    def test_status_uses_two_way_discord_bot_configuration(self):
+        config = FakeConfig({
+            'connect.discord_bot.enabled': True,
+            'connect.discord_bot.owner_user_ids': ['586250300705210390'],
+            'connect.discord_bot.allowed_channel_ids': ['1526972631646081064'],
+        })
+        service = ConnectService(
+            FakeGmail(),
+            DiscordWebhookClient(''),
+            vault=FakeVault({'discord_bot': 'secret'}),
+            config_manager=config,
+            discord_bot_runtime=lambda: FakeDiscordRuntime(),
+        )
+
+        discord = next(item for item in service.statuses() if item.key == 'discord')
+        self.assertTrue(discord.configured)
+        self.assertTrue(discord.healthy)
+        self.assertIn('Orion#9675', discord.detail)
+
+    def test_configured_offline_bot_is_not_reported_as_missing(self):
+        config = FakeConfig({'connect.discord_bot.enabled': True})
+        service = ConnectService(
+            FakeGmail(),
+            DiscordWebhookClient(''),
+            vault=FakeVault({'discord_bot': 'secret'}),
+            config_manager=config,
+            discord_bot_runtime=lambda: None,
+        )
+
+        discord = next(item for item in service.statuses() if item.key == 'discord')
+        self.assertTrue(discord.configured)
+        self.assertFalse(discord.healthy)
+        self.assertIn('restart Orion', discord.detail)
+
 
 if __name__ == '__main__':
     unittest.main()
