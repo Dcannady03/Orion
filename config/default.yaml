@@ -72,3 +72,7 @@ connect:
     allowed_role_ids: []
     owner_user_ids: []
     allow_channel_members: false
+
+update:
+  repository: Dcannady03/Orion
+  channel: main

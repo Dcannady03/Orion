@@ -132,7 +132,12 @@ class Orion:
         install_root = Path(__file__).resolve().parents[2]
         self.install_git_service = GitService(install_root)
         self.update_service = self.services.register(
-            "update", UpdateService(self.install_git_service)
+            "update",
+            UpdateService(
+                install_root,
+                repository=self.config_manager.get("update.repository", "Dcannady03/Orion"),
+                channel=self.config_manager.get("update.channel", "main"),
+            ),
         )
 
         # Phase 3 application discovery and launch services. The catalog is

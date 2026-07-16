@@ -262,3 +262,17 @@ ai disconnect openai
 ```
 
 `ai connect openai` prompts for the key with hidden input, stores it in Orion Vault, verifies the connection, discovers models, and optionally makes OpenAI active. `ai test openai` verifies authentication without generating an AI response.
+
+
+## Safe Package Updates
+
+Stable Orion installations update without Git:
+
+```text
+update check
+update
+update rollback
+```
+
+Orion downloads a pinned GitHub package, backs up the current application, replaces application files, and leaves `~/.orion` untouched. Git commands remain available in development workspaces.
+

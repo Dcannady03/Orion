@@ -1,5 +1,13 @@
 ## 0.4.7 — Relay: Git & Update Foundation
 
+## v0.5.1 — Lifeline
+
+- Replaced Git-pull self-updates with package-based application updates.
+- Added external application backups and automatic restoration on failure.
+- Added `update rollback`.
+- Preserved `~/.orion`, `.git`, and local virtual environments during updates.
+- Kept Git operations available for development workspaces only.
+
 - Added safe Git status, log, and diff commands.
 - Added approval-gated pull and push operations.
 - Added update checks and fast-forward-only self-updates.

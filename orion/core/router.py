@@ -173,6 +173,9 @@ class CommandRouter:
         elif command_lower in {"update", "update check"}:
             self.update_check(apply=command_lower == "update")
 
+        elif command_lower == "update rollback":
+            self.update_rollback()
+
         elif command_lower == "services":
             self.show_services()
 
@@ -480,7 +483,8 @@ class CommandRouter:
         print("    git log                    Show recent commits")
         print("    git diff [staged]          Review local changes")
         print("    git pull | git push        Approval-gated repository sync")
-        print("    update check | update      Check or safely update Orion")
+        print("    update check | update      Check or install an Orion package")
+        print("    update rollback            Restore the previous application backup")
         print("    briefing                   Show the current Morning Star briefing")
         print("    status                     Show system health")
         print("    workspace [path]           View or change workspace")
@@ -2071,24 +2075,41 @@ class CommandRouter:
             return
         print("Orion Update")
         print("-" * 62)
-        print(f"Revision  : {check.current}")
-        print(f"Branch    : {check.branch}")
-        print(f"Upstream  : {check.upstream or 'Not configured'}")
+        print(f"Current   : {check.current[:12]}")
+        print(f"Latest    : {check.latest[:12]}")
+        print(f"Channel   : {check.channel}")
         print(f"Available : {'Yes' if check.available else 'No'}")
-        print(f"Behind    : {check.behind}")
+        if check.published_at:
+            print(f"Published : {check.published_at}")
+        print("Method    : Signed-in-transit package (no Git pull)")
         if not apply:
             return
         if not check.available:
             print("Orion is already up to date.")
             return
-        if not self._confirm_sensitive_git("back up local data and update Orion"):
+        if not self._confirm_sensitive_git("back up and replace Orion application files"):
             print("Update cancelled.")
             return
         try:
-            backup, output = self.orion.update_service.apply()
-            print(output or "Update completed.")
-            print(f"Backup: {backup}")
-            print("Restart Orion to load the updated code.")
+            result = self.orion.update_service.apply(check)
+            print(f"Updated   : {result.previous[:12]} -> {result.current[:12]}")
+            print(f"Backup    : {result.backup}")
+            print(f"SHA-256   : {result.package_sha256}")
+            print("Your ~/.orion data was not modified.")
+            print("Restart Orion to load the updated application.")
         except Exception as exc:
             print(f"Update failed: {exc}")
 
+    def update_rollback(self):
+        if not self._confirm_sensitive_git("restore the most recent Orion application backup"):
+            print("Rollback cancelled.")
+            return
+        try:
+            result = self.orion.update_service.rollback()
+            print("Orion Rollback")
+            print("-" * 62)
+            print(f"Restored  : {result.current[:12]}")
+            print(f"Safety backup: {result.backup}")
+            print("Restart Orion to load the restored application.")
+        except Exception as exc:
+            print(f"Rollback failed: {exc}")
