@@ -1,3 +1,12 @@
+# v0.5.4.1 — Sentinel
+
+- Moved the live Orion vault into persistent external user data under `~/.orion/`.
+- Added automatic Discord bot token and access-setting recovery from application update backups.
+- Preserved compatibility with legacy vault locations and explicit absolute configuration paths.
+- Ensured recovery fills only missing secrets and never overwrites a current Discord token.
+- Ensured existing local Discord settings remain authoritative over backup values.
+- Added update-persistence and non-overwrite regression coverage; 195 tests pass.
+
 # v0.5.4 — Sentinel
 
 - Added persistent provider/model request, success, failure, and latency telemetry.
