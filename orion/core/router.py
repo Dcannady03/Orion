@@ -140,6 +140,12 @@ class CommandRouter:
         elif command_lower in {"ai route explain", "ai route explain last"}:
             self.explain_last_ai_route()
 
+        elif command_lower == "ai stats":
+            self.show_ai_stats()
+
+        elif command_lower == "ai health":
+            self.show_ai_health()
+
         elif command_lower in {"ai", "ai status"}:
             self.show_ai_status()
 
@@ -469,6 +475,8 @@ class CommandRouter:
         print("    ai use <model|fastest>     Switch directly or by recommendation")
         print("    ai profile <name>          Activate a saved behavior profile")
         print("    ai benchmark               Compare local response latency")
+        print("    ai stats                   Show measured provider/model performance")
+        print("    ai health                  Show routing health by provider")
         print()
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
@@ -1246,6 +1254,7 @@ class CommandRouter:
         print("-" * 62)
         print(f"Enabled   : {'Yes' if state['enabled'] else 'No'}")
         print(f"Profile   : {state['profile'].title()}")
+        print(f"Adaptive  : {'Yes' if state['adaptive'] else 'No'}")
         providers = ", ".join(item.title() for item in state["ready_providers"]) or "None"
         print(f"Providers : {providers}")
         last = state.get("last_decision")
@@ -1256,6 +1265,32 @@ class CommandRouter:
         print("-" * 62)
         print("Commands: ai route on | ai route off | ai route explain last")
         print("          ai profile <fast|balanced|coding|research>")
+
+    def show_ai_stats(self):
+        rows = self.orion.ai_routing.performance.summary()
+        print("AI Performance Statistics")
+        print("-" * 78)
+        if not rows:
+            print("No routed requests have been measured yet.")
+            return
+        print(f"{'Provider':<11} {'Model':<25} {'Requests':>8} {'Success':>9} {'Average':>9}")
+        for row in rows:
+            print(f"{str(row['provider']).title():<11} {str(row['model'])[:25]:<25} "
+                  f"{int(row['requests']):>8} {float(row['success_rate_percent']):>8.1f}% "
+                  f"{float(row['average_duration_seconds']):>8.3f}s")
+        print("Telemetry contains aggregate timing and outcomes only; prompts are never stored.")
+
+    def show_ai_health(self):
+        state = self.orion.ai_routing.status()
+        print("AI Provider Health")
+        print("-" * 62)
+        if not state["provider_health"]:
+            print("No configured providers are ready.")
+            return
+        for item in state["provider_health"]:
+            print(f"{item['provider'].title():<11} {item['state'].title():<10} | "
+                  f"{item['requests']} requests | {item['success_rate_percent']:.1f}% success | "
+                  f"{item['average_duration_seconds']:.3f}s average")
 
     def set_ai_routing(self, enabled: bool):
         self.orion.ai_routing.set_enabled(enabled)
@@ -1328,9 +1363,12 @@ class CommandRouter:
         for model in models:
             print(f"Testing {model.name}...")
             try:
-                results.append(service.quick_benchmark(model.name))
+                result = service.quick_benchmark(model.name)
+                results.append(result)
+                self.orion.ai_routing.performance.record("ollama", model.name, result["seconds"], True)
             except Exception as exc:
                 results.append({"model": model.name, "seconds": None, "response": str(exc)})
+                self.orion.ai_routing.performance.record("ollama", model.name, 0.0, False, str(exc))
         print("\nQuick Model Benchmark")
         print("-" * 64)
         for result in sorted(results, key=lambda item: item["seconds"] if item["seconds"] is not None else float("inf")):

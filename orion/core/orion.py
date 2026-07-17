@@ -34,6 +34,7 @@ from orion.services.workspace import WorkspaceManager
 from orion.services.ai_control import AIControlService
 from orion.services.provider_manager import ProviderManager
 from orion.services.ai_routing import AIRoutingService
+from orion.services.ai_performance import AIPerformanceStore
 from orion.services.vault import VaultService
 from orion.services.connect import ConnectService, ConnectBriefingProvider, GmailClient, DiscordWebhookClient
 from orion.services.request_router import RequestRouterService
@@ -263,7 +264,11 @@ class Orion:
             "provider_manager", ProviderManager(self, self.config_manager)
         )
         self.ai_routing = self.services.register(
-            "ai_routing", AIRoutingService(self.config_manager, self.provider_manager)
+            "ai_routing", AIRoutingService(
+                self.config_manager,
+                self.provider_manager,
+                AIPerformanceStore(self.paths.user_file("ai-routing-stats.json", category="cache")),
+            )
         )
         self.brain.routing_service = self.ai_routing
         self.vault = self.services.register(

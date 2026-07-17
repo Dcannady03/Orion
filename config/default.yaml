@@ -1,7 +1,7 @@
 orion:
   name: Orion
-  version: 0.5.3
-  codename: Watchtower
+  version: 0.5.4
+  codename: Sentinel
 providers:
   default: ollama
   secrets_path: vault/vault.yaml
@@ -66,6 +66,8 @@ ai:
   routing:
     enabled: true
     profile: balanced
+    adaptive: true
+    minimum_health_samples: 3
 vault:
   path: vault/vault.yaml
 connect:

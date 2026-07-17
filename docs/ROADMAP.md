@@ -81,13 +81,13 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.5.3 — Watchtower: COMPLETE**
+**v0.5.4 — Sentinel: COMPLETE**
 
-Watchtower adds a plugin-based network monitor for router and public Internet checks,
-background outage and latency tracking, local-versus-ISP diagnosis, and portable
-JSON Lines event reports stored outside the application installation.
+Sentinel makes AI routing adaptive through private aggregate performance telemetry,
+provider health classification, persistent latency history, and automatic demotion
+of repeatedly unhealthy providers without changing profile-based task suitability.
 
-**Next milestone:** continue Pathfinder diagnostics and safe remediation workflows.
+**Next milestone:** add cross-platform diagnostics through `orion doctor`.
 
 ## v0.3.6.1 — Constellation ✅
 

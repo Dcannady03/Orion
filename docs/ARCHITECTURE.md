@@ -45,3 +45,11 @@ Startup depends only on `BriefingService`. Integrations implement the `BriefingP
 contract and register independently. The service validates items, sorts them by priority,
 and isolates provider failures. This prevents Weather, Email, Calendar, Docker, or any
 future integration from becoming a hard dependency of Orion startup.
+
+## Adaptive AI Performance
+
+`AIPerformanceStore` persists aggregate provider/model outcomes and latency beneath
+the external user-data cache. It deliberately stores no prompt or response content.
+`AIRoutingService` retains deterministic profile rules, then uses health history to
+demote degraded providers after the configured minimum sample count. With adaptive
+routing disabled or insufficient evidence, the original deterministic order is used.

@@ -1,3 +1,13 @@
+# v0.5.4 — Sentinel
+
+- Added persistent provider/model request, success, failure, and latency telemetry.
+- Added `ai stats` and `ai health` reporting.
+- Added health-aware routing that demotes providers only after a minimum sample count.
+- Added benchmark results to the same provider-neutral performance history.
+- Kept telemetry private and compact: prompts and responses are never stored.
+- Stored performance data outside the installation under `~/.orion/cache/`.
+- Added adaptive-routing and persistence coverage; 186 tests pass.
+
 # v0.5.3 — Watchtower
 
 - Added the Network Watch plugin for one-time router and Internet checks.

@@ -7,6 +7,7 @@ from time import perf_counter
 from typing import Iterable
 
 from orion.intelligence.factory import AIProviderFactory
+from orion.services.ai_performance import AIPerformanceStore
 
 
 @dataclass(frozen=True)
@@ -54,9 +55,10 @@ class AIRoutingService:
         "literature", "long document", "summarize document",
     }
 
-    def __init__(self, config_manager, provider_manager):
+    def __init__(self, config_manager, provider_manager, performance_store: AIPerformanceStore | None = None):
         self.config = config_manager
         self.provider_manager = provider_manager
+        self.performance = performance_store or AIPerformanceStore()
         self.last_decision: RouteDecision | None = None
 
     @property
@@ -105,7 +107,16 @@ class AIRoutingService:
             order = ("openai", "gemini", "ollama")
         else:
             order = ("ollama", "openai", "gemini")
-        return tuple(key for key in order if self._ready(key))
+        ready = tuple(key for key in order if self._ready(key))
+        if not bool(self.config.get("ai.routing.adaptive", True)):
+            return ready
+        minimum = int(self.config.get("ai.routing.minimum_health_samples", 3))
+        position = {key: index for index, key in enumerate(ready)}
+        health_rank = {"healthy": 0, "learning": 0, "degraded": 1, "unhealthy": 2}
+        return tuple(sorted(ready, key=lambda key: (
+            health_rank[self.performance.provider_health(key, minimum_samples=minimum)["state"]],
+            position[key],
+        )))
 
     def route_chat(self, prompt: str, *, system_prompt: str | None = None) -> str:
         profile = self.profile
@@ -122,6 +133,7 @@ class AIRoutingService:
                 provider = AIProviderFactory(self.config, self.provider_manager.secrets).create(provider_key)
                 response = provider.chat(prompt, system_prompt=system_prompt)
                 duration = perf_counter() - provider_started
+                self.performance.record(provider_key, str(getattr(provider, "model", "unknown")), duration, True)
                 self.last_decision = RouteDecision(
                     profile=profile,
                     task_type=task_type,
@@ -135,6 +147,9 @@ class AIRoutingService:
                 )
                 return response
             except (ConnectionError, TimeoutError, OSError, ValueError) as exc:
+                duration = perf_counter() - provider_started
+                model = str(self.config.get(f"providers.{provider_key}.model", "unknown"))
+                self.performance.record(provider_key, model, duration, False, str(exc))
                 errors.append(f"{provider_key}: {exc}")
 
         duration = perf_counter() - started
@@ -158,6 +173,8 @@ class AIRoutingService:
             "profile": self.profile,
             "available_profiles": dict(self.PROFILES),
             "ready_providers": [item.key for item in self.provider_manager.statuses() if item.enabled and item.configured],
+            "adaptive": bool(self.config.get("ai.routing.adaptive", True)),
+            "provider_health": [self.performance.provider_health(item.key, minimum_samples=int(self.config.get("ai.routing.minimum_health_samples", 3))) for item in self.provider_manager.statuses() if item.enabled and item.configured],
             "last_decision": self.last_decision.as_dict() if self.last_decision else None,
         }
 

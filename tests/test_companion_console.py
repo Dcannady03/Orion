@@ -22,6 +22,10 @@ class CompanionConsoleTests(unittest.TestCase):
         values = [item.text for item in completer.get_completions(document, None)]
         self.assertIn("network status", values)
         self.assertIn("network watch", values)
+        ai_document = Mock(text_before_cursor="ai ")
+        ai_values = [item.text for item in completer.get_completions(ai_document, None)]
+        self.assertIn("ai stats", ai_values)
+        self.assertIn("ai health", ai_values)
 
     def test_application_completion_uses_catalog(self):
         app = SimpleNamespace(name="Google Chrome")

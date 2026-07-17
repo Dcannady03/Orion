@@ -6,7 +6,7 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.5.3 — Watchtower**
+**v0.5.4 — Sentinel**
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -93,7 +93,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **181 passing tests**.
+The current codebase contains **186 passing tests**.
 
 ## Roadmap
 
@@ -187,6 +187,21 @@ Orion> ai provider models gemini
 ```
 
 API keys are not stored in `config/default.yaml`. Orion uses `OPENAI_API_KEY` or `GEMINI_API_KEY` when available, or a separately created `.orion/secrets.yaml` when the user explicitly chooses interactive configuration.
+
+## Adaptive AI Routing (Sentinel)
+
+Sentinel learns from real provider and model performance without storing prompts or
+responses. Orion records aggregate request counts, success rates, failures, and
+latency in `~/.orion/cache/ai-routing-stats.json`. After a configurable minimum
+sample count, unhealthy providers are moved behind healthier fallbacks while the
+selected routing profile continues to determine task suitability.
+
+```text
+ai stats
+ai health
+ai route status
+ai route explain last
+```
 
 ## Orion Vault
 

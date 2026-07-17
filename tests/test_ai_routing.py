@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from orion.services.ai_routing import AIRoutingService
+from orion.services.ai_performance import AIPerformanceStore
 
 
 class FakeConfig:
@@ -83,6 +84,22 @@ class AIRoutingTests(unittest.TestCase):
         self.assertEqual(service.last_decision.provider, "openai")
         self.assertIn("ollama", service.last_decision.reason)
         self.assertTrue(service.last_decision.success)
+        rows = service.performance.summary()
+        self.assertEqual(sum(row["requests"] for row in rows), 2)
+        self.assertEqual(sum(row["failures"] for row in rows), 1)
+
+    def test_adaptive_routing_demotes_an_unhealthy_provider(self):
+        service, _ = self.make_service(profile="coding")
+        for _ in range(3):
+            service.performance.record("openai", "gpt", 0.1, False, "offline")
+        self.assertEqual(service.provider_order("fix this Python bug")[0], "ollama")
+
+    def test_adaptive_routing_can_be_disabled(self):
+        service, config = self.make_service(profile="coding")
+        config.values["ai.routing.adaptive"] = False
+        for _ in range(3):
+            service.performance.record("openai", "gpt", 0.1, False, "offline")
+        self.assertEqual(service.provider_order("fix this Python bug")[0], "openai")
 
     def test_profile_and_enabled_state_persist(self):
         service, config = self.make_service()
