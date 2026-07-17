@@ -18,7 +18,7 @@ class UserDataArchitectureTests(unittest.TestCase):
             home = root / "home"
             paths = OrionPaths(install, home / ".orion")
             paths.ensure()
-            for mutable in (paths.config, paths.profile, paths.vault, paths.tokens, paths.backups):
+            for mutable in (paths.config, paths.profile, paths.vault, paths.tokens, paths.backups, paths.team_tasks):
                 self.assertFalse(mutable.is_relative_to(install))
 
     def test_config_migrates_legacy_local_yaml_to_user_config(self):

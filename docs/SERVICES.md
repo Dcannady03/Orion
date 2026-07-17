@@ -9,6 +9,7 @@ stable interface.
 - `workspace` → `WorkspaceManager`
 - `session_memory` → `SessionMemory`
 - `code` → `CodeSkill`
+- `team` → `TeamOrchestrator` (bounded Architect and Engineer planning)
 
 ## Usage
 

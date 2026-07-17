@@ -55,3 +55,16 @@ content is never stored. `AIRoutingService` retains deterministic profile rules,
 then uses the currently configured model's health history to demote degraded
 providers after the configured minimum sample count. With adaptive routing disabled
 or insufficient evidence, the original deterministic order is used.
+
+## AI Team Phase 1
+
+`TeamOrchestrator` is a bounded planning service registered as `team`. It makes one
+Architect provider call, validates the returned JSON schema, passes that structured
+artifact to one Engineer Review call, and uses the Engineer recommendations as the
+consolidated final plan. There are no retries, implementation tools, code mutations,
+or pull-request actions in this phase.
+
+Each `TeamTask` contains artifacts, role-to-role messages, usage estimates, the final
+plan, and an approval status. `TeamTaskStore` writes one JSON document per task beneath
+the external user-data path `~/.orion/team/tasks/`, using atomic replacement and
+owner-only file permissions where supported.

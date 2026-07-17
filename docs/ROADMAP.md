@@ -87,7 +87,18 @@ This Sentinel maintenance release makes Discord configuration update-safe by mov
 the live vault into external user data and safely recovering missing tokens and access
 settings from update backups without replacing newer current values.
 
-**Next milestone:** add cross-platform diagnostics through `orion doctor`.
+**Active milestone:** AI Team Phase 1 multi-role planning. Cross-platform diagnostics
+through `orion doctor` remains planned after the team-planning foundation.
+
+## In Development — AI Team Phase 1
+
+- [x] Architect role produces a structured implementation plan
+- [x] Engineer role reviews the Architect artifact and consolidates the final plan
+- [x] Team tasks persist outside the application under `~/.orion/team/tasks/`
+- [x] CLI exposes `team`, `team roles`, `team plan`, and `team status`
+- [x] Token estimates and configurable cost estimates are displayed
+- [x] Planning stops at `Awaiting Approval` with no implementation or PR actions
+- [ ] Phase 2: `team implement <approved-task-id>` with patch and review safeguards
 
 ## v0.3.6.1 — Constellation ✅
 

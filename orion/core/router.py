@@ -9,6 +9,8 @@ Responsible for:
 
 from getpass import getpass
 
+from orion.services.team import TeamPlanningError
+
 
 class CommandRouter:
     """Routes commands entered into Orion's CLI."""
@@ -169,6 +171,24 @@ class CommandRouter:
 
         elif command_lower in {"benchmark models", "ai benchmark"}:
             self.benchmark_ai_models()
+
+        elif command_lower == "team":
+            self.show_team()
+
+        elif command_lower == "team roles":
+            self.show_team_roles()
+
+        elif command_lower == "team plan":
+            print('Usage: team plan "<goal>"')
+
+        elif command_lower.startswith("team plan "):
+            self.team_plan(raw_command[len("team plan "):].strip())
+
+        elif command_lower == "team status":
+            print("Usage: team status <task-id>")
+
+        elif command_lower.startswith("team status "):
+            self.team_status(raw_command[len("team status "):].strip())
 
         elif command_lower == "config":
             self.show_config()
@@ -481,6 +501,11 @@ class CommandRouter:
         print("    ai stats                   Show measured provider/model performance")
         print("    ai stats clear             Reset adaptive-routing performance history")
         print("    ai health                  Show routing health by provider")
+        print()
+        print("  AI Team (planning only)")
+        print('    team plan "<goal>"         Create an Architect + Engineer plan')
+        print("    team roles                 Show role provider/model assignments")
+        print("    team status <task-id>      Reopen a persisted team plan")
         print()
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
@@ -1383,6 +1408,110 @@ class CommandRouter:
             elapsed = f"{result['seconds']:.2f}s" if result["seconds"] is not None else "failed"
             print(f"  {result['model']:<36} {elapsed}")
         print("Latency is measured locally; Orion does not invent a quality score.")
+
+    def show_team(self):
+        tasks = self.orion.team.recent(5)
+        print("AI Team")
+        print("-" * 62)
+        print("Phase 1: bounded planning only (Architect -> Engineer Review).")
+        print("Implementation, code changes, and pull requests are disabled.")
+        if tasks:
+            print("Recent tasks")
+            for task in tasks:
+                print(f"  {task.task_id} | {task.status.replace('_', ' ').title()} | {task.goal[:60]}")
+        else:
+            print("No team planning tasks have been created yet.")
+        print('-' * 62)
+        print('Commands: team plan "<goal>" | team roles | team status <task-id>')
+
+    def show_team_roles(self):
+        print("AI Team Roles")
+        print("-" * 62)
+        try:
+            roles = self.orion.team.roles()
+        except ValueError as exc:
+            print(f"AI Team role configuration is invalid: {exc}")
+            return
+        for role in roles:
+            state = "active in Phase 1" if role.active else "reserved for a later phase"
+            print(f"  {role.name.title():<11} {role.provider}:{role.model} ({state})")
+        print("Role specialization is enforced by separate system prompts and artifacts.")
+
+    def team_plan(self, payload: str):
+        goal = payload.strip()
+        if goal[:1] in {'"', "'"}:
+            if len(goal) < 2 or goal[-1] != goal[0]:
+                print("Could not read team goal: closing quote is missing.")
+                return
+            goal = goal[1:-1].strip()
+        if not goal:
+            print('Usage: team plan "<goal>"')
+            return
+        print("AI Team is preparing a bounded two-role plan...")
+        try:
+            task = self.orion.team.plan(goal)
+        except (OSError, TeamPlanningError, ValueError) as exc:
+            print(f"AI Team planning failed: {exc}")
+            task_id = getattr(exc, "task_id", "")
+            if task_id:
+                print(f"Saved task: {task_id}")
+            return
+        self._render_team_task(task)
+
+    def team_status(self, task_id: str):
+        try:
+            task = self.orion.team.task(task_id)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(str(exc))
+            return
+        self._render_team_task(task)
+
+    @staticmethod
+    def _render_team_task(task):
+        print("\nAI Team Plan")
+        print("-" * 62)
+        print(f"Task: {task.task_id}")
+        print(f"Goal: {task.goal}")
+        labels = {"architect": "Architect", "engineer": "Engineer Review"}
+        for role in ("architect", "engineer"):
+            artifact = task.artifact(role)
+            if artifact is None:
+                continue
+            print(f"\n{labels[role]}")
+            print(f"  {artifact.output.summary}")
+            for item in artifact.output.recommendations:
+                print(f"  - {item}")
+            if artifact.output.risks:
+                print("  Risks:")
+                for risk in artifact.output.risks:
+                    print(f"    - {risk}")
+
+        if task.final_plan:
+            print("\nFinal Plan")
+            for index, item in enumerate(task.final_plan, start=1):
+                print(f"  {index}. {item}")
+
+        if task.usage:
+            print("\nUsage (estimated tokens)")
+            for usage in task.usage:
+                cost = (
+                    "not configured"
+                    if usage.estimated_cost_usd is None
+                    else f"${usage.estimated_cost_usd:.6f}"
+                )
+                print(
+                    f"  {usage.role.title():<10} {usage.provider}:{usage.model} | "
+                    f"{usage.input_tokens} in + {usage.output_tokens} out | Cost: {cost}"
+                )
+            total_cost = task.estimated_cost_usd
+            total_cost_text = "not configured" if total_cost is None else f"${total_cost:.6f}"
+            print(f"  Total: {task.total_tokens} tokens | Cost: {total_cost_text}")
+
+        print(f"\nStatus: {task.status.replace('_', ' ').title()}")
+        if task.error:
+            print(f"Error: {task.error}")
+        if task.status == "awaiting_approval":
+            print("No implementation has been performed. This task is awaiting your approval.")
 
     def show_config(self):
         """Display loaded configuration."""

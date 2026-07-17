@@ -35,6 +35,7 @@ from orion.services.ai_control import AIControlService
 from orion.services.provider_manager import ProviderManager
 from orion.services.ai_routing import AIRoutingService
 from orion.services.ai_performance import AIPerformanceStore
+from orion.services.team import TeamOrchestrator, TeamTaskStore
 from orion.services.vault import VaultService
 from orion.services.connect import ConnectService, ConnectBriefingProvider, GmailClient, DiscordWebhookClient
 from orion.services.request_router import RequestRouterService
@@ -275,6 +276,14 @@ class Orion:
             "vault", VaultService(self.config_manager, self.provider_manager, self.provider_manager.secrets)
         )
         self.vault.migrate_legacy_store()
+        self.team = self.services.register(
+            "team",
+            TeamOrchestrator(
+                self.config_manager,
+                TeamTaskStore(self.paths.team_tasks),
+                AIProviderFactory(self.config_manager, self.provider_manager.secrets),
+            ),
+        )
 
         # Orion Connect unifies communication services behind one center.
         self.connect_service = self.services.register(

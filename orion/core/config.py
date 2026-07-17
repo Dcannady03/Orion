@@ -33,6 +33,7 @@ class ConfigManager:
         "weather",
         "calendar",
         "ai",
+        "team",
         "vault",
         "connect",
     }

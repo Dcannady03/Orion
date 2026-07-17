@@ -41,6 +41,10 @@ class OrionPaths:
     def backups(self) -> Path:
         return self.user_root / "backups"
 
+    @property
+    def team_tasks(self) -> Path:
+        return self.user_root / "team" / "tasks"
+
     def ensure(self) -> None:
         for path in (
             self.user_root,

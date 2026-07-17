@@ -47,6 +47,9 @@ network watch [seconds]      Monitor outages and latency in the background
 network report               Show current network monitoring statistics
 network stop                 Stop monitoring and save the final summary
 ask <question>               Talk to the configured AI provider
+team plan "<goal>"           Create a two-role implementation plan
+team roles                   Show AI Team role assignments
+team status <task-id>        Reopen a persisted AI Team plan
 workspace                    Inspect the active workspace
 files                        List workspace files
 code tree                    Inspect the source tree
@@ -98,7 +101,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **190 passing tests**.
+The current codebase contains **207 passing tests**.
 
 ## Roadmap
 
@@ -210,6 +213,25 @@ ai route status
 ai route explain last
 ```
 
+## AI Team Phase 1
+
+Orion can coordinate two specialized planning roles without modifying code or
+starting an open-ended agent loop. The Architect creates a strict JSON plan, the
+Engineer reviews that artifact and returns consolidated implementation steps, and
+Orion persists the task under `~/.orion/team/tasks/` before stopping for approval.
+
+```text
+team
+team roles
+team plan "Add OpenAI image generation"
+team status <task-id>
+```
+
+Phase 1 makes exactly two AI calls and cannot implement code, execute tools, create
+commits, or open pull requests. Token usage is shown as an estimate. Cost is shown
+when rates are configured under `team.pricing`; local Ollama defaults to zero cost.
+See `docs/AI_TEAM.md` for role configuration and the persisted task schema.
+
 ## Orion Vault
 
 Polaris stores cloud-provider credentials outside normal configuration through a centralized Vault.
@@ -222,7 +244,7 @@ vault health
 vault remove gemini
 ```
 
-The local vault is stored at `.orion/vault.yaml`, excluded from Git, and written with owner-only permissions where supported. Environment variables (`GEMINI_API_KEY` and `OPENAI_API_KEY`) still take precedence. Existing `.orion/secrets.yaml` credentials are migrated automatically on first launch. Native Windows Credential Manager, macOS Keychain, and Linux Secret Service backends are planned behind the same Vault interface.
+The local vault is stored at `~/.orion/vault/vault.yaml`, excluded from Git, and written with owner-only permissions where supported. Environment variables (`GEMINI_API_KEY` and `OPENAI_API_KEY`) still take precedence. Existing legacy credentials and application-update backups are migrated without overwriting current values. Native Windows Credential Manager, macOS Keychain, and Linux Secret Service backends are planned behind the same Vault interface.
 
 ## Orion Connect
 
