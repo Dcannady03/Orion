@@ -101,7 +101,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **207 passing tests**.
+The current codebase contains **211 passing tests**.
 
 ## Roadmap
 
@@ -219,6 +219,8 @@ Orion can coordinate two specialized planning roles without modifying code or
 starting an open-ended agent loop. The Architect creates a strict JSON plan, the
 Engineer reviews that artifact and returns consolidated implementation steps, and
 Orion persists the task under `~/.orion/team/tasks/` before stopping for approval.
+Both role output and persisted task files use strict schemas: missing, malformed, or
+unknown fields are rejected instead of being silently accepted.
 
 ```text
 team

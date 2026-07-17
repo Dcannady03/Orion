@@ -67,4 +67,6 @@ or pull-request actions in this phase.
 Each `TeamTask` contains artifacts, role-to-role messages, usage estimates, the final
 plan, and an approval status. `TeamTaskStore` writes one JSON document per task beneath
 the external user-data path `~/.orion/team/tasks/`, using atomic replacement and
-owner-only file permissions where supported.
+owner-only file permissions where supported. Save and load both enforce the exact task
+and nested-record schemas, including identity, status, timezone-aware timestamps,
+messages, role usage, and role-output fields.

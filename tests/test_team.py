@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -105,6 +106,16 @@ class TeamOrchestratorTests(unittest.TestCase):
         )
         return orchestrator, factory, architect, engineer
 
+    def persisted_task(self, root):
+        team, _, _, _ = self.build(root)
+        task = team.plan("Plan a feature")
+        path = team.store.root / f"{task.task_id}.json"
+        return team, path, json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def write_task(path, value):
+        path.write_text(json.dumps(value), encoding="utf-8")
+
     def test_plan_calls_two_distinct_roles_and_persists_consolidated_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             team, factory, architect, engineer = self.build(tmp)
@@ -188,6 +199,60 @@ class TeamOrchestratorTests(unittest.TestCase):
             with self.assertRaises(TeamPlanningError):
                 team.plan("Plan a feature")
             self.assertEqual(factory.created, ["openai"])
+
+    def test_role_output_rejects_unknown_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            value = json.loads(role_json("Plan", ["Step one"]))
+            value["unexpected"] = "schema drift"
+            team, factory, _, _ = self.build(tmp, architect_response=json.dumps(value))
+            with self.assertRaises(TeamPlanningError):
+                team.plan("Plan a feature")
+            self.assertEqual(factory.created, ["openai"])
+
+    def test_persisted_task_rejects_unknown_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            team, path, value = self.persisted_task(tmp)
+            value["status"] = "implementing"
+            self.write_task(path, value)
+            with self.assertRaises(ValueError):
+                team.task("team-test-001")
+
+    def test_persisted_task_rejects_missing_or_invalid_identity_and_timestamps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            team, path, valid = self.persisted_task(tmp)
+            mutations = {
+                "missing task_id": lambda value: value.pop("task_id"),
+                "empty goal": lambda value: value.update(goal="  "),
+                "identity mismatch": lambda value: value.update(task_id="team-other-001"),
+                "invalid timestamp": lambda value: value.update(created_at="yesterday"),
+                "timezone-naive timestamp": lambda value: value.update(updated_at="2026-07-17T12:00:00"),
+                "reversed timestamps": lambda value: value.update(updated_at="2026-07-16T12:00:00+00:00"),
+            }
+            for label, mutate in mutations.items():
+                with self.subTest(label=label):
+                    value = deepcopy(valid)
+                    mutate(value)
+                    self.write_task(path, value)
+                    with self.assertRaises(ValueError):
+                        team.task("team-test-001")
+
+    def test_persisted_task_rejects_malformed_messages_and_usage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            team, path, valid = self.persisted_task(tmp)
+            mutations = {
+                "message missing content": lambda value: value["messages"][0].pop("content"),
+                "message unknown field": lambda value: value["messages"][0].update(extra=True),
+                "negative token count": lambda value: value["usage"][0].update(input_tokens=-1),
+                "non-finite cost": lambda value: value["usage"][0].update(estimated_cost_usd=float("inf")),
+                "usage unknown field": lambda value: value["usage"][0].update(extra=True),
+            }
+            for label, mutate in mutations.items():
+                with self.subTest(label=label):
+                    value = deepcopy(valid)
+                    mutate(value)
+                    self.write_task(path, value)
+                    with self.assertRaises(ValueError):
+                        team.task("team-test-001")
 
     def test_oversized_role_response_stops_before_engineer_call(self):
         with tempfile.TemporaryDirectory() as tmp:

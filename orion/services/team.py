@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import stat
@@ -15,6 +16,57 @@ from uuid import uuid4
 TEAM_STATUS_PLANNING = "planning"
 TEAM_STATUS_AWAITING_APPROVAL = "awaiting_approval"
 TEAM_STATUS_FAILED = "failed"
+TEAM_STATUSES = frozenset({
+    TEAM_STATUS_PLANNING,
+    TEAM_STATUS_AWAITING_APPROVAL,
+    TEAM_STATUS_FAILED,
+})
+TASK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{2,80}")
+
+
+def _exact_mapping(value: Any, fields: set[str], label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a JSON object.")
+    keys = set(value)
+    missing = sorted(fields - keys)
+    unknown = sorted(keys - fields)
+    if missing:
+        raise ValueError(f"{label} is missing required fields: {missing}")
+    if unknown:
+        raise ValueError(f"{label} contains unsupported fields: {unknown}")
+    return value
+
+
+def _required_string(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} must be a non-empty string.")
+    return value.strip()
+
+
+def _optional_string(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be a string.")
+    return value
+
+
+def _timestamp(value: Any, label: str) -> tuple[str, datetime]:
+    text = _required_string(value, label)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{label} must be an ISO-8601 timestamp.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{label} must include a timezone offset.")
+    return text, parsed
+
+
+def _string_list(value: Any, label: str, *, allow_empty: bool = True) -> list[str]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValueError(f"{label} must be a JSON array of strings.")
+    items = [item.strip() for item in value if item.strip()]
+    if not allow_empty and not items:
+        raise ValueError(f"{label} cannot be empty.")
+    return items
 
 
 class TeamPlanningError(RuntimeError):
@@ -34,16 +86,15 @@ class RoleOutput:
 
     @classmethod
     def from_value(cls, value: Any) -> "RoleOutput":
-        if not isinstance(value, dict):
-            raise ValueError("Role output must be a JSON object.")
-        if not isinstance(value.get("summary"), str) or not isinstance(value.get("next_action"), str):
-            raise ValueError("Role output requires summary and next_action strings.")
-        summary = value["summary"].strip()
-        next_action = value["next_action"].strip()
-        recommendations = cls._string_tuple(value.get("recommendations"), "recommendations")
-        risks = cls._string_tuple(value.get("risks", []), "risks", allow_empty=True)
-        if not summary or not next_action:
-            raise ValueError("Role output requires summary and next_action strings.")
+        value = _exact_mapping(
+            value,
+            {"summary", "recommendations", "risks", "next_action"},
+            "Role output",
+        )
+        summary = _required_string(value["summary"], "Role output summary")
+        next_action = _required_string(value["next_action"], "Role output next_action")
+        recommendations = cls._string_tuple(value["recommendations"], "recommendations")
+        risks = cls._string_tuple(value["risks"], "risks", allow_empty=True)
         return cls(summary, recommendations, risks, next_action)
 
     @staticmethod
@@ -73,6 +124,17 @@ class TeamArtifact:
     output: RoleOutput
     created_at: str
 
+    @classmethod
+    def from_value(cls, value: Any) -> "TeamArtifact":
+        value = _exact_mapping(value, {"role", "kind", "output", "created_at"}, "Team artifact")
+        created_at, _ = _timestamp(value["created_at"], "Team artifact created_at")
+        return cls(
+            role=_required_string(value["role"], "Team artifact role"),
+            kind=_required_string(value["kind"], "Team artifact kind"),
+            output=RoleOutput.from_value(value["output"]),
+            created_at=created_at,
+        )
+
 
 @dataclass(frozen=True)
 class TeamMessage:
@@ -80,6 +142,19 @@ class TeamMessage:
     recipient: str
     content: str
     created_at: str
+
+    @classmethod
+    def from_value(cls, value: Any) -> "TeamMessage":
+        value = _exact_mapping(
+            value, {"sender", "recipient", "content", "created_at"}, "Team message"
+        )
+        created_at, _ = _timestamp(value["created_at"], "Team message created_at")
+        return cls(
+            sender=_required_string(value["sender"], "Team message sender"),
+            recipient=_required_string(value["recipient"], "Team message recipient"),
+            content=_required_string(value["content"], "Team message content"),
+            created_at=created_at,
+        )
 
 
 @dataclass(frozen=True)
@@ -91,6 +166,43 @@ class RoleUsage:
     output_tokens: int
     estimated_cost_usd: float | None
     estimated_tokens: bool = True
+
+    @classmethod
+    def from_value(cls, value: Any) -> "RoleUsage":
+        value = _exact_mapping(
+            value,
+            {
+                "role", "provider", "model", "input_tokens", "output_tokens",
+                "estimated_cost_usd", "estimated_tokens",
+            },
+            "Team usage",
+        )
+        input_tokens = cls._token_count(value["input_tokens"], "Team usage input_tokens")
+        output_tokens = cls._token_count(value["output_tokens"], "Team usage output_tokens")
+        cost = value["estimated_cost_usd"]
+        if cost is not None:
+            if isinstance(cost, bool) or not isinstance(cost, (int, float)):
+                raise ValueError("Team usage estimated_cost_usd must be a number or null.")
+            cost = float(cost)
+            if cost < 0 or not math.isfinite(cost):
+                raise ValueError("Team usage estimated_cost_usd must be finite and non-negative.")
+        if not isinstance(value["estimated_tokens"], bool):
+            raise ValueError("Team usage estimated_tokens must be a boolean.")
+        return cls(
+            role=_required_string(value["role"], "Team usage role"),
+            provider=_required_string(value["provider"], "Team usage provider"),
+            model=_required_string(value["model"], "Team usage model"),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=cost,
+            estimated_tokens=value["estimated_tokens"],
+        )
+
+    @staticmethod
+    def _token_count(value: Any, label: str) -> int:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{label} must be a non-negative integer.")
+        return value
 
     @property
     def total_tokens(self) -> int:
@@ -132,45 +244,67 @@ class TeamTask:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "TeamTask":
-        artifacts = [
-            TeamArtifact(
-                role=str(item.get("role", "")),
-                kind=str(item.get("kind", "")),
-                output=RoleOutput.from_value(item.get("output", {})),
-                created_at=str(item.get("created_at", "")),
-            )
-            for item in value.get("artifacts", [])
-        ]
-        messages = [TeamMessage(**item) for item in value.get("messages", [])]
-        usage = [RoleUsage(**item) for item in value.get("usage", [])]
+        value = _exact_mapping(
+            value,
+            {
+                "task_id", "goal", "status", "artifacts", "messages", "usage",
+                "final_plan", "created_at", "updated_at", "error",
+            },
+            "Team task",
+        )
+        task_id = _required_string(value["task_id"], "Team task task_id")
+        if not TASK_ID_PATTERN.fullmatch(task_id):
+            raise ValueError("Team task task_id has an invalid format.")
+        goal = _required_string(value["goal"], "Team task goal")
+        status = _required_string(value["status"], "Team task status")
+        if status not in TEAM_STATUSES:
+            raise ValueError(f"Team task status is not recognized: {status}")
+        created_at, created = _timestamp(value["created_at"], "Team task created_at")
+        updated_at, updated = _timestamp(value["updated_at"], "Team task updated_at")
+        if updated < created:
+            raise ValueError("Team task updated_at cannot precede created_at.")
+        for field_name in ("artifacts", "messages", "usage"):
+            if not isinstance(value[field_name], list):
+                raise ValueError(f"Team task {field_name} must be a JSON array.")
+        artifacts = [TeamArtifact.from_value(item) for item in value["artifacts"]]
+        messages = [TeamMessage.from_value(item) for item in value["messages"]]
+        usage = [RoleUsage.from_value(item) for item in value["usage"]]
+        final_plan = _string_list(value["final_plan"], "Team task final_plan")
+        error = _optional_string(value["error"], "Team task error")
+        if status == TEAM_STATUS_AWAITING_APPROVAL and not final_plan:
+            raise ValueError("Awaiting-approval tasks require a final plan.")
+        if status == TEAM_STATUS_FAILED and not error.strip():
+            raise ValueError("Failed tasks require a sanitized error category.")
         return cls(
-            task_id=str(value.get("task_id", "")),
-            goal=str(value.get("goal", "")),
-            status=str(value.get("status", "")),
+            task_id=task_id,
+            goal=goal,
+            status=status,
             artifacts=artifacts,
             messages=messages,
             usage=usage,
-            final_plan=[str(item) for item in value.get("final_plan", [])],
-            created_at=str(value.get("created_at", "")),
-            updated_at=str(value.get("updated_at", "")),
-            error=str(value.get("error", "")),
+            final_plan=final_plan,
+            created_at=created_at,
+            updated_at=updated_at,
+            error=error,
         )
 
 
 class TeamTaskStore:
     """Persist individual team tasks beneath Orion's external user-data root."""
 
-    TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{2,80}")
+    TASK_ID = TASK_ID_PATTERN
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
 
     def save(self, task: TeamTask) -> Path:
         path = self._path(task.task_id)
+        payload = task.to_dict()
+        TeamTask.from_dict(payload)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".json.tmp")
         temporary.write_text(
-            json.dumps(task.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
         try:
@@ -191,9 +325,12 @@ class TeamTaskStore:
         if not isinstance(value, dict):
             raise ValueError(f"AI Team task is invalid: {task_id}")
         try:
-            return TeamTask.from_dict(value)
+            task = TeamTask.from_dict(value)
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"AI Team task is invalid: {task_id}") from exc
+        if task.task_id != str(task_id).strip():
+            raise ValueError(f"AI Team task identity does not match its filename: {task_id}")
+        return task
 
     def recent(self, limit: int = 10) -> list[TeamTask]:
         if limit <= 0:

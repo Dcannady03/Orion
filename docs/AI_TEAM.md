@@ -62,8 +62,9 @@ Every active role must return one JSON object with this schema:
 }
 ```
 
-Invalid JSON or a schema violation stops the run, records a sanitized failure state,
-and does not call the next role.
+All four fields are required, and unknown fields are rejected. Invalid JSON or any
+schema violation stops the run, records a sanitized failure state, and does not call
+the next role.
 
 ## Persistence
 
@@ -77,6 +78,11 @@ The file contains the goal, status, artifacts, messages, final plan, timestamps,
 usage estimates. Files are written atomically with owner-only permissions where the
 platform supports them. They are outside the application directory and survive Orion
 updates.
+
+Persisted tasks are validated before saving and after loading. Orion rejects missing
+or mismatched task identity, unknown status values, malformed or timezone-free
+timestamps, invalid message and usage records, and unexpected fields rather than
+loading a partially valid task.
 
 ## Token and cost reporting
 

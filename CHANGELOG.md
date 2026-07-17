@@ -1,12 +1,13 @@
 # Unreleased — AI Team Phase 1
 
 - Added bounded Architect and Engineer Review planning through `team plan "<goal>"`.
-- Added strict JSON role outputs and structured artifact handoff between roles.
+- Added strict JSON role outputs and structured artifact handoff between roles; unknown fields are rejected.
 - Added consolidated final plans that stop at `Awaiting Approval` without modifying code.
 - Added `team`, `team roles`, and `team status <task-id>` commands with completion and help.
 - Persisted team tasks outside the application under `~/.orion/team/tasks/`.
 - Added estimated token usage and configurable per-provider cost reporting.
-- Added bounded orchestration, persistence, schema, CLI, and safety coverage; 207 tests pass.
+- Added strict validation for persisted task identity, status, timestamps, messages, usage, and nested artifacts.
+- Added bounded orchestration, persistence, schema, CLI, and safety coverage; 211 tests pass.
 
 # v0.5.4.1 — Sentinel
 
