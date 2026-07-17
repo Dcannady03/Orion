@@ -20,6 +20,7 @@ from orion.core.profile import ProfileManager
 from orion.core.router import CommandRouter
 from orion.intelligence.factory import AIProviderFactory
 from orion.intelligence.brain import Brain
+from orion.agents import AgentRegistry, built_in_agents
 from orion.services.registry import ServiceRegistry
 from orion.services.briefing import BriefingService, SystemBriefingProvider
 from orion.services.home import HomeService
@@ -276,12 +277,25 @@ class Orion:
             "vault", VaultService(self.config_manager, self.provider_manager, self.provider_manager.secrets)
         )
         self.vault.migrate_legacy_store()
+        team_provider_factory = AIProviderFactory(
+            self.config_manager, self.provider_manager.secrets
+        )
+        self.agents = self.services.register(
+            "agents",
+            AgentRegistry(
+                self.paths.agents,
+                self.config_manager,
+                team_provider_factory,
+            ),
+        )
+        self.agents.ensure_defaults(built_in_agents(self.config_manager))
         self.team = self.services.register(
             "team",
             TeamOrchestrator(
                 self.config_manager,
                 TeamTaskStore(self.paths.team_tasks),
-                AIProviderFactory(self.config_manager, self.provider_manager.secrets),
+                team_provider_factory,
+                self.agents,
             ),
         )
 

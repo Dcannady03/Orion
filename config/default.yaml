@@ -72,12 +72,15 @@ team:
   enabled: true
   roles:
     architect:
+      agent: architect
       provider: configured-default
       model: configured-default
     engineer:
+      agent: engineer
       provider: configured-default
       model: configured-default
     reviewer:
+      agent: reviewer
       provider: configured-default
       model: configured-default
   pricing:

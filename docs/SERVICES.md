@@ -9,6 +9,7 @@ stable interface.
 - `workspace` → `WorkspaceManager`
 - `session_memory` → `SessionMemory`
 - `code` → `CodeSkill`
+- `agents` → `AgentRegistry` (external YAML agent definitions)
 - `team` → `TeamOrchestrator` (bounded Architect and Engineer planning)
 
 ## Usage
@@ -17,6 +18,7 @@ stable interface.
 workspace = orion.services.get("workspace")
 memory = orion.services.get("session_memory")
 code = orion.services.get("code")
+agents = orion.services.get("agents")
 ```
 
 Existing attributes remain available for compatibility:

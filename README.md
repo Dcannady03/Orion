@@ -47,6 +47,12 @@ network watch [seconds]      Monitor outages and latency in the background
 network report               Show current network monitoring statistics
 network stop                 Stop monitoring and save the final summary
 ask <question>               Talk to the configured AI provider
+agent list                   Show configurable AI agents
+agent show <name>            Inspect an agent's instructions and permissions
+agent create                 Create a planning-safe custom agent
+agent enable <name>          Enable an agent
+agent disable <name>         Disable an agent
+agent test <name>            Run one bounded structured-output test
 team plan "<goal>"           Create a two-role implementation plan
 team roles                   Show AI Team role assignments
 team status <task-id>        Reopen a persisted AI Team plan
@@ -87,6 +93,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 
 - `orion/core` — runtime, configuration, profile, and routing
 - `orion/intelligence` — Brain, identity, intents, and AI providers
+- `orion/agents` — strict external agent definitions and registry
 - `orion/actions` — action models, policies, execution, and history
 - `orion/services` — workspace, discovery, Companion, Morning Star, and Weather services
 - `orion/conversation` — persistent conversation context
@@ -101,12 +108,13 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **211 passing tests**.
+The current codebase contains **219 passing tests**.
 
 ## Roadmap
 
-The next milestone is **v0.3.6 — Calendar**, which will contribute a daily agenda through Morning Star. See `docs/ROADMAP.md` for the complete plan, including Weather, Calendar,
-Email, Docker, Diagnostics & Recovery, Voice, Knowledge, and Orion OS.
+The active development milestone is **Agent Registry Phase 1**, which turns AI Team
+roles into configurable, external, least-privilege workers. See `docs/ROADMAP.md` for
+the complete plan.
 
 ## v0.3.6.2 — Constellation Polish
 
@@ -212,6 +220,28 @@ ai health
 ai route status
 ai route explain last
 ```
+
+## Agent Registry Phase 1
+
+Orion now separates workflow roles from the agents assigned to perform them. Agent
+definitions are strict YAML files under `~/.orion/agents/`, so custom specialists and
+their provider, model, instructions, tools, limits, and permissions survive application
+updates. Orion creates external Architect, Engineer, and Reviewer definitions once and
+never overwrites user edits.
+
+```text
+agent list
+agent show security-reviewer
+agent create
+agent enable security-reviewer
+agent disable security-reviewer
+agent test security-reviewer
+```
+
+`agent test` makes exactly one provider call and requires strict structured JSON.
+Declared tools and permissions are visible but inert: Phase 1 does not expose tools,
+modify files, run commands, or perform Git operations. See
+`docs/AGENT_REGISTRY.md` for the YAML schema and safety contract.
 
 ## AI Team Phase 1
 

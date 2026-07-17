@@ -30,6 +30,10 @@ class CompanionConsoleTests(unittest.TestCase):
         team_values = [item.text for item in completer.get_completions(team_document, None)]
         self.assertIn("team plan", team_values)
         self.assertIn("team roles", team_values)
+        agent_document = SimpleNamespace(text_before_cursor="agent ")
+        agent_values = [item.text for item in completer.get_completions(agent_document, None)]
+        self.assertIn("agent create", agent_values)
+        self.assertIn("agent test", agent_values)
         self.assertIn("team status", team_values)
 
     def test_application_completion_uses_catalog(self):

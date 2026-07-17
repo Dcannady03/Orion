@@ -87,8 +87,19 @@ This Sentinel maintenance release makes Discord configuration update-safe by mov
 the live vault into external user data and safely recovering missing tokens and access
 settings from update backups without replacing newer current values.
 
-**Active milestone:** AI Team Phase 1 multi-role planning. Cross-platform diagnostics
-through `orion doctor` remains planned after the team-planning foundation.
+**Active milestone:** Agent Registry Phase 1 configurable planning workers.
+Cross-platform diagnostics through `orion doctor` remains planned after the AI Team
+foundation.
+
+## In Development — Agent Registry Phase 1
+
+- [x] Strict YAML definitions under external user data at `~/.orion/agents/`
+- [x] Provider, model, instructions, declared tools, limits, and permissions
+- [x] List, show, guided create, enable, disable, and bounded test commands
+- [x] Built-in Agent files are seeded once without overwriting user changes
+- [x] AI Team roles resolve to assigned configurable agents
+- [x] Phase 1 grants no tools and performs no file, shell, or Git actions
+- [ ] Phase 2: explicitly approved read-only tool dispatch
 
 ## In Development — AI Team Phase 1
 

@@ -1,4 +1,10 @@
-# Unreleased — AI Team Phase 1
+# Unreleased — Agent Registry Phase 1
+
+- Added strict YAML-defined agents with provider, model, instructions, tools, limits, permissions, and enabled state.
+- Added `agent list`, `agent show`, `agent create`, `agent enable`, `agent disable`, and bounded `agent test` commands.
+- Persisted custom and built-in agent definitions outside the application under `~/.orion/agents/` without overwriting user edits.
+- Separated AI Team workflow roles from assigned agents while preserving legacy role provider/model choices during first-time migration.
+- Kept all declared tools and permissions inert during Phase 1 agent tests and team plans.
 
 - Added bounded Architect and Engineer Review planning through `team plan "<goal>"`.
 - Added strict JSON role outputs and structured artifact handoff between roles; unknown fields are rejected.
@@ -7,7 +13,7 @@
 - Persisted team tasks outside the application under `~/.orion/team/tasks/`.
 - Added estimated token usage and configurable per-provider cost reporting.
 - Added strict validation for persisted task identity, status, timestamps, messages, usage, and nested artifacts.
-- Added bounded orchestration, persistence, schema, CLI, and safety coverage; 211 tests pass.
+- Added bounded orchestration, persistence, schema, CLI, and safety coverage; 219 tests pass.
 
 # v0.5.4.1 — Sentinel
 

@@ -70,3 +70,15 @@ the external user-data path `~/.orion/team/tasks/`, using atomic replacement and
 owner-only file permissions where supported. Save and load both enforce the exact task
 and nested-record schemas, including identity, status, timezone-aware timestamps,
 messages, role usage, and role-output fields.
+
+## Agent Registry Phase 1
+
+`AgentRegistry` is registered as `agents` and owns strict YAML definitions beneath
+`~/.orion/agents/`. The application seeds Architect, Engineer, and Reviewer agents only
+when their files do not exist; subsequent edits remain user-owned across updates.
+
+Workflow roles and configured workers are separate. `TeamOrchestrator` resolves each
+role's `agent` assignment, then uses that agent's provider, model, and instructions
+while retaining the role's fixed structured-output contract. Tool and permission
+declarations are metadata only in Phase 1. Neither `agent test` nor `team plan` receives
+a tool dispatcher, filesystem access, shell execution, or Git actions.

@@ -358,6 +358,8 @@ class TeamRole:
     provider: str
     model: str
     active: bool
+    agent_id: str = "legacy-config"
+    agent_name: str = "Legacy role configuration"
 
 
 class TeamOrchestrator:
@@ -385,6 +387,7 @@ risks (array of concise risks), next_action (string)."""
         config_manager,
         store: TeamTaskStore,
         provider_factory,
+        agent_registry=None,
         *,
         now: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
@@ -392,6 +395,7 @@ risks (array of concise risks), next_action (string)."""
         self.config = config_manager
         self.store = store
         self.provider_factory = provider_factory
+        self.agents = agent_registry
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._id_factory = id_factory or self._new_task_id
 
@@ -476,21 +480,34 @@ risks (array of concise risks), next_action (string)."""
     def roles(self) -> tuple[TeamRole, ...]:
         roles = []
         for name in self.ROLE_NAMES:
-            provider, model = self._resolved_role(name)
-            roles.append(TeamRole(name, provider, model, name in self.ACTIVE_ROLES))
+            provider, model, agent = self._role_runtime(name)
+            roles.append(TeamRole(
+                name,
+                provider,
+                model,
+                name in self.ACTIVE_ROLES,
+                agent.agent_id if agent is not None else "legacy-config",
+                agent.name if agent is not None else "Legacy role configuration",
+            ))
         return tuple(roles)
 
     def _run_role(self, role: str, prompt: str, system_prompt: str) -> tuple[RoleOutput, RoleUsage]:
-        provider_key, model = self._resolved_role(role)
+        provider_key, model, agent = self._role_runtime(role)
         provider = self.provider_factory.create(provider_key)
-        configured_model = str(
-            self.config.get(f"team.roles.{role}.model", "configured-default")
-        ).strip()
+        configured_model = (
+            agent.model
+            if agent is not None
+            else str(self.config.get(
+                f"team.roles.{role}.model", "configured-default"
+            )).strip()
+        )
         if configured_model != "configured-default":
             if not hasattr(provider, "select_model"):
                 raise ValueError(f"{provider_key} does not support role-specific model selection.")
             provider.select_model(configured_model)
             model = configured_model
+        if agent is not None:
+            system_prompt = self._agent_system_prompt(system_prompt, agent)
         raw = provider.chat(prompt, system_prompt=system_prompt)
         if len(str(raw)) > self.MAX_ROLE_RESPONSE_CHARS:
             raise TeamPlanningError("AI Team role response exceeded the 50,000-character limit.")
@@ -508,6 +525,21 @@ risks (array of concise risks), next_action (string)."""
         return output, usage
 
     def _resolved_role(self, role: str) -> tuple[str, str]:
+        provider, model, _ = self._role_runtime(role)
+        return provider, model
+
+    def _role_runtime(self, role: str):
+        if self.agents is not None:
+            agent_id = str(
+                self.config.get(f"team.roles.{role}.agent", role)
+            ).strip()
+            agent = self.agents.load(agent_id)
+            if not agent.enabled:
+                raise ValueError(
+                    f"AI Team role {role} is assigned to disabled agent: {agent.agent_id}"
+                )
+            provider, model = self.agents.resolve(agent)
+            return provider, model, agent
         configured_provider = str(
             self.config.get(f"team.roles.{role}.provider", "configured-default")
         ).strip().lower()
@@ -526,7 +558,20 @@ risks (array of concise risks), next_action (string)."""
             if configured_model == "configured-default"
             else configured_model
         )
-        return provider, model
+        return provider, model, None
+
+    @staticmethod
+    def _agent_system_prompt(role_prompt: str, agent) -> str:
+        tools = ", ".join(agent.tools) if agent.tools else "none"
+        return (
+            f"{role_prompt}\n\n"
+            f"Configured worker: {agent.name} ({agent.agent_id})\n"
+            f"Agent instructions:\n{agent.instructions}\n\n"
+            f"Declared future tools: {tools}. Declared permissions are metadata only in Phase 1.\n"
+            "The workflow role, strict JSON output contract, and safety constraints override "
+            "agent instructions: exactly one turn is allowed, no tools are available, and no "
+            "files, commands, or Git operations may be performed."
+        )
 
     def _estimate_cost(self, provider: str, input_tokens: int, output_tokens: int) -> float | None:
         input_rate = self.config.get(f"team.pricing.{provider}.input_per_million", None)

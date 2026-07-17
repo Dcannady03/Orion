@@ -24,24 +24,31 @@ team status <task-id>
 
 ## Role configuration
 
-Each active role can use any provider already supported and configured by Orion. The
-default `configured-default` value follows `providers.default` and that provider's
-configured model.
+Each workflow role is assigned to a configurable agent. The built-in files are seeded
+under `~/.orion/agents/` and retain the legacy role provider/model choices the first
+time they are created.
 
 ```yaml
 team:
   enabled: true
   roles:
     architect:
+      agent: architect
       provider: configured-default
       model: configured-default
     engineer:
+      agent: engineer
       provider: configured-default
       model: configured-default
     reviewer:
+      agent: reviewer
       provider: configured-default
       model: configured-default
 ```
+
+The `agent` field selects the worker. Provider and model fields remain as first-run
+compatibility defaults; after an external agent file exists, that file is authoritative.
+Use `team roles` to see each role-to-agent assignment and resolved runtime.
 
 The Reviewer assignment is reserved for a later implementation phase and is not
 called by `team plan`. Phase 1 accepts Orion's existing runtime providers (`ollama`,

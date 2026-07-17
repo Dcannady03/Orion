@@ -9,6 +9,7 @@ Responsible for:
 
 from getpass import getpass
 
+from orion.agents import AgentDefinition, AgentPermissions
 from orion.services.team import TeamPlanningError
 
 
@@ -171,6 +172,36 @@ class CommandRouter:
 
         elif command_lower in {"benchmark models", "ai benchmark"}:
             self.benchmark_ai_models()
+
+        elif command_lower in {"agent", "agent list"}:
+            self.show_agents()
+
+        elif command_lower == "agent show":
+            print("Usage: agent show <name>")
+
+        elif command_lower.startswith("agent show "):
+            self.show_agent(raw_command[len("agent show "):].strip())
+
+        elif command_lower == "agent create":
+            self.create_agent()
+
+        elif command_lower == "agent enable":
+            print("Usage: agent enable <name>")
+
+        elif command_lower.startswith("agent enable "):
+            self.set_agent_enabled(raw_command[len("agent enable "):].strip(), True)
+
+        elif command_lower == "agent disable":
+            print("Usage: agent disable <name>")
+
+        elif command_lower.startswith("agent disable "):
+            self.set_agent_enabled(raw_command[len("agent disable "):].strip(), False)
+
+        elif command_lower == "agent test":
+            print("Usage: agent test <name>")
+
+        elif command_lower.startswith("agent test "):
+            self.test_agent(raw_command[len("agent test "):].strip())
 
         elif command_lower == "team":
             self.show_team()
@@ -501,6 +532,13 @@ class CommandRouter:
         print("    ai stats                   Show measured provider/model performance")
         print("    ai stats clear             Reset adaptive-routing performance history")
         print("    ai health                  Show routing health by provider")
+        print()
+        print("  Agent Registry (planning only)")
+        print("    agent list                 Show external agent definitions")
+        print("    agent show <name>          Inspect instructions and permissions")
+        print("    agent create               Create a least-privilege agent")
+        print("    agent enable|disable <name> Change whether an agent may be assigned")
+        print("    agent test <name>          Run one bounded structured-output test")
         print()
         print("  AI Team (planning only)")
         print('    team plan "<goal>"         Create an Architect + Engineer plan')
@@ -1409,6 +1447,132 @@ class CommandRouter:
             print(f"  {result['model']:<36} {elapsed}")
         print("Latency is measured locally; Orion does not invent a quality score.")
 
+    def show_agents(self):
+        print("Agent Registry")
+        print("-" * 62)
+        try:
+            agents = self.orion.agents.all()
+        except (OSError, ValueError) as exc:
+            print(str(exc))
+            return
+        if not agents:
+            print("No agents are configured.")
+            return
+        for agent in agents:
+            try:
+                provider, model = self.orion.agents.resolve(agent)
+                runtime = f"{provider}:{model}"
+            except ValueError:
+                runtime = "invalid provider/model"
+            state = "enabled" if agent.enabled else "disabled"
+            print(f"  {agent.agent_id:<22} {agent.name:<24} {runtime} ({state})")
+        print(f"Definitions: {self.orion.agents.root}")
+        print("Phase 1 stores tool permissions as metadata and grants no tools.")
+
+    def show_agent(self, agent_id: str):
+        try:
+            agent = self.orion.agents.load(agent_id)
+            provider, model = self.orion.agents.resolve(agent)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(str(exc))
+            return
+        permissions = agent.permissions
+        print(f"Agent: {agent.name}")
+        print("-" * 62)
+        print(f"ID: {agent.agent_id}")
+        print(f"Status: {'Enabled' if agent.enabled else 'Disabled'}")
+        print(f"Provider: {agent.provider} -> {provider}")
+        print(f"Model: {agent.model} -> {model}")
+        print(f"Instructions: {agent.instructions}")
+        print(f"Tools: {', '.join(agent.tools) if agent.tools else 'none'}")
+        print(f"Max turns: {agent.limits.max_turns}")
+        print(f"Can modify files: {agent.limits.can_modify_files}")
+        print(
+            "Filesystem: "
+            f"read={permissions.filesystem.read}, write={permissions.filesystem.write}"
+        )
+        print(
+            "Shell: "
+            f"run_tests={permissions.shell.run_tests}, "
+            f"arbitrary_commands={permissions.shell.arbitrary_commands}"
+        )
+        print(
+            "Git: "
+            f"create_branch={permissions.git.create_branch}, "
+            f"commit={permissions.git.commit}, push={permissions.git.push}"
+        )
+        print("Phase 1 enforcement: no tools are granted during agent tests or team plans.")
+
+    def create_agent(self):
+        print("Create Agent")
+        print("-" * 62)
+        print("The new agent starts with read-only, planning-safe permissions.")
+        agent_id = input("Agent ID (example: security-reviewer): ").strip()
+        name = input("Display name: ").strip()
+        provider = input(
+            "Provider [configured-default|ollama|openai|gemini] (configured-default): "
+        ).strip() or "configured-default"
+        model = input("Model (configured-default): ").strip() or "configured-default"
+        instructions = input("Instructions: ").strip()
+        tools_text = input(
+            "Declared tools, comma-separated (optional; e.g. read_files, inspect_diff): "
+        ).strip()
+        max_turns_text = input("Maximum turns (3): ").strip() or "3"
+        tools = tuple(
+            item.strip().lower()
+            for item in tools_text.split(",")
+            if item.strip()
+        )
+        permissions = AgentPermissions.for_tools(tools)
+        try:
+            max_turns = int(max_turns_text)
+            agent = AgentDefinition.from_value(agent_id, {
+                "name": name,
+                "enabled": True,
+                "provider": provider,
+                "model": model,
+                "instructions": instructions,
+                "tools": list(tools),
+                "limits": {"max_turns": max_turns, "can_modify_files": False},
+                "permissions": permissions.to_dict(),
+            })
+            path = self.orion.agents.save(agent, overwrite=False)
+        except (FileExistsError, OSError, TypeError, ValueError) as exc:
+            print(f"Agent was not created: {exc}")
+            return
+        print(f"Created {agent.name} ({agent.agent_id}).")
+        print(f"Saved to: {path}")
+        print("Declared permissions remain inactive in Phase 1.")
+
+    def set_agent_enabled(self, agent_id: str, enabled: bool):
+        try:
+            agent = self.orion.agents.set_enabled(agent_id, enabled)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(str(exc))
+            return
+        state = "enabled" if agent.enabled else "disabled"
+        print(f"Agent {agent.agent_id} is now {state}.")
+
+    def test_agent(self, agent_id: str):
+        print("Running one bounded structured-output test; no tools are available...")
+        try:
+            result = self.orion.agents.test(agent_id)
+        except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+            print(f"Agent test failed: {exc}")
+            return
+        print(f"Agent Test: {result.agent.name}")
+        print("-" * 62)
+        print(f"Runtime: {result.provider}:{result.model}")
+        print(result.response.summary)
+        for item in result.response.recommendations:
+            print(f"  - {item}")
+        if result.response.risks:
+            print("Risks:")
+            for risk in result.response.risks:
+                print(f"  - {risk}")
+        print(f"Next action: {result.response.next_action}")
+        print("Result: passed strict schema validation (one turn, no tools).")
+
     def show_team(self):
         tasks = self.orion.team.recent(5)
         print("AI Team")
@@ -1434,8 +1598,11 @@ class CommandRouter:
             return
         for role in roles:
             state = "active in Phase 1" if role.active else "reserved for a later phase"
-            print(f"  {role.name.title():<11} {role.provider}:{role.model} ({state})")
-        print("Role specialization is enforced by separate system prompts and artifacts.")
+            print(
+                f"  {role.name.title():<11} {role.agent_id} ({role.agent_name}) -> "
+                f"{role.provider}:{role.model} ({state})"
+            )
+        print("Roles define workflow jobs; agents provide configurable workers.")
 
     def team_plan(self, payload: str):
         goal = payload.strip()
