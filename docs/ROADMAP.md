@@ -81,13 +81,13 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.4.4 — Horizon: COMPLETE**
+**v0.5.3 — Watchtower: COMPLETE**
 
-Horizon promotes Home into a registered Orion service. The CLI now renders a detached
-Home snapshot that can later be shared by the AI Command Center GUI, web interface, and
-mobile companion. Morning Star remains the provider-neutral source of live cards.
+Watchtower adds a plugin-based network monitor for router and public Internet checks,
+background outage and latency tracking, local-versus-ISP diagnosis, and portable
+JSON Lines event reports stored outside the application installation.
 
-**Next milestone:** expand Home with task, project, activity, and diagnostic providers.
+**Next milestone:** continue Pathfinder diagnostics and safe remediation workflows.
 
 ## v0.3.6.1 — Constellation ✅
 

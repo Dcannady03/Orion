@@ -15,6 +15,14 @@ class CompanionConsoleTests(unittest.TestCase):
         values = [item.text for item in completer.get_completions(document, None)]
         self.assertIn("open", values)
 
+    def test_base_command_completion_includes_network_commands(self):
+        orion = Mock()
+        completer = OrionCompleter(orion)
+        document = Mock(text_before_cursor="network ")
+        values = [item.text for item in completer.get_completions(document, None)]
+        self.assertIn("network status", values)
+        self.assertIn("network watch", values)
+
     def test_application_completion_uses_catalog(self):
         app = SimpleNamespace(name="Google Chrome")
         orion = Mock()

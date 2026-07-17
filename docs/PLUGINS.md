@@ -37,3 +37,10 @@ def create_plugin():
 ## Built-in Search Plugin
 
 The Search Plugin registers the `search` service and provides `search` / `find` commands. It is read-only, workspace-bound, ignores generated directories, and skips binary or oversized files.
+
+## Network Watch Plugin
+
+The Network Watch Plugin registers the `network` service and provides one-time and
+background connectivity checks. It distinguishes local gateway failures from likely
+Internet or ISP outages and records JSON Lines monitoring logs under the external
+user-data directory at `~/.orion/logs/network/`.

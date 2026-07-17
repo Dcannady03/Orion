@@ -6,7 +6,7 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.3.6.3 — Constellation: First Contact**
+**v0.5.3 — Watchtower**
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -37,6 +37,10 @@ briefing                     Refresh the current briefing
 weather                      Show live conditions and today's forecast
 weather tomorrow             Show tomorrow's forecast
 weather <location>           Check another location
+network status               Check router and Internet connectivity
+network watch [seconds]      Monitor outages and latency in the background
+network report               Show current network monitoring statistics
+network stop                 Stop monitoring and save the final summary
 ask <question>               Talk to the configured AI provider
 workspace                    Inspect the active workspace
 files                        List workspace files
@@ -53,6 +57,17 @@ trust list                   Show trusted applications
 
 Use the Up/Down arrows for command history and Tab for command/application
 completion in supported terminals.
+
+## Network Watch plugin
+
+The built-in Network Watch plugin distinguishes local gateway failures from likely
+Internet or ISP outages by monitoring the router, Cloudflare, and Google. Run
+`network status` for a one-time check or `network watch` to begin background
+monitoring. Reports include outages, packet loss, average latency, peak latency, and
+a plain-language diagnosis. JSON Lines logs are stored outside the installation at
+`~/.orion/logs/network/`.
+
+Use `network config` to review the current targets and timing settings.
 
 ## Safety model
 
@@ -78,7 +93,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The v0.3.6.3 release contains **106 passing tests**.
+The current codebase contains **181 passing tests**.
 
 ## Roadmap
 
@@ -275,4 +290,3 @@ update rollback
 ```
 
 Orion downloads a pinned GitHub package, backs up the current application, replaces application files, and leaves `~/.orion` untouched. Git commands remain available in development workspaces.
-

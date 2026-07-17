@@ -21,12 +21,18 @@ try:
 except ImportError:  # pragma: no cover - graceful fallback
     PromptSession = None
     Completer = object
-    Completion = None
     FileHistory = None
+
+    class Completion:
+        """Small prompt-toolkit-compatible result used without the optional UI dependency."""
+
+        def __init__(self, text: str, start_position: int = 0) -> None:
+            self.text = text
+            self.start_position = start_position
 
 
 BASE_COMMANDS = (
-    "help", "home", "status", "briefing", "connect", "connect status", "connect health", "connect add gmail", "connect add discord", "email", "email inbox", "email unread", "email search", "email read", "email compose", "discord send", "ai", "ai status", "ai connect openai", "ai test openai", "ai disconnect openai", "ai providers", "ai models", "ai profiles", "ai profile coding", "ai profile creative", "ai profile lightweight", "ai profile vision", "ai benchmark", "change ollama model", "ollama model", "weather", "weather tomorrow", "calendar", "calendar today", "calendar tomorrow", "calendar next", "calendar providers", "calendar enable google", "calendar enable microsoft", "calendar disable google", "calendar disable microsoft", "calendar configure google", "calendar configure microsoft", "calendar connect google", "calendar connect microsoft", "settings", "about", "profile", "config", "services",
+    "help", "home", "status", "briefing", "connect", "connect status", "connect health", "connect add gmail", "connect add discord", "email", "email inbox", "email unread", "email search", "email read", "email compose", "discord send", "ai", "ai status", "ai connect openai", "ai test openai", "ai disconnect openai", "ai providers", "ai models", "ai profiles", "ai profile coding", "ai profile creative", "ai profile lightweight", "ai profile vision", "ai benchmark", "change ollama model", "ollama model", "weather", "weather tomorrow", "network", "network status", "network watch", "network report", "network stop", "network config", "calendar", "calendar today", "calendar tomorrow", "calendar next", "calendar providers", "calendar enable google", "calendar enable microsoft", "calendar disable google", "calendar disable microsoft", "calendar configure google", "calendar configure microsoft", "calendar connect google", "calendar connect microsoft", "settings", "about", "profile", "config", "services",
     "plugins", "workspace", "files", "ls", "remember", "recall", "memory",
     "forget", "clear memory", "project init", "project status", "project info",
     "project resume", "project rules", "index build", "index status", "index find",
@@ -45,8 +51,6 @@ class OrionCompleter(Completer):
         self.orion = orion
 
     def get_completions(self, document, complete_event):
-        if Completion is None:
-            return
         text = document.text_before_cursor
         lowered = text.lower()
         candidates: Iterable[str]

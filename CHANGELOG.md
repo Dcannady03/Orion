@@ -1,3 +1,12 @@
+# v0.5.3 — Watchtower
+
+- Added the Network Watch plugin for one-time router and Internet checks.
+- Added background outage, packet-loss, and latency monitoring.
+- Added local-versus-ISP failure diagnosis and JSON Lines event logs.
+- Added `network status`, `network watch`, `network report`, `network stop`, and `network config`.
+- Kept monitoring logs in external user data under `~/.orion/logs/network/`.
+- Added command completion and automated plugin coverage; 181 tests pass.
+
 # v0.5.2 — Navigator
 
 - Added the AI Routing Engine with Fast, Balanced, Coding, and Research profiles.

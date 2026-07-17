@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+.venv/
 .pytest_cache/
 .orion/secrets.yaml
 .orion/*token*.json
