@@ -46,6 +46,13 @@ network watch [seconds]      Monitor outages and latency in the background
 network report               Show current network monitoring statistics
 network stop                 Stop monitoring and save the final summary
 ask <question>               Talk to the configured AI provider
+task create "<goal>"         Create a proposed project task
+task list                    List project-local tasks
+task show <task-id>          Show task state and artifacts
+task approve <task-id>       Explicitly approve a proposed task
+task cancel <task-id>        Cancel a non-terminal task
+task events <task-id>        Show append-only task progress
+task link-plan <id> <plan>   Link a reviewed AI Team plan artifact
 agent list                   Show configurable AI agents
 agent show <name>            Inspect an agent's instructions and permissions
 agent create                 Create a planning-safe custom agent
@@ -107,13 +114,13 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **219 passing tests**.
+The current codebase contains **229 passing tests**.
 
 ## Roadmap
 
-The next development milestone is approved agent assignment and read-only tool use,
-building on Council's configurable, external, least-privilege workers. See
-`docs/ROADMAP.md` for the complete plan.
+The active development milestone is **Task Manager Phase 1**, which makes project work
+durable, explicit, and observable before Orion gains an automated workflow engine.
+See `docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish
 
@@ -219,6 +226,29 @@ ai health
 ai route status
 ai route explain last
 ```
+
+## Task Manager Phase 1
+
+Orion stores first-class project work in `.orion/tasks.json` and appends structured
+progress records to `.orion/task-events.jsonl`. Tasks carry explicit status and
+approval state, optional role and agent assignments, dependencies, linked artifacts,
+and timezone-aware timestamps.
+
+```text
+task create "Add Discord image generation"
+task list
+task show <task-id>
+task approve <task-id>
+task cancel <task-id>
+task events <task-id>
+task link-plan <task-id> <team-task-id>
+```
+
+Approval moves a proposed task to `Ready` but starts nothing. AI Team plans can be
+linked only as reviewed artifacts, and Task Manager has no workflow runner, Codex
+bridge, tools, file modification, or automatic transitions. The event stream is the
+foundation for future workflow and streaming-progress consumers. See
+`docs/TASK_MANAGER.md` for the strict schemas and lifecycle.
 
 ## Agent Registry Phase 1
 

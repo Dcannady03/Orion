@@ -18,6 +18,7 @@ class ProjectContext:
         "project": "project.json",
         "history": "history.json",
         "tasks": "tasks.json",
+        "task_events": "task-events.jsonl",
         "metrics": "metrics.json",
         "settings": "settings.json",
         "notes": "notes.md",
@@ -122,7 +123,13 @@ class ProjectContext:
             self._write_json(project_path, project)
             self._write_json(self.context_dir / self.FILES["history"], [])
             self._write_json(self.context_dir / self.FILES["tasks"], [])
-            self._write_json(self.context_dir / self.FILES["metrics"], {"history_entries": 0, "tasks_open": 0, "tasks_completed": 0})
+            (self.context_dir / self.FILES["task_events"]).write_text("", encoding="utf-8")
+            self._write_json(self.context_dir / self.FILES["metrics"], {
+                "history_entries": 0,
+                "tasks_open": 0,
+                "tasks_completed": 0,
+                "tasks_cancelled": 0,
+            })
             self._write_json(self.context_dir / self.FILES["settings"], {})
             (self.context_dir / self.FILES["notes"]).write_text(f"# {project['name']} Notes\n\n", encoding="utf-8")
             self._ensure_database()
@@ -290,8 +297,11 @@ class ProjectContext:
             raise ValueError("metrics.json must contain a JSON object.")
         tasks = self.tasks()
         data["history_entries"] = len(self.history())
-        data["tasks_open"] = sum(task.get("status") != "completed" for task in tasks)
+        data["tasks_open"] = sum(
+            task.get("status") not in {"completed", "cancelled"} for task in tasks
+        )
         data["tasks_completed"] = sum(task.get("status") == "completed" for task in tasks)
+        data["tasks_cancelled"] = sum(task.get("status") == "cancelled" for task in tasks)
         data["rules"] = len(self.rules())
         data["has_checkpoint"] = self.latest_checkpoint() is not None
         return deepcopy(data)

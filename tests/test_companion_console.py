@@ -34,6 +34,11 @@ class CompanionConsoleTests(unittest.TestCase):
         agent_values = [item.text for item in completer.get_completions(agent_document, None)]
         self.assertIn("agent create", agent_values)
         self.assertIn("agent test", agent_values)
+        task_document = SimpleNamespace(text_before_cursor="task ")
+        task_values = [item.text for item in completer.get_completions(task_document, None)]
+        self.assertIn("task create", task_values)
+        self.assertIn("task approve", task_values)
+        self.assertIn("task events", task_values)
         self.assertIn("team status", team_values)
 
     def test_application_completion_uses_catalog(self):

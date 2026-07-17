@@ -41,6 +41,7 @@ from orion.services.vault import VaultService
 from orion.services.connect import ConnectService, ConnectBriefingProvider, GmailClient, DiscordWebhookClient
 from orion.services.request_router import RequestRouterService
 from orion.services.project_context import ProjectContext
+from orion.services.task_manager import TaskManager
 from orion.services.companion import CompanionSettings, ActionTrustStore
 from orion.services.discovery import (
     ApplicationCatalog, ApplicationDiscoveryService, ApplicationMatcher, ApplicationLauncherService,
@@ -105,6 +106,9 @@ class Orion:
         self.search_skill = None
         self.project_context = self.services.register(
             "project_context", ProjectContext(self.workspace_manager.root)
+        )
+        self.task_manager = self.services.register(
+            "task_manager", TaskManager(self.workspace_manager.root)
         )
         self.knowledge_index = self.services.register(
             "knowledge_index", KnowledgeIndex(self.workspace_manager.root)

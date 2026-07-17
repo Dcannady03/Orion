@@ -13,6 +13,10 @@ The orchestrator makes exactly two provider calls. It does not expose tools to e
 role, retry indefinitely, modify source files, run tests, create commits, or open pull
 requests.
 
+After a plan reaches `Awaiting Approval`, `task link-plan` can attach it to a
+first-class project task as an artifact. Linking does not approve the project task or
+start implementation.
+
 ## Commands
 
 ```text
@@ -20,6 +24,7 @@ team
 team roles
 team plan "Add OpenAI image generation"
 team status <task-id>
+task link-plan <project-task-id> <team-task-id>
 ```
 
 ## Role configuration

@@ -18,12 +18,26 @@ The core initializes shared components. Consumers discover them through the regi
 
 - `project.json` — project identity, phase, goal, model, and timestamps
 - `history.json` — append-only project event timeline
-- `tasks.json` — Task Manager storage foundation
+- `tasks.json` — strict project-local Task Manager state
+- `task-events.jsonl` — append-only structured task progress
 - `notes.md` — human-readable timestamped notes
 - `metrics.json` — derived project counts
 - `settings.json` — future project-specific preferences
 
 Workspace changes rebind Project Context so each project keeps independent, portable data.
+
+## Task Manager Phase 1
+
+`TaskManager` is registered as `task_manager` and bound to the active workspace. It
+owns strict `ProjectTask`, `TaskArtifact`, and `TaskEvent` schemas. Task snapshots are
+atomically replaced in `.orion/tasks.json`; state changes append immutable progress
+records to `.orion/task-events.jsonl` for future Workflow Engine and streaming UI
+consumers.
+
+Phase 1 exposes only user-triggered creation, approval, cancellation, inspection, and
+AI Team plan linking. It has no background runner, tool dispatcher, Codex adapter, or
+automatic state transitions. Workspace rebinding isolates each project's tasks and
+events.
 
 
 ## Workspace Search

@@ -49,10 +49,19 @@ class HomeService:
         if not self.orion.project_context.initialized:
             return HomeCard("Tasks", "Project context is not initialized", "Home", "[i]")
         tasks = self.orion.project_context.tasks()
-        open_tasks = [task for task in tasks if str(task.get("status", "")).lower() != "completed"]
+        open_tasks = [
+            task
+            for task in tasks
+            if str(task.get("status", "")).lower() not in {"completed", "cancelled"}
+        ]
         if not open_tasks:
             return HomeCard("Tasks", "No open project tasks", "Home", "[OK]")
-        next_task = str(open_tasks[0].get("title") or open_tasks[0].get("task") or "Next task").strip()
+        next_task = str(
+            open_tasks[0].get("goal")
+            or open_tasks[0].get("title")
+            or open_tasks[0].get("task")
+            or "Next task"
+        ).strip()
         suffix = f"; next: {next_task}" if next_task else ""
         return HomeCard("Tasks", f"{len(open_tasks)} open{suffix}", "Home", "[TASK]")
 

@@ -1,3 +1,13 @@
+# Unreleased — Task Manager Phase 1
+
+- Promoted project-local `.orion/tasks.json` into a strict first-class task store.
+- Added proposed, ready, progress, blocked, completed, failed, and cancelled task states with explicit approval validation.
+- Added append-only `.orion/task-events.jsonl` progress events for future workflow and streaming consumers.
+- Added `task create`, `task list`, `task show`, `task approve`, `task cancel`, `task events`, and `task link-plan` commands.
+- Added dependency, cycle, artifact, timestamp, transition, event-identity, and workspace-isolation validation.
+- Linked reviewed AI Team plans as task artifacts without starting planning or implementation automatically.
+- Added Task Manager persistence, lifecycle, corruption, CLI, and safety coverage; 229 tests pass.
+
 # v0.5.5 — Council
 
 - Added strict YAML-defined agents with provider, model, instructions, tools, limits, permissions, and enabled state.

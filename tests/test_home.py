@@ -18,8 +18,9 @@ class _ProjectContext:
 
     def tasks(self):
         return [
-            {"title": "Build GUI shell", "status": "open"},
+            {"goal": "Build GUI shell", "status": "proposed"},
             {"title": "Foundation", "status": "completed"},
+            {"goal": "Old idea", "status": "cancelled"},
         ]
 
     def project(self):

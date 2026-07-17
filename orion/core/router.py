@@ -303,6 +303,45 @@ class CommandRouter:
         elif command_lower == "clear memory":
             self.clear_memory()
 
+        elif command_lower in {"task", "task list"}:
+            self.task_list()
+
+        elif command_lower == "task create":
+            print('Usage: task create "<goal>"')
+
+        elif command_lower.startswith("task create "):
+            self.task_create(raw_command[len("task create "):].strip())
+
+        elif command_lower == "task show":
+            print("Usage: task show <task-id>")
+
+        elif command_lower.startswith("task show "):
+            self.task_show(raw_command[len("task show "):].strip())
+
+        elif command_lower == "task approve":
+            print("Usage: task approve <task-id>")
+
+        elif command_lower.startswith("task approve "):
+            self.task_approve(raw_command[len("task approve "):].strip())
+
+        elif command_lower == "task cancel":
+            print("Usage: task cancel <task-id>")
+
+        elif command_lower.startswith("task cancel "):
+            self.task_cancel(raw_command[len("task cancel "):].strip())
+
+        elif command_lower == "task events":
+            print("Usage: task events <task-id>")
+
+        elif command_lower.startswith("task events "):
+            self.task_events(raw_command[len("task events "):].strip())
+
+        elif command_lower == "task link-plan":
+            print("Usage: task link-plan <task-id> <team-task-id>")
+
+        elif command_lower.startswith("task link-plan "):
+            self.task_link_plan(raw_command[len("task link-plan "):].strip())
+
         elif command_lower == "project":
             print("Usage: project <init|status|info|set|note|checkpoint|resume|rule>")
 
@@ -512,6 +551,12 @@ class CommandRouter:
         print("    app alias <a> = <app>      Teach Orion your preferred name")
         print()
         print("  Projects & knowledge")
+        print('    task create "<goal>"       Create a proposed project task')
+        print("    task list                  List project tasks")
+        print("    task show <id>             Show task state and artifacts")
+        print("    task approve|cancel <id>   Make an explicit task decision")
+        print("    task events <id>           Show append-only task progress")
+        print("    task link-plan <id> <plan> Link an AI Team plan artifact")
         print("    project resume             Continue where you left off")
         print("    project status             Show project progress")
         print("    index build                Refresh the code knowledge index")
@@ -1711,6 +1756,7 @@ class CommandRouter:
             return
 
         self.orion.project_context.bind(selected)
+        self.orion.task_manager.bind(selected)
         self.orion.conversation.bind(selected)
         self.orion.knowledge_index.bind(selected)
         self.orion.action_history.bind(selected)
@@ -1842,6 +1888,135 @@ class CommandRouter:
         count = self.orion.session_memory.clear()
         print(f"Cleared {count} session memory item(s).")
 
+    def task_list(self):
+        """List strict project-local tasks for the active workspace."""
+        try:
+            tasks = self.orion.task_manager.all()
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(f"Task Manager Error: {exc}")
+            return
+        print("Project Tasks")
+        print("-" * 72)
+        if not tasks:
+            print("No tasks have been created yet.")
+            print('Create one with: task create "<goal>"')
+            return
+        for task in tasks:
+            assignment = task.assigned_agent or task.assigned_role or "unassigned"
+            print(
+                f"  {task.task_id:<34} {task.status.replace('_', ' ').title():<12} "
+                f"{assignment} | {task.goal[:70]}"
+            )
+
+    def task_create(self, payload: str):
+        goal = payload.strip()
+        if goal[:1] in {'"', "'"}:
+            if len(goal) < 2 or goal[-1] != goal[0]:
+                print("Could not read task goal: closing quote is missing.")
+                return
+            goal = goal[1:-1].strip()
+        if not goal:
+            print('Usage: task create "<goal>"')
+            return
+        try:
+            task = self.orion.task_manager.create(goal)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(f"Task Manager Error: {exc}")
+            return
+        print(f"Task created: {task.task_id}")
+        print(f"Status: {task.status.replace('_', ' ').title()}")
+        print("Approval: Pending")
+        print("No planning or implementation has started.")
+
+    def task_show(self, task_id: str):
+        try:
+            task = self.orion.task_manager.get(task_id)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(f"Task Manager Error: {exc}")
+            return
+        self._render_project_task(task)
+
+    def task_approve(self, task_id: str):
+        try:
+            task = self.orion.task_manager.approve(task_id)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(f"Task Manager Error: {exc}")
+            return
+        print(f"Task approved: {task.task_id}")
+        print("Status: Ready")
+        print("Approval does not start planning, tools, or implementation.")
+
+    def task_cancel(self, task_id: str):
+        try:
+            task = self.orion.task_manager.cancel(task_id)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(f"Task Manager Error: {exc}")
+            return
+        print(f"Task cancelled: {task.task_id}")
+        print("No implementation was performed.")
+
+    def task_events(self, task_id: str):
+        try:
+            task = self.orion.task_manager.get(task_id)
+            events = self.orion.task_manager.events(task.task_id)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(f"Task Manager Error: {exc}")
+            return
+        print(f"Task Events: {task.task_id}")
+        print("-" * 72)
+        for event in events:
+            previous = event.previous_status or "none"
+            print(
+                f"  {event.timestamp} | {event.event_type:<16} "
+                f"{previous} -> {event.status} | {event.detail}"
+            )
+
+    def task_link_plan(self, payload: str):
+        parts = payload.split()
+        if len(parts) != 2:
+            print("Usage: task link-plan <task-id> <team-task-id>")
+            return
+        task_id, team_task_id = parts
+        try:
+            team_task = self.orion.team.task(team_task_id)
+            if team_task.status != "awaiting_approval":
+                raise ValueError("Only an AI Team plan awaiting approval can be linked.")
+            task = self.orion.task_manager.link_team_plan(
+                task_id,
+                team_task.task_id,
+                summary=team_task.goal[:500],
+            )
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(f"Task Manager Error: {exc}")
+            return
+        print(f"Linked AI Team plan {team_task.task_id} to {task.task_id}.")
+        print("The plan remains an artifact; no implementation has started.")
+
+    @staticmethod
+    def _render_project_task(task):
+        print("Project Task")
+        print("-" * 72)
+        print(f"ID: {task.task_id}")
+        print(f"Goal: {task.goal}")
+        print(f"Status: {task.status.replace('_', ' ').title()}")
+        print(f"Approval: {task.approval.title()}")
+        print(f"Assigned Role: {task.assigned_role or 'Unassigned'}")
+        print(f"Assigned Agent: {task.assigned_agent or 'Unassigned'}")
+        if task.dependencies:
+            print(f"Dependencies: {', '.join(task.dependencies)}")
+        else:
+            print("Dependencies: none")
+        if task.artifacts:
+            print("Artifacts:")
+            for artifact in task.artifacts:
+                print(
+                    f"  - {artifact.kind}: {artifact.reference} | {artifact.summary}"
+                )
+        else:
+            print("Artifacts: none")
+        print(f"Created: {task.created_at}")
+        print(f"Updated: {task.updated_at}")
+
 
     def project_init(self):
         """Initialize persistent metadata for the active workspace."""
@@ -1879,7 +2054,11 @@ class CommandRouter:
         print(f"  Phase: {data.get('phase', '')}")
         print(f"  Current Goal: {data.get('current_goal', '')}")
         print(f"  Workspace: {self.orion.project_context.workspace_root}")
-        print(f"  Tasks: {metrics.get('tasks_open', 0)} open, {metrics.get('tasks_completed', 0)} completed")
+        print(
+            f"  Tasks: {metrics.get('tasks_open', 0)} open, "
+            f"{metrics.get('tasks_completed', 0)} completed, "
+            f"{metrics.get('tasks_cancelled', 0)} cancelled"
+        )
         print(f"  History Entries: {metrics.get('history_entries', 0)}")
         try:
             index = self.orion.knowledge_index.ensure_fresh()
