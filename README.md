@@ -6,7 +6,12 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.5.4 — Sentinel**
+**v0.5.4.1 — Sentinel**
+
+Sentinel now keeps Orion's live credential vault in persistent user data under
+`~/.orion`, safely outside the application files replaced during an update. Existing
+Discord bot tokens and access settings can be recovered automatically from update
+backups, while newer current values always remain authoritative.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:

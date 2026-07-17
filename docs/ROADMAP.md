@@ -81,11 +81,11 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.5.4 — Sentinel: COMPLETE**
+**v0.5.4.1 — Sentinel: COMPLETE**
 
-Sentinel makes AI routing adaptive through private aggregate performance telemetry,
-provider health classification, persistent latency history, and automatic demotion
-of repeatedly unhealthy providers without changing profile-based task suitability.
+This Sentinel maintenance release makes Discord configuration update-safe by moving
+the live vault into external user data and safely recovering missing tokens and access
+settings from update backups without replacing newer current values.
 
 **Next milestone:** add cross-platform diagnostics through `orion doctor`.
 

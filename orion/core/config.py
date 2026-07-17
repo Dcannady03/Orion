@@ -159,17 +159,29 @@ class ConfigManager:
         Product identity keys (version/codename) are intentionally excluded.
         """
         install_root = self.config_path.resolve().parent.parent
-        backup_parent = install_root.parent / f"{install_root.name}-backups"
-        if not backup_parent.is_dir():
-            return {}
+        candidates: list[Path] = []
 
-        candidates = sorted(
+        # Current package updates store application snapshots under the external
+        # user-data root. Recover settings that predate layered configuration.
+        candidates.extend(sorted(
             (
-                path / "config" / self.config_path.name
-                for path in backup_parent.glob("update-*")
+                path / "application" / "config" / self.config_path.name
+                for path in self.paths.backups.glob("application-*")
+                if (path / "application").is_dir()
             ),
             reverse=True,
-        )
+        ))
+
+        # Older Relay builds used a sibling Orion-backups/update-* directory.
+        backup_parent = install_root.parent / f"{install_root.name}-backups"
+        if backup_parent.is_dir():
+            candidates.extend(sorted(
+                (
+                    path / "config" / self.config_path.name
+                    for path in backup_parent.glob("update-*")
+                ),
+                reverse=True,
+            ))
         for candidate in candidates:
             if not candidate.is_file():
                 continue

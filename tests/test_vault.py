@@ -2,9 +2,11 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from orion.core.config import ConfigManager
+from orion.core.paths import OrionPaths
 from orion.intelligence.secrets import SecretStore
 from orion.services.vault import VaultService
 
@@ -63,6 +65,49 @@ class VaultTests(unittest.TestCase):
             vault = VaultService(config)
             self.assertTrue(vault.migrate_legacy_store())
             self.assertEqual(vault.store.get("openai"), "legacy-key")
+
+    def test_relative_vault_path_is_resolved_under_external_user_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OrionPaths(root / "app", root / "user")
+            values = {"vault.path": "vault/vault.yaml"}
+            config = SimpleNamespace(paths=paths, get=lambda key, default=None: values.get(key, default))
+            vault = VaultService(config)
+            self.assertEqual(vault.path, root / "user" / "vault" / "vault.yaml")
+
+    def test_recovers_discord_bot_token_from_latest_application_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OrionPaths(root / "app", root / "user")
+            values = {
+                "vault.path": "vault/vault.yaml",
+                "providers.secrets_path": "vault/vault.yaml",
+            }
+            config = SimpleNamespace(paths=paths, get=lambda key, default=None: values.get(key, default))
+            old = paths.backups / "application-20260716-120000-old" / "application" / "vault" / "vault.yaml"
+            SecretStore(old).set("discord_bot", "preserved-token")
+
+            vault = VaultService(config)
+            self.assertTrue(vault.migrate_legacy_store())
+            self.assertEqual(vault.store.get("discord_bot"), "preserved-token")
+            self.assertEqual(vault.path, paths.vault)
+
+    def test_existing_discord_bot_token_is_not_overwritten_by_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OrionPaths(root / "app", root / "user")
+            values = {
+                "vault.path": "vault/vault.yaml",
+                "providers.secrets_path": "vault/vault.yaml",
+            }
+            config = SimpleNamespace(paths=paths, get=lambda key, default=None: values.get(key, default))
+            SecretStore(paths.vault).set("discord_bot", "current-token")
+            backup = paths.backups / "application-20260716-120000-old" / "application" / "vault" / "vault.yaml"
+            SecretStore(backup).set("discord_bot", "older-backup-token")
+
+            vault = VaultService(config)
+            self.assertFalse(vault.migrate_legacy_store())
+            self.assertEqual(vault.store.get("discord_bot"), "current-token")
 
 
 if __name__ == "__main__":
