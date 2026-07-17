@@ -1,4 +1,4 @@
-# Unreleased — Agent Registry Phase 1
+# v0.5.5 — Council
 
 - Added strict YAML-defined agents with provider, model, instructions, tools, limits, permissions, and enabled state.
 - Added `agent list`, `agent show`, `agent create`, `agent enable`, `agent disable`, and bounded `agent test` commands.

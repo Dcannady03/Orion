@@ -6,12 +6,11 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.5.4.1 — Sentinel**
+**v0.5.5 — Council**
 
-Sentinel now keeps Orion's live credential vault in persistent user data under
-`~/.orion`, safely outside the application files replaced during an update. Existing
-Discord bot tokens and access settings can be recovered automatically from update
-backups, while newer current values always remain authoritative.
+Council introduces bounded AI Team planning and configurable specialist agents. Agent
+definitions, team tasks, and Orion's credential vault live in persistent user data
+under `~/.orion`, safely outside application files replaced during an update.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -112,9 +111,9 @@ The current codebase contains **219 passing tests**.
 
 ## Roadmap
 
-The active development milestone is **Agent Registry Phase 1**, which turns AI Team
-roles into configurable, external, least-privilege workers. See `docs/ROADMAP.md` for
-the complete plan.
+The next development milestone is approved agent assignment and read-only tool use,
+building on Council's configurable, external, least-privilege workers. See
+`docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish
 

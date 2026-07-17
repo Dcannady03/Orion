@@ -81,17 +81,16 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.5.4.1 — Sentinel: COMPLETE**
+**v0.5.5 — Council: COMPLETE**
 
-This Sentinel maintenance release makes Discord configuration update-safe by moving
-the live vault into external user data and safely recovering missing tokens and access
-settings from update backups without replacing newer current values.
+Council adds bounded Architect-to-Engineer planning plus strict, external YAML agent
+definitions with configurable providers, models, instructions, limits, and permissions.
 
-**Active milestone:** Agent Registry Phase 1 configurable planning workers.
-Cross-platform diagnostics through `orion doctor` remains planned after the AI Team
+**Active milestone:** approved agent assignment and read-only tool dispatch. Cross-
+platform diagnostics through `orion doctor` remains planned after the AI Team
 foundation.
 
-## In Development — Agent Registry Phase 1
+## v0.5.5 — Agent Registry Phase 1 ✅
 
 - [x] Strict YAML definitions under external user data at `~/.orion/agents/`
 - [x] Provider, model, instructions, declared tools, limits, and permissions
@@ -101,7 +100,7 @@ foundation.
 - [x] Phase 1 grants no tools and performs no file, shell, or Git actions
 - [ ] Phase 2: explicitly approved read-only tool dispatch
 
-## In Development — AI Team Phase 1
+## v0.5.5 — AI Team Phase 1 ✅
 
 - [x] Architect role produces a structured implementation plan
 - [x] Engineer role reviews the Architect artifact and consolidates the final plan
