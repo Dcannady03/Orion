@@ -91,14 +91,14 @@ class AIRoutingTests(unittest.TestCase):
     def test_adaptive_routing_demotes_an_unhealthy_provider(self):
         service, _ = self.make_service(profile="coding")
         for _ in range(3):
-            service.performance.record("openai", "gpt", 0.1, False, "offline")
+            service.performance.record("openai", "unknown", 0.1, False, "offline")
         self.assertEqual(service.provider_order("fix this Python bug")[0], "ollama")
 
     def test_adaptive_routing_can_be_disabled(self):
         service, config = self.make_service(profile="coding")
         config.values["ai.routing.adaptive"] = False
         for _ in range(3):
-            service.performance.record("openai", "gpt", 0.1, False, "offline")
+            service.performance.record("openai", "unknown", 0.1, False, "offline")
         self.assertEqual(service.provider_order("fix this Python bug")[0], "openai")
 
     def test_profile_and_enabled_state_persist(self):

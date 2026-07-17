@@ -143,6 +143,9 @@ class CommandRouter:
         elif command_lower == "ai stats":
             self.show_ai_stats()
 
+        elif command_lower == "ai stats clear":
+            self.clear_ai_stats()
+
         elif command_lower == "ai health":
             self.show_ai_health()
 
@@ -476,6 +479,7 @@ class CommandRouter:
         print("    ai profile <name>          Activate a saved behavior profile")
         print("    ai benchmark               Compare local response latency")
         print("    ai stats                   Show measured provider/model performance")
+        print("    ai stats clear             Reset adaptive-routing performance history")
         print("    ai health                  Show routing health by provider")
         print()
         print("  System")
@@ -1280,6 +1284,10 @@ class CommandRouter:
                   f"{float(row['average_duration_seconds']):>8.3f}s")
         print("Telemetry contains aggregate timing and outcomes only; prompts are never stored.")
 
+    def clear_ai_stats(self):
+        self.orion.ai_routing.performance.clear()
+        print("[OK] AI performance history cleared.")
+
     def show_ai_health(self):
         state = self.orion.ai_routing.status()
         print("AI Provider Health")
@@ -1368,7 +1376,7 @@ class CommandRouter:
                 self.orion.ai_routing.performance.record("ollama", model.name, result["seconds"], True)
             except Exception as exc:
                 results.append({"model": model.name, "seconds": None, "response": str(exc)})
-                self.orion.ai_routing.performance.record("ollama", model.name, 0.0, False, str(exc))
+                self.orion.ai_routing.performance.record("ollama", model.name, 0.0, False, exc)
         print("\nQuick Model Benchmark")
         print("-" * 64)
         for result in sorted(results, key=lambda item: item["seconds"] if item["seconds"] is not None else float("inf")):

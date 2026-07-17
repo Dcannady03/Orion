@@ -38,5 +38,40 @@ class AIPerformanceStoreTests(unittest.TestCase):
             self.assertEqual(store.summary()[0]["requests"], 1)
 
 
+class AIPerformanceStoreHardeningTests(unittest.TestCase):
+    def test_health_can_be_scoped_to_current_model(self):
+        store = AIPerformanceStore()
+        for _ in range(3):
+            store.record("openai", "old-model", 0.1, False, ConnectionError("offline: secret prompt"))
+        for _ in range(3):
+            store.record("openai", "new-model", 0.1, True)
+        self.assertEqual(store.provider_health("openai", model="old-model")["state"], "unhealthy")
+        self.assertEqual(store.provider_health("openai", model="new-model")["state"], "healthy")
+
+    def test_recent_history_is_bounded(self):
+        store = AIPerformanceStore()
+        for _ in range(150):
+            store.record("ollama", "qwen", 0.1, True)
+        self.assertEqual(store.summary()[0]["requests"], store.MAX_RECENT_OUTCOMES)
+
+    def test_malformed_valid_json_is_normalized(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "stats.json"
+            path.write_text('{"openai:gpt": {"requests": "broken"}}', encoding="utf-8")
+            store = AIPerformanceStore(path)
+            self.assertEqual(store.provider_health("openai", model="gpt")["state"], "learning")
+            store.record("openai", "gpt", 0.1, True)
+            self.assertEqual(store.summary()[0]["requests"], 1)
+
+    def test_error_details_are_not_persisted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "stats.json"
+            store = AIPerformanceStore(path)
+            store.record("openai", "gpt", 0.1, False, ConnectionError("offline: secret prompt"))
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("ConnectionError", text)
+            self.assertNotIn("secret prompt", text)
+
+
 if __name__ == "__main__":
     unittest.main()

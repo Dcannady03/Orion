@@ -2,11 +2,13 @@
 
 - Added persistent provider/model request, success, failure, and latency telemetry.
 - Added `ai stats` and `ai health` reporting.
+- Added `ai stats clear` for resetting adaptive-routing history.
 - Added health-aware routing that demotes providers only after a minimum sample count.
+- Scoped health decisions to the currently configured model and bounded history to 100 outcomes per provider/model pair.
 - Added benchmark results to the same provider-neutral performance history.
-- Kept telemetry private and compact: prompts and responses are never stored.
+- Sanitized persisted errors to categories so provider details, prompts, and responses are never stored.
 - Stored performance data outside the installation under `~/.orion/cache/`.
-- Added adaptive-routing and persistence coverage; 186 tests pass.
+- Added adaptive-routing, migration, privacy, and bounded-history coverage; 190 tests pass.
 
 # v0.5.3 — Watchtower
 

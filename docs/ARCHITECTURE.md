@@ -49,7 +49,9 @@ future integration from becoming a hard dependency of Orion startup.
 ## Adaptive AI Performance
 
 `AIPerformanceStore` persists aggregate provider/model outcomes and latency beneath
-the external user-data cache. It deliberately stores no prompt or response content.
-`AIRoutingService` retains deterministic profile rules, then uses health history to
-demote degraded providers after the configured minimum sample count. With adaptive
-routing disabled or insufficient evidence, the original deterministic order is used.
+the external user-data cache. Each provider/model pair retains only its 100 most
+recent outcomes, and errors are reduced to safe categories; prompt and response
+content is never stored. `AIRoutingService` retains deterministic profile rules,
+then uses the currently configured model's health history to demote degraded
+providers after the configured minimum sample count. With adaptive routing disabled
+or insufficient evidence, the original deterministic order is used.

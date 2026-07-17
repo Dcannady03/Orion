@@ -114,7 +114,10 @@ class AIRoutingService:
         position = {key: index for index, key in enumerate(ready)}
         health_rank = {"healthy": 0, "learning": 0, "degraded": 1, "unhealthy": 2}
         return tuple(sorted(ready, key=lambda key: (
-            health_rank[self.performance.provider_health(key, minimum_samples=minimum)["state"]],
+            health_rank[self.performance.provider_health(
+                key, model=str(self.config.get(f"providers.{key}.model", "unknown")),
+                minimum_samples=minimum,
+            )["state"]],
             position[key],
         )))
 
@@ -149,7 +152,7 @@ class AIRoutingService:
             except (ConnectionError, TimeoutError, OSError, ValueError) as exc:
                 duration = perf_counter() - provider_started
                 model = str(self.config.get(f"providers.{provider_key}.model", "unknown"))
-                self.performance.record(provider_key, model, duration, False, str(exc))
+                self.performance.record(provider_key, model, duration, False, exc)
                 errors.append(f"{provider_key}: {exc}")
 
         duration = perf_counter() - started
@@ -174,7 +177,11 @@ class AIRoutingService:
             "available_profiles": dict(self.PROFILES),
             "ready_providers": [item.key for item in self.provider_manager.statuses() if item.enabled and item.configured],
             "adaptive": bool(self.config.get("ai.routing.adaptive", True)),
-            "provider_health": [self.performance.provider_health(item.key, minimum_samples=int(self.config.get("ai.routing.minimum_health_samples", 3))) for item in self.provider_manager.statuses() if item.enabled and item.configured],
+            "provider_health": [self.performance.provider_health(
+                item.key,
+                model=str(self.config.get(f"providers.{item.key}.model", "unknown")),
+                minimum_samples=int(self.config.get("ai.routing.minimum_health_samples", 3)),
+            ) for item in self.provider_manager.statuses() if item.enabled and item.configured],
             "last_decision": self.last_decision.as_dict() if self.last_decision else None,
         }
 

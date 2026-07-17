@@ -93,7 +93,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **186 passing tests**.
+The current codebase contains **190 passing tests**.
 
 ## Roadmap
 
@@ -191,13 +191,15 @@ API keys are not stored in `config/default.yaml`. Orion uses `OPENAI_API_KEY` or
 ## Adaptive AI Routing (Sentinel)
 
 Sentinel learns from real provider and model performance without storing prompts or
-responses. Orion records aggregate request counts, success rates, failures, and
-latency in `~/.orion/cache/ai-routing-stats.json`. After a configurable minimum
-sample count, unhealthy providers are moved behind healthier fallbacks while the
-selected routing profile continues to determine task suitability.
+responses. Orion keeps a rolling window of the 100 most recent outcomes for each
+provider/model pair in `~/.orion/cache/ai-routing-stats.json`. After a configurable
+minimum sample count, unhealthy models are moved behind healthier fallbacks while
+the selected routing profile continues to determine task suitability. Persisted
+errors are reduced to safe categories rather than full provider messages.
 
 ```text
 ai stats
+ai stats clear
 ai health
 ai route status
 ai route explain last
