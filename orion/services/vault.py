@@ -36,10 +36,10 @@ class VaultService:
 
     def __init__(self, config_manager, provider_manager=None, store: SecretStore | None = None):
         self.config = config_manager
-        paths = OrionPaths()
-        paths.ensure()
+        self.paths = getattr(config_manager, "paths", None) or OrionPaths()
+        self.paths.ensure()
         configured = self.config.get("vault.path", self.config.get("providers.secrets_path", ""))
-        path = paths.vault if not configured or str(configured).startswith(".orion") else Path(configured)
+        path = self.paths.user_file(configured) if configured else self.paths.vault
         self.store = store or SecretStore(path)
         self.provider_manager = provider_manager
 
@@ -87,17 +87,57 @@ class VaultService:
         return results
 
     def migrate_legacy_store(self) -> bool:
-        legacy = Path(self.config.get("providers.secrets_path", ".orion/secrets.yaml"))
-        if legacy == self.path or not legacy.exists() or self.path.exists():
-            return False
-        legacy_store = SecretStore(legacy)
         migrated = False
-        for key in self.PROVIDERS:
-            value = legacy_store.get_file_value(key)
-            if value:
-                self.store.set(key, value)
-                migrated = True
+        for legacy in self._legacy_candidates():
+            if legacy.resolve() == self.path.resolve() or not legacy.is_file():
+                continue
+            legacy_store = SecretStore(legacy)
+            for key in self.PROVIDERS:
+                if self.store.get_file_value(key):
+                    continue
+                value = legacy_store.get_file_value(key)
+                if value:
+                    self.store.set(key, value)
+                    migrated = True
         return migrated
+
+    def _legacy_candidates(self) -> tuple[Path, ...]:
+        """Find pre-external-vault files, including copies saved by the updater."""
+        configured = (
+            self.config.get("vault.path", "vault/vault.yaml"),
+            self.config.get("providers.secrets_path", ".orion/secrets.yaml"),
+            ".orion/vault.yaml",
+            ".orion/secrets.yaml",
+        )
+        relative_paths: list[Path] = []
+        candidates: list[Path] = []
+        for value in configured:
+            path = Path(str(value)).expanduser()
+            if path.is_absolute():
+                candidates.append(path)
+            else:
+                relative_paths.append(path)
+                candidates.append(self.paths.install_root / path)
+
+        backups = sorted(
+            (
+                path / "application"
+                for path in self.paths.backups.glob("application-*")
+                if (path / "application").is_dir()
+            ),
+            reverse=True,
+        )
+        for application in backups:
+            candidates.extend(application / path for path in relative_paths)
+
+        unique: list[Path] = []
+        seen: set[Path] = set()
+        for candidate in candidates:
+            resolved = candidate.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                unique.append(candidate)
+        return tuple(unique)
 
     @classmethod
     def _validate(cls, key: str) -> str:

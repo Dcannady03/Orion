@@ -7,6 +7,7 @@ from unittest.mock import patch
 import yaml
 
 from orion.core.config import ConfigManager
+from orion.core.paths import OrionPaths
 
 
 class LocalConfigurationTests(unittest.TestCase):
@@ -79,6 +80,7 @@ class LocalConfigurationTests(unittest.TestCase):
             })
 
             manager = ConfigManager(defaults, local)
+            manager.paths = OrionPaths(install, root / "user")
             manager.load()
 
             self.assertEqual(manager.get("connect.discord_bot.owner_user_ids"), [999])
@@ -86,6 +88,77 @@ class LocalConfigurationTests(unittest.TestCase):
             self.assertTrue(local.exists())
             self.assertNotIn("orion", yaml.safe_load(local.read_text(encoding="utf-8")))
             self.assertEqual(manager.recovered_from, new_backup)
+
+    def test_recovers_discord_settings_from_package_update_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            install = root / "Orion"
+            user = root / "user"
+            defaults = install / "config" / "default.yaml"
+            local = user / "config.yaml"
+            self.write_yaml(defaults, {
+                "connect": {"discord_bot": {
+                    "enabled": False,
+                    "owner_user_ids": [],
+                    "allowed_channel_ids": [],
+                }},
+            })
+            backup = user / "backups" / "application-20260716-100000-old" / "application" / "config" / "default.yaml"
+            self.write_yaml(backup, {
+                "connect": {"discord_bot": {
+                    "enabled": True,
+                    "owner_user_ids": [999],
+                    "allowed_channel_ids": [777],
+                }},
+            })
+
+            manager = ConfigManager(defaults, local)
+            manager.paths = OrionPaths(install, user)
+            manager.load()
+
+            self.assertTrue(manager.get("connect.discord_bot.enabled"))
+            self.assertEqual(manager.get("connect.discord_bot.owner_user_ids"), [999])
+            self.assertEqual(manager.get("connect.discord_bot.allowed_channel_ids"), [777])
+            self.assertEqual(manager.recovered_from, backup)
+
+    def test_existing_discord_settings_are_not_overwritten_by_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            install = root / "Orion"
+            user = root / "user"
+            defaults = install / "config" / "default.yaml"
+            local = user / "config.yaml"
+            self.write_yaml(defaults, {
+                "connect": {"discord_bot": {
+                    "enabled": False,
+                    "owner_user_ids": [],
+                    "allowed_channel_ids": [],
+                }},
+            })
+            self.write_yaml(local, {
+                "connect": {"discord_bot": {
+                    "enabled": True,
+                    "owner_user_ids": [123],
+                    "allowed_channel_ids": [456],
+                }},
+            })
+            backup = user / "backups" / "application-20260716-100000-old" / "application" / "config" / "default.yaml"
+            self.write_yaml(backup, {
+                "connect": {"discord_bot": {
+                    "enabled": False,
+                    "owner_user_ids": [999],
+                    "allowed_channel_ids": [777],
+                }},
+            })
+
+            manager = ConfigManager(defaults, local)
+            manager.paths = OrionPaths(install, user)
+            manager.load()
+
+            self.assertTrue(manager.get("connect.discord_bot.enabled"))
+            self.assertEqual(manager.get("connect.discord_bot.owner_user_ids"), [123])
+            self.assertEqual(manager.get("connect.discord_bot.allowed_channel_ids"), [456])
+            self.assertIsNone(manager.recovered_from)
 
     def test_explicit_path_keeps_single_file_compatibility(self):
         with tempfile.TemporaryDirectory() as tmp:
