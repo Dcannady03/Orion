@@ -134,5 +134,7 @@ host locations.
 Detection, CLI capability, and implementation-adapter support are independent fields.
 Only Codex currently has an implementation adapter. `CommandRouter` uses the service
 for `execution status` and friendly AI Team failure output. `CodexBridge` independently
-requires the same capability immediately before creating its exclusive approval claim,
-so UI bypass or a missing CLI cannot consume approval state.
+requires the same capability immediately before creating its exclusive approval claim.
+Both paths use the shared platform-aware Codex resolver, and the bridge launches its
+returned executable path directly, so UI bypass, Windows command-extension differences,
+or a missing CLI cannot create a discovery/launch mismatch.

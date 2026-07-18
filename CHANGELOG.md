@@ -10,7 +10,8 @@
 - Distinguished desktop installation, PATH aliases, runnable CLIs, and Orion implementation-adapter support.
 - Changed unavailable-engine failures to show detected capabilities instead of exposing a missing Codex dependency.
 - Moved engine preflight before approval claiming so unavailable CLIs do not consume immutable approvals.
-- Added execution discovery, rendering, preflight, and approval-preservation coverage; 252 tests pass.
+- Added one shared platform-aware Codex resolver and changed the bridge to launch the exact discovered executable path.
+- Added Windows `.cmd`/`.exe`, non-Windows, discovery-to-launch, rendering, preflight, and approval-preservation coverage; 255 tests pass.
 
 # v0.5.6 — Ledger
 

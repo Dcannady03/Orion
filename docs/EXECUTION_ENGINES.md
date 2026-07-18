@@ -47,7 +47,9 @@ CLI installation.
 
 Orion checks engines without modifying the host:
 
-- **Codex CLI:** the `codex` command must exist and complete `--version` successfully.
+- **Codex CLI:** on Windows, Orion resolves `codex.cmd`, `codex.exe`, then `codex`; on
+  other platforms it resolves `codex`. The resolved executable must complete
+  `--version` successfully.
 - **ChatGPT Desktop:** detected from Orion's application catalog, common Windows or
   macOS installation locations, and bundled OpenAI Windows desktop package aliases.
   It is reported with `CLI Support: No`.
@@ -83,6 +85,10 @@ their own sandbox, approval, output-schema, and persistence contracts.
 plan approval. When Codex is unavailable, Orion reports the detected engines and
 points to `execution status`. No local process starts, no run or claim artifact is
 created, and the approval remains valid after the CLI is installed.
+
+Discovery and implementation use the same resolver. Codex Bridge passes the exact
+resolved path directly to the no-shell subprocess call; it never discards that path
+and falls back to a bare `codex` command.
 
 ```text
 No execution engine is currently available.

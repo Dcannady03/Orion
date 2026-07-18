@@ -328,6 +328,10 @@ Orion detects Codex CLI, ChatGPT Desktop, Claude Code, Gemini CLI, and its curre
 Python runtime. A command must complete `--version` successfully before it is reported
 as installed; merely finding a blocked Windows App alias is not enough.
 
+On Windows, one shared resolver checks `codex.cmd`, `codex.exe`, and then `codex`.
+The exact path that passes discovery is also the path Codex Bridge launches, avoiding
+differences between status detection and subprocess command lookup.
+
 ChatGPT Desktop is reported independently with `CLI Support: No`. Claude Code and
 Gemini CLI detection prepares the capability model for future adapters, but Codex
 Bridge Phase 1 still supports only a runnable Codex CLI. If no supported engine is

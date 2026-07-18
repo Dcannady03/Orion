@@ -11,6 +11,7 @@ from orion.services.execution_engines import (
     ENGINE_STATUS_READY,
     ExecutionEngineService,
     ExecutionEngineUnavailable,
+    resolve_codex_executable,
 )
 
 
@@ -40,6 +41,39 @@ class ExecutionEngineServiceTests(unittest.TestCase):
             platform_name="Windows",
             python_executable=str(python),
         )
+
+    def test_windows_codex_resolver_uses_cmd_exe_then_extensionless_order(self):
+        cases = (
+            ({"codex.cmd": "C:/tools/codex.cmd"}, ["codex.cmd"], "codex.cmd"),
+            (
+                {"codex.exe": "C:/tools/codex.exe"},
+                ["codex.cmd", "codex.exe"],
+                "codex.exe",
+            ),
+            (
+                {"codex": "C:/tools/codex"},
+                ["codex.cmd", "codex.exe", "codex"],
+                "codex",
+            ),
+        )
+        for commands, expected_calls, expected_name in cases:
+            with self.subTest(expected_name=expected_name):
+                which = Mock(side_effect=lambda candidate: commands.get(candidate))
+                resolved = resolve_codex_executable(
+                    which=which,
+                    platform_name="Windows",
+                )
+                self.assertEqual(resolved, Path(commands[expected_name]))
+                self.assertEqual(
+                    [call.args[0] for call in which.call_args_list],
+                    expected_calls,
+                )
+
+    def test_non_windows_codex_resolver_checks_only_extensionless_command(self):
+        which = Mock(return_value="/usr/local/bin/codex")
+        resolved = resolve_codex_executable(which=which, platform_name="Linux")
+        self.assertEqual(resolved, Path("/usr/local/bin/codex"))
+        which.assert_called_once_with("codex")
 
     def test_status_distinguishes_runnable_clis_desktop_and_python(self):
         with tempfile.TemporaryDirectory() as tmp:

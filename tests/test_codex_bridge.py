@@ -19,7 +19,10 @@ from orion.services.codex_bridge import (
     LocalCodexRunner,
     PlanSnapshot,
 )
-from orion.services.execution_engines import ExecutionEngineUnavailable
+from orion.services.execution_engines import (
+    ExecutionEngineService,
+    ExecutionEngineUnavailable,
+)
 from orion.services.team import (
     TEAM_STATUS_AWAITING_APPROVAL,
     TEAM_STATUS_FAILED,
@@ -122,6 +125,11 @@ class CodexBridgeTests(unittest.TestCase):
         team_store.save(task)
         approvals = iter([f"approval-test-{index:03d}" for index in range(1, 20)])
         runs = iter([f"run-test-{index:03d}" for index in range(1, 20)])
+        if execution_engines is None:
+            execution_engines = Mock()
+            execution_engines.require_codex.return_value = SimpleNamespace(
+                executable=str((base / "tools" / "codex.cmd").resolve())
+            )
         bridge = CodexBridge(
             FlatConfig(config),
             team_store,
@@ -209,7 +217,8 @@ class CodexBridgeTests(unittest.TestCase):
             command = call["command"]
             self.assertEqual(call["cwd"], workspace.resolve())
             self.assertEqual(call["timeout"], 1800)
-            self.assertEqual(command[:4], ("codex", "exec", "--json", "--ephemeral"))
+            self.assertEqual(Path(command[0]).name.lower(), "codex.cmd")
+            self.assertEqual(command[1:4], ("exec", "--json", "--ephemeral"))
             self.assertIn("workspace-write", command)
             self.assertIn('web_search="disabled"', command)
             self.assertIn("mcp_servers={}", command)
@@ -245,6 +254,43 @@ class CodexBridgeTests(unittest.TestCase):
                     "2026-07-18T13:01:00+00:00",
                 )
             self.assertEqual(bridge.run(run.run_id), run)
+
+    def test_status_and_bridge_share_and_launch_the_resolved_windows_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            python = root / "python.exe"
+            python.write_text("runtime", encoding="utf-8")
+            commands = {
+                "codex.cmd": "C:/tools/codex.cmd",
+                "codex": "C:/wrong/codex.exe",
+            }
+            engines = ExecutionEngineService(
+                FlatConfig(),
+                which=lambda candidate: commands.get(candidate),
+                probe=lambda executable: executable == str(Path("C:/tools/codex.cmd")),
+                environment={},
+                platform_name="Windows",
+                python_executable=str(python),
+            )
+            runner = FakeRunner()
+            bridge, _, _ = self.build(
+                root / "bridge",
+                runner=runner,
+                execution_engines=engines,
+            )
+            approval = bridge.approve("team-test-001")
+
+            status_executable = next(
+                engine.executable
+                for engine in engines.status()
+                if engine.engine_id == "codex"
+            )
+            run = bridge.execute("team-test-001", approval.approval_id)
+
+            self.assertEqual(status_executable, str(Path("C:/tools/codex.cmd")))
+            self.assertEqual(runner.calls[0]["command"][0], status_executable)
+            self.assertEqual(run.command[0], status_executable)
+            self.assertNotEqual(runner.calls[0]["command"][0], "codex")
 
     def test_unapproved_tampered_or_workspace_mismatched_plan_never_runs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -311,6 +357,9 @@ class CodexBridgeTests(unittest.TestCase):
             self.assertEqual(runner.calls, [])
 
             engines.require_codex.side_effect = None
+            engines.require_codex.return_value = SimpleNamespace(
+                executable=str((Path(tmp) / "tools" / "codex.cmd").resolve())
+            )
             run = bridge.execute("team-test-001", approval.approval_id)
             self.assertEqual(run.status, RUN_STATUS_AWAITING_REVIEW)
 

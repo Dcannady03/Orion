@@ -47,6 +47,10 @@ Execution Engine service. If no compatible engine is available, Orion displays t
 host capability report and leaves the approval unconsumed. See
 `EXECUTION_ENGINES.md` for detection rules and status output.
 
+The Execution Engine service returns the exact resolved CLI path. Bridge execution
+uses that same path as its first subprocess argument, including `codex.cmd` on
+Windows, rather than repeating command lookup with a bare `codex` name.
+
 ## Immutable approval contract
 
 Orion builds a canonical snapshot from the persisted AI Team task's:

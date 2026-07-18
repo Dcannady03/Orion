@@ -22,7 +22,10 @@ from orion.services.team import (
     TeamTask,
     TeamTaskStore,
 )
-from orion.services.execution_engines import ExecutionEngineUnavailable
+from orion.services.execution_engines import (
+    ExecutionEngineUnavailable,
+    resolve_codex_executable,
+)
 
 
 BRIDGE_SCHEMA_VERSION = 1
@@ -460,7 +463,7 @@ class CodexRun:
             maximum_length=4_000, allow_empty=False,
         )
         executable_name = Path(command[0]).name.lower()
-        if executable_name not in {"codex", "codex.exe"}:
+        if executable_name not in {"codex", "codex.cmd", "codex.exe"}:
             raise ValueError("Codex run command must invoke the local Codex CLI.")
         artifacts = _bounded_strings(
             value["artifacts"], "Codex run artifacts", maximum_items=4,
@@ -834,8 +837,7 @@ class CodexBridge:
                 raise PermissionError("Persisted AI Team plan changed after approval; approve this version again.")
             if self.store.approval_used(plan.team_task_id, approval.approval_id):
                 raise PermissionError("Plan approval has already been consumed by a Codex run.")
-            if self.execution_engines is not None:
-                self.execution_engines.require_codex()
+            codex_executable = self._resolve_codex_executable()
 
             timeout_seconds = self._timeout_seconds()
             max_output_bytes = self._max_output_bytes()
@@ -854,7 +856,7 @@ class CodexBridge:
                 ) from exc
             run_directory = self.store.run_directory(run_id)
             schema_path = run_directory / "result-schema.json"
-            command = self._command(schema_path)
+            command = self._command(codex_executable, schema_path)
             run = CodexRun.from_value({
                 "schema_version": BRIDGE_SCHEMA_VERSION,
                 "run_id": run_id,
@@ -992,10 +994,31 @@ class CodexBridge:
         self.store.save_run(failed)
         return failed
 
-    def _command(self, schema_path: Path) -> tuple[str, ...]:
+    def _resolve_codex_executable(self) -> Path:
+        if self.execution_engines is not None:
+            engine = self.execution_engines.require_codex()
+            value = engine.executable
+            if not isinstance(value, (str, os.PathLike)) or not str(value).strip():
+                raise ExecutionEngineUnavailable(
+                    "No execution engine is currently available."
+                )
+            executable = Path(value).expanduser()
+        else:
+            executable = resolve_codex_executable()
+            if executable is None:
+                raise ExecutionEngineUnavailable(
+                    "No execution engine is currently available."
+                )
+        if executable.name.lower() not in {"codex", "codex.cmd", "codex.exe"}:
+            raise ExecutionEngineUnavailable(
+                "No execution engine is currently available."
+            )
+        return executable
+
+    def _command(self, codex_executable: Path, schema_path: Path) -> tuple[str, ...]:
         workspace_key = json.dumps(str(self._workspace_root))
         return (
-            "codex", "exec", "--json", "--ephemeral",
+            str(codex_executable), "exec", "--json", "--ephemeral",
             "--sandbox", "workspace-write",
             "--ask-for-approval", "never",
             "--ignore-user-config", "--strict-config",

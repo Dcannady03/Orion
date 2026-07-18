@@ -17,6 +17,30 @@ ENGINE_STATUS_READY = "ready"
 ENGINE_STATUS_UNAVAILABLE = "unavailable"
 
 
+def resolve_codex_executable(
+    *,
+    which: Callable[[str], str | None] | None = None,
+    platform_name: str | None = None,
+) -> Path | None:
+    """Resolve the exact local Codex CLI entry point in platform-safe order."""
+
+    resolver = which or shutil.which
+    platform_value = (platform_name or os.name).strip().lower()
+    candidates = (
+        ("codex.cmd", "codex.exe", "codex")
+        if platform_value in {"nt", "windows"}
+        else ("codex",)
+    )
+    for candidate in candidates:
+        try:
+            resolved = resolver(candidate)
+        except (OSError, TypeError, ValueError):
+            continue
+        if resolved:
+            return Path(resolved).expanduser()
+    return None
+
+
 @dataclass(frozen=True)
 class ExecutionEngine:
     engine_id: str
@@ -68,9 +92,7 @@ class ExecutionEngineService:
 
     def status(self) -> tuple[ExecutionEngine, ...]:
         engines = {
-            "codex": self._cli_engine(
-                "codex", "Codex CLI", ("codex",), implementation_supported=True
-            ),
+            "codex": self._codex_engine(),
             "chatgpt_desktop": self._desktop_engine(),
             "claude_code": self._cli_engine(
                 "claude_code", "Claude Code", ("claude",), implementation_supported=False
@@ -85,7 +107,7 @@ class ExecutionEngineService:
     def engine(self, engine_id: str) -> ExecutionEngine:
         normalized = str(engine_id).strip().lower()
         if normalized == "codex":
-            return self._cli_engine("codex", "Codex CLI", ("codex",), implementation_supported=True)
+            return self._codex_engine()
         if normalized == "chatgpt_desktop":
             return self._desktop_engine()
         if normalized == "claude_code":
@@ -112,6 +134,22 @@ class ExecutionEngineService:
             raise ExecutionEngineUnavailable("No execution engine is currently available.")
         return engine
 
+    def resolve_codex_executable(self) -> Path | None:
+        return resolve_codex_executable(
+            which=self._which,
+            platform_name=self._platform_name,
+        )
+
+    def _codex_engine(self) -> ExecutionEngine:
+        resolved = self.resolve_codex_executable()
+        return self._cli_engine(
+            "codex",
+            "Codex CLI",
+            (),
+            implementation_supported=True,
+            resolved_executable=resolved,
+        )
+
     def _cli_engine(
         self,
         engine_id: str,
@@ -119,16 +157,17 @@ class ExecutionEngineService:
         commands: tuple[str, ...],
         *,
         implementation_supported: bool,
+        resolved_executable: str | Path | None = None,
     ) -> ExecutionEngine:
-        executable = ""
-        try:
-            for command in commands:
+        executable = str(resolved_executable) if resolved_executable else ""
+        for command in commands:
+            try:
                 candidate = self._which(command)
-                if candidate:
-                    executable = str(Path(candidate).expanduser())
-                    break
-        except (OSError, TypeError, ValueError):
-            executable = ""
+            except (OSError, TypeError, ValueError):
+                continue
+            if candidate:
+                executable = str(Path(candidate).expanduser())
+                break
         if not executable:
             return ExecutionEngine(
                 engine_id, name, ENGINE_STATUS_NOT_INSTALLED, False, True,
