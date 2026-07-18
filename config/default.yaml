@@ -1,7 +1,7 @@
 orion:
   name: Orion
-  version: 0.5.5
-  codename: Council
+  version: 0.5.6
+  codename: Ledger
 providers:
   default: ollama
   secrets_path: vault/vault.yaml

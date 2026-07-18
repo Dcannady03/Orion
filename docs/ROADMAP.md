@@ -81,15 +81,15 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.5.5 — Council: COMPLETE**
+**v0.5.6 — Ledger: COMPLETE**
 
-Council adds bounded Architect-to-Engineer planning plus strict, external YAML agent
-definitions with configurable providers, models, instructions, limits, and permissions.
+Ledger promotes project work into strict tasks with explicit approval, dependencies,
+artifacts, workspace isolation, and append-only progress events.
 
-**Active milestone:** Task Manager Phase 1. Cross-platform diagnostics through
+**Active milestone:** Workflow Engine Phase 1. Cross-platform diagnostics through
 `orion doctor` remains planned after the AI Team orchestration foundation.
 
-## In Development — v0.5.6 Task Manager Phase 1
+## v0.5.6 — Task Manager Phase 1 ✅
 
 - [x] Strict first-class tasks under workspace-local `.orion/tasks.json`
 - [x] Explicit proposed, ready, terminal, and future workflow states
@@ -99,7 +99,14 @@ definitions with configurable providers, models, instructions, limits, and permi
 - [x] Append-only task events support later workflow and streaming consumers
 - [x] CLI exposes create, list, show, approve, cancel, events, and link-plan commands
 - [x] Workspace rebinding keeps project task stores isolated
-- [ ] Next: Workflow Engine for approved Architect → Engineer → Reviewer transitions
+
+## Next — Workflow Engine Phase 1
+
+- [ ] Start only from an explicitly approved Task Manager task
+- [ ] Move through bounded Architect → Engineer → Reviewer stages
+- [ ] Record every transition in the existing task event stream
+- [ ] Pause for user approval before any implementation capability
+- [ ] Keep Codex, tools, file writes, Git, and pull requests disabled
 
 ## v0.5.5 — Agent Registry Phase 1 ✅
 

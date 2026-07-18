@@ -1,4 +1,4 @@
-# Unreleased — Task Manager Phase 1
+# v0.5.6 — Ledger
 
 - Promoted project-local `.orion/tasks.json` into a strict first-class task store.
 - Added proposed, ready, progress, blocked, completed, failed, and cancelled task states with explicit approval validation.

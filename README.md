@@ -6,11 +6,11 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.5.5 — Council**
+**v0.5.6 — Ledger**
 
-Council introduces bounded AI Team planning and configurable specialist agents. Agent
-definitions, team tasks, and Orion's credential vault live in persistent user data
-under `~/.orion`, safely outside application files replaced during an update.
+Ledger makes project work a first-class Orion object with strict task state, explicit
+approval and cancellation, dependency validation, AI Team plan artifacts, and an
+append-only progress stream inside each workspace's `.orion/` directory.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -118,9 +118,9 @@ The current codebase contains **229 passing tests**.
 
 ## Roadmap
 
-The active development milestone is **Task Manager Phase 1**, which makes project work
-durable, explicit, and observable before Orion gains an automated workflow engine.
-See `docs/ROADMAP.md` for the complete plan.
+The next development milestone is the **Workflow Engine**, which will move explicitly
+approved tasks through bounded Architect, Engineer, and Reviewer stages. See
+`docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish
 
