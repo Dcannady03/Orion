@@ -111,6 +111,8 @@ foundation.
 - [x] Strict implementation and test results persist under `~/.orion/codex/`
 - [x] Successful execution stops at `Awaiting Review`
 - [x] CLI exposes `team approve`, `team implement`, and `team run`
+- [x] `execution status` distinguishes desktop apps, runnable CLIs, and Python readiness
+- [x] Missing engines are explained before an immutable approval is consumed
 
 ## Next — Review Gate and Workflow Engine Phase 1
 

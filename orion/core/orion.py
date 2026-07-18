@@ -43,6 +43,7 @@ from orion.services.request_router import RequestRouterService
 from orion.services.project_context import ProjectContext
 from orion.services.task_manager import TaskManager
 from orion.services.codex_bridge import CodexBridge, CodexBridgeStore
+from orion.services.execution_engines import ExecutionEngineService
 from orion.services.companion import CompanionSettings, ActionTrustStore
 from orion.services.discovery import (
     ApplicationCatalog, ApplicationDiscoveryService, ApplicationMatcher, ApplicationLauncherService,
@@ -303,6 +304,10 @@ class Orion:
                 self.agents,
             ),
         )
+        self.execution_engines = self.services.register(
+            "execution_engines",
+            ExecutionEngineService(self.config_manager, self.application_catalog),
+        )
         self.codex_bridge = self.services.register(
             "codex_bridge",
             CodexBridge(
@@ -310,6 +315,7 @@ class Orion:
                 self.team.store,
                 CodexBridgeStore(self.paths.codex_bridge),
                 self.workspace_manager.root,
+                execution_engines=self.execution_engines,
             ),
         )
 

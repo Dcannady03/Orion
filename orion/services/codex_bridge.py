@@ -22,6 +22,7 @@ from orion.services.team import (
     TeamTask,
     TeamTaskStore,
 )
+from orion.services.execution_engines import ExecutionEngineUnavailable
 
 
 BRIDGE_SCHEMA_VERSION = 1
@@ -774,6 +775,7 @@ class CodexBridge:
         workspace_root: str | Path,
         *,
         runner: LocalCodexRunner | None = None,
+        execution_engines=None,
         now: Callable[[], datetime] | None = None,
         approval_id_factory: Callable[[], str] | None = None,
         run_id_factory: Callable[[], str] | None = None,
@@ -782,6 +784,7 @@ class CodexBridge:
         self.team_store = team_store
         self.store = store
         self.runner = runner or LocalCodexRunner()
+        self.execution_engines = execution_engines
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._approval_id_factory = approval_id_factory or self._new_approval_id
         self._run_id_factory = run_id_factory or self._new_run_id
@@ -831,6 +834,8 @@ class CodexBridge:
                 raise PermissionError("Persisted AI Team plan changed after approval; approve this version again.")
             if self.store.approval_used(plan.team_task_id, approval.approval_id):
                 raise PermissionError("Plan approval has already been consumed by a Codex run.")
+            if self.execution_engines is not None:
+                self.execution_engines.require_codex()
 
             timeout_seconds = self._timeout_seconds()
             max_output_bytes = self._max_output_bytes()

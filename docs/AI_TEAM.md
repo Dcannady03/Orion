@@ -33,6 +33,7 @@ team status <task-id>
 team approve <task-id>
 team implement <task-id> <approval-id>
 team run <run-id>
+execution status
 task link-plan <project-task-id> <team-task-id>
 ```
 
@@ -69,6 +70,10 @@ called by `team plan`. Phase 1 accepts Orion's existing runtime providers (`olla
 `openai`, and `gemini`). Engineer specialization comes from its dedicated role prompt;
 direct Codex execution is handled only by the separate approval-gated bridge described
 in `CODEX_BRIDGE.md`.
+
+When no supported CLI is runnable, `team implement` shows the Execution Engine report
+instead of a low-level “Codex not found” error. That preflight occurs before the
+single-use approval is claimed, so the same approval remains valid after installation.
 
 ## Structured role output
 

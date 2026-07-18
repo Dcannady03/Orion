@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from orion.core.router import CommandRouter
 from orion.services.codex_bridge import (
@@ -19,6 +19,7 @@ from orion.services.codex_bridge import (
     LocalCodexRunner,
     PlanSnapshot,
 )
+from orion.services.execution_engines import ExecutionEngineUnavailable
 from orion.services.team import (
     TEAM_STATUS_AWAITING_APPROVAL,
     TEAM_STATUS_FAILED,
@@ -84,7 +85,15 @@ def valid_jsonl(result=None):
 
 
 class CodexBridgeTests(unittest.TestCase):
-    def build(self, root, *, runner=None, config=None, task_status=TEAM_STATUS_AWAITING_APPROVAL):
+    def build(
+        self,
+        root,
+        *,
+        runner=None,
+        config=None,
+        task_status=TEAM_STATUS_AWAITING_APPROVAL,
+        execution_engines=None,
+    ):
         base = Path(root)
         workspace = base / "workspace"
         workspace.mkdir(parents=True)
@@ -119,6 +128,7 @@ class CodexBridgeTests(unittest.TestCase):
             CodexBridgeStore(base / "user" / "codex"),
             workspace,
             runner=runner or FakeRunner(),
+            execution_engines=execution_engines,
             now=lambda: datetime(2026, 7, 18, 13, 0, tzinfo=timezone.utc),
             approval_id_factory=lambda: next(approvals),
             run_id_factory=lambda: next(runs),
@@ -276,6 +286,33 @@ class CodexBridgeTests(unittest.TestCase):
             self.assertNotEqual(first.approval_id, second.approval_id)
             bridge.execute("team-test-001", second.approval_id)
             self.assertEqual(len(runner.calls), 2)
+
+    def test_unavailable_engine_does_not_consume_plan_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner()
+            engines = Mock()
+            engines.require_codex.side_effect = ExecutionEngineUnavailable(
+                "No execution engine is currently available."
+            )
+            bridge, _, _ = self.build(
+                tmp,
+                runner=runner,
+                execution_engines=engines,
+            )
+            approval = bridge.approve("team-test-001")
+
+            with self.assertRaises(ExecutionEngineUnavailable):
+                bridge.execute("team-test-001", approval.approval_id)
+            self.assertFalse(
+                bridge.store.approval_claim_path(
+                    approval.team_task_id, approval.approval_id
+                ).exists()
+            )
+            self.assertEqual(runner.calls, [])
+
+            engines.require_codex.side_effect = None
+            run = bridge.execute("team-test-001", approval.approval_id)
+            self.assertEqual(run.status, RUN_STATUS_AWAITING_REVIEW)
 
     def test_invalid_structured_results_fail_closed_and_preserve_sanitized_run(self):
         invalid_results = {

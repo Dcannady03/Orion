@@ -65,6 +65,7 @@ team status <task-id>        Reopen a persisted AI Team plan
 team approve <task-id>       Approve this plan hash for the active workspace
 team implement <id> <approval-id> Run one bounded local Codex execution
 team run <run-id>            Show structured results awaiting review
+execution status             Detect usable local execution engines
 workspace                    Inspect the active workspace
 files                        List workspace files
 code tree                    Inspect the source tree
@@ -117,7 +118,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **244 passing tests**.
+The current codebase contains **252 passing tests**.
 
 ## Roadmap
 
@@ -319,6 +320,19 @@ implementation and test results, persists the approval, event stream, schema, an
 result beneath `~/.orion/codex/`, then stops at `Awaiting Review`. It never creates a
 branch, commit, push, merge, tag, or pull request. See `docs/CODEX_BRIDGE.md` for the
 complete security and persistence contract.
+
+## Execution Engine Discovery
+
+`execution status` separates installed desktop applications from runnable CLI engines.
+Orion detects Codex CLI, ChatGPT Desktop, Claude Code, Gemini CLI, and its current
+Python runtime. A command must complete `--version` successfully before it is reported
+as installed; merely finding a blocked Windows App alias is not enough.
+
+ChatGPT Desktop is reported independently with `CLI Support: No`. Claude Code and
+Gemini CLI detection prepares the capability model for future adapters, but Codex
+Bridge Phase 1 still supports only a runnable Codex CLI. If no supported engine is
+available, `team implement` prints the detected capabilities and preserves the
+single-use approval for a later retry. See `docs/EXECUTION_ENGINES.md` for details.
 
 ## Orion Vault
 

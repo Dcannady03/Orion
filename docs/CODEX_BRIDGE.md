@@ -36,10 +36,16 @@ is the explicit user decision; planning never executes automatically.
 team approve <team-task-id>
 team implement <team-task-id> <approval-id>
 team run <run-id>
+execution status
 ```
 
 Approval prints an ID, plan SHA-256, and absolute workspace. Execution requires the
 same AI Team task ID and approval ID. There is no implicit “latest approval.”
+
+Before claiming that approval, Orion requires a runnable Codex CLI through the
+Execution Engine service. If no compatible engine is available, Orion displays the
+host capability report and leaves the approval unconsumed. See
+`EXECUTION_ENGINES.md` for detection rules and status output.
 
 ## Immutable approval contract
 

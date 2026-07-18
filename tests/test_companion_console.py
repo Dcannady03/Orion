@@ -32,6 +32,9 @@ class CompanionConsoleTests(unittest.TestCase):
         self.assertIn("team approve", team_values)
         self.assertIn("team implement", team_values)
         self.assertIn("team run", team_values)
+        execution_document = Mock(text_before_cursor="execution ")
+        execution_values = [item.text for item in completer.get_completions(execution_document, None)]
+        self.assertIn("execution status", execution_values)
         self.assertIn("team roles", team_values)
         agent_document = SimpleNamespace(text_before_cursor="agent ")
         agent_values = [item.text for item in completer.get_completions(agent_document, None)]

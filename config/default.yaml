@@ -97,6 +97,8 @@ codex_bridge:
   enabled: true
   timeout_seconds: 1800
   max_output_bytes: 5000000
+execution:
+  default_engine: codex
 vault:
   path: vault/vault.yaml
 connect:

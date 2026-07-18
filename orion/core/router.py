@@ -12,6 +12,7 @@ from getpass import getpass
 from orion.agents import AgentDefinition, AgentPermissions
 from orion.services.team import TeamPlanningError
 from orion.services.codex_bridge import CodexBridgeError
+from orion.services.execution_engines import ExecutionEngineUnavailable
 
 
 class CommandRouter:
@@ -239,6 +240,9 @@ class CommandRouter:
 
         elif command_lower.startswith("team run "):
             self.team_run_status(raw_command[len("team run "):].strip())
+
+        elif command_lower in {"execution", "execution status"}:
+            self.show_execution_status()
 
         elif command_lower == "config":
             self.show_config()
@@ -611,6 +615,7 @@ class CommandRouter:
         print("    team approve <task-id>     Bind approval to this plan and workspace")
         print("    team implement <id> <approval> Run one bounded local Codex execution")
         print("    team run <run-id>          Show structured results awaiting review")
+        print("    execution status           Detect local execution engines")
         print()
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
@@ -1727,16 +1732,59 @@ class CommandRouter:
             print("Usage: team implement <team-task-id> <approval-id>")
             return
         team_task_id, approval_id = parts
+        engines = getattr(self.orion, "execution_engines", None)
+        if engines is not None:
+            try:
+                engines.require_codex()
+            except ExecutionEngineUnavailable:
+                self._render_no_execution_engine(engines)
+                return
         print("Starting one approval-bound local Codex execution...")
         try:
             run = self.orion.codex_bridge.execute(team_task_id, approval_id)
+        except ExecutionEngineUnavailable:
+            self._render_no_execution_engine(engines)
+            return
         except (FileNotFoundError, OSError, PermissionError, ValueError, CodexBridgeError) as exc:
+            if isinstance(exc, CodexBridgeError) and exc.category == "codex_cli_unavailable" and engines is not None:
+                self._render_no_execution_engine(engines)
+                if exc.run_id:
+                    print(f"Saved run: {exc.run_id}")
+                return
             print(f"Codex Bridge execution failed: {exc}")
             run_id = getattr(exc, "run_id", "")
             if run_id:
                 print(f"Saved run: {run_id}")
             return
         self._render_codex_run(run, self.orion.codex_bridge.store.run_directory(run.run_id))
+
+    def show_execution_status(self):
+        engines = self.orion.execution_engines.status()
+        print("Execution Engines")
+        print("=" * 50)
+        for engine in engines:
+            print(f"\n{engine.name}")
+            print("Status:")
+            print(engine.status.replace("_", " ").title())
+            if engine.engine_id == "chatgpt_desktop":
+                print("CLI Support:")
+                print("Yes" if engine.cli_support else "No")
+
+    @staticmethod
+    def _render_no_execution_engine(engines):
+        detected = {
+            engine.engine_id: engine
+            for engine in engines.status()
+        }
+        print("No execution engine is currently available.")
+        print("\nDetected:\n")
+        for engine_id in ("chatgpt_desktop", "codex", "claude_code", "gemini_cli"):
+            engine = detected[engine_id]
+            marker = "✓" if engine.installed else "✗"
+            print(f"{marker} {engine.name}")
+        print("\nUse:\n")
+        print("  execution status")
+        print("\nto configure an execution engine.")
 
     def team_run_status(self, run_id: str):
         try:

@@ -122,3 +122,17 @@ Valid JSONL and structured final output become immutable external artifacts and 
 the run to `Awaiting Review`. Invalid output or process failure records only a
 sanitized category. There is no reviewer, repair loop, Task Manager transition, Git
 write, or release action in this phase.
+
+## Execution Engine Discovery
+
+`ExecutionEngineService` is registered as `execution_engines`. It performs read-only
+host capability probes for Codex CLI, ChatGPT Desktop, Claude Code, Gemini CLI, and the
+current Python runtime. CLI status requires both PATH resolution and a successful
+bounded `--version` process; desktop discovery uses the application catalog and common
+host locations.
+
+Detection, CLI capability, and implementation-adapter support are independent fields.
+Only Codex currently has an implementation adapter. `CommandRouter` uses the service
+for `execution status` and friendly AI Team failure output. `CodexBridge` independently
+requires the same capability immediately before creating its exclusive approval claim,
+so UI bypass or a missing CLI cannot consume approval state.

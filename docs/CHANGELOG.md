@@ -5,7 +5,12 @@
 - Added bounded local `codex exec` integration with strict workspace-write, network, tool, and Git safeguards.
 - Added structured implementation, changed-file, test, risk, remaining-work, and review-note results.
 - Persisted approvals, run state, JSONL events, schemas, and results under external `~/.orion/codex/` data.
-- Added tamper, replay, workspace escape, protected metadata, subprocess, schema, corruption, CLI, and persistence coverage; 244 tests pass.
+- Added tamper, replay, workspace escape, protected metadata, subprocess, schema, corruption, CLI, and persistence coverage.
+- Added `execution status` discovery for Codex CLI, ChatGPT Desktop, Claude Code, Gemini CLI, and Python.
+- Distinguished desktop installation, PATH aliases, runnable CLIs, and Orion implementation-adapter support.
+- Changed unavailable-engine failures to show detected capabilities instead of exposing a missing Codex dependency.
+- Moved engine preflight before approval claiming so unavailable CLIs do not consume immutable approvals.
+- Added execution discovery, rendering, preflight, and approval-preservation coverage; 252 tests pass.
 
 # v0.5.6 — Ledger
 
