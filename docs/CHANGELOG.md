@@ -1,3 +1,12 @@
+# Unreleased — Codex Bridge Phase 1
+
+- Added immutable SHA-256 approvals bound to exact persisted AI Team plans and active workspaces.
+- Added single-use `team approve`, `team implement`, and `team run` execution commands.
+- Added bounded local `codex exec` integration with strict workspace-write, network, tool, and Git safeguards.
+- Added structured implementation, changed-file, test, risk, remaining-work, and review-note results.
+- Persisted approvals, run state, JSONL events, schemas, and results under external `~/.orion/codex/` data.
+- Added tamper, replay, workspace escape, protected metadata, subprocess, schema, corruption, CLI, and persistence coverage; 244 tests pass.
+
 # v0.5.6 — Ledger
 
 - Promoted project-local `.orion/tasks.json` into a strict first-class task store.

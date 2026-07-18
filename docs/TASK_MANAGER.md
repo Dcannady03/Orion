@@ -77,3 +77,5 @@ reference and summary.
 Task approval means “ready for a future workflow.” It does not run an AI role, invoke
 Codex, expose tools, modify files, run tests, create branches, commit, push, or open a
 pull request. Phase 1 has no background worker and performs no automatic transitions.
+Codex Bridge approvals are separate immutable approvals for persisted AI Team plans;
+approving a project task or linking a plan never triggers that bridge.

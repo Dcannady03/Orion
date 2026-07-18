@@ -11,6 +11,7 @@ stable interface.
 - `code` → `CodeSkill`
 - `agents` → `AgentRegistry` (external YAML agent definitions)
 - `team` → `TeamOrchestrator` (bounded Architect and Engineer planning)
+- `codex_bridge` → `CodexBridge` (approval-bound local implementation runs)
 - `task_manager` → `TaskManager` (strict project work and progress events)
 
 ## Usage
@@ -21,6 +22,7 @@ memory = orion.services.get("session_memory")
 code = orion.services.get("code")
 agents = orion.services.get("agents")
 tasks = orion.services.get("task_manager")
+codex_bridge = orion.services.get("codex_bridge")
 ```
 
 Existing attributes remain available for compatibility:

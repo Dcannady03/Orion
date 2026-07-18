@@ -93,6 +93,10 @@ team:
     gemini:
       input_per_million: null
       output_per_million: null
+codex_bridge:
+  enabled: true
+  timeout_seconds: 1800
+  max_output_bytes: 5000000
 vault:
   path: vault/vault.yaml
 connect:

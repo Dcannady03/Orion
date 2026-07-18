@@ -11,6 +11,7 @@ from getpass import getpass
 
 from orion.agents import AgentDefinition, AgentPermissions
 from orion.services.team import TeamPlanningError
+from orion.services.codex_bridge import CodexBridgeError
 
 
 class CommandRouter:
@@ -220,6 +221,24 @@ class CommandRouter:
 
         elif command_lower.startswith("team status "):
             self.team_status(raw_command[len("team status "):].strip())
+
+        elif command_lower == "team approve":
+            print("Usage: team approve <team-task-id>")
+
+        elif command_lower.startswith("team approve "):
+            self.team_approve(raw_command[len("team approve "):].strip())
+
+        elif command_lower == "team implement":
+            print("Usage: team implement <team-task-id> <approval-id>")
+
+        elif command_lower.startswith("team implement "):
+            self.team_implement(raw_command[len("team implement "):].strip())
+
+        elif command_lower == "team run":
+            print("Usage: team run <run-id>")
+
+        elif command_lower.startswith("team run "):
+            self.team_run_status(raw_command[len("team run "):].strip())
 
         elif command_lower == "config":
             self.show_config()
@@ -585,10 +604,13 @@ class CommandRouter:
         print("    agent enable|disable <name> Change whether an agent may be assigned")
         print("    agent test <name>          Run one bounded structured-output test")
         print()
-        print("  AI Team (planning only)")
+        print("  AI Team & Codex Bridge")
         print('    team plan "<goal>"         Create an Architect + Engineer plan')
         print("    team roles                 Show role provider/model assignments")
         print("    team status <task-id>      Reopen a persisted team plan")
+        print("    team approve <task-id>     Bind approval to this plan and workspace")
+        print("    team implement <id> <approval> Run one bounded local Codex execution")
+        print("    team run <run-id>          Show structured results awaiting review")
         print()
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
@@ -1622,8 +1644,9 @@ class CommandRouter:
         tasks = self.orion.team.recent(5)
         print("AI Team")
         print("-" * 62)
-        print("Phase 1: bounded planning only (Architect -> Engineer Review).")
-        print("Implementation, code changes, and pull requests are disabled.")
+        print("Planning: Architect -> Engineer Review -> Awaiting Approval.")
+        print("Codex Bridge: one approved workspace-confined run -> Awaiting Review.")
+        print("Commits, pushes, merges, tags, and pull requests remain disabled.")
         if tasks:
             print("Recent tasks")
             for task in tasks:
@@ -1631,7 +1654,10 @@ class CommandRouter:
         else:
             print("No team planning tasks have been created yet.")
         print('-' * 62)
-        print('Commands: team plan "<goal>" | team roles | team status <task-id>')
+        print(
+            'Commands: team plan "<goal>" | team approve <task-id> | '
+            "team implement <task-id> <approval-id> | team run <run-id>"
+        )
 
     def show_team_roles(self):
         print("AI Team Roles")
@@ -1677,6 +1703,48 @@ class CommandRouter:
             print(str(exc))
             return
         self._render_team_task(task)
+
+    def team_approve(self, task_id: str):
+        try:
+            approval = self.orion.codex_bridge.approve(task_id)
+        except (FileNotFoundError, OSError, PermissionError, ValueError) as exc:
+            print(f"Codex Bridge approval failed: {exc}")
+            return
+        print("\nCodex Plan Approval")
+        print("-" * 72)
+        print(f"AI Team Task: {approval.team_task_id}")
+        print(f"Approval ID: {approval.approval_id}")
+        print(f"Plan SHA-256: {approval.plan_hash}")
+        print(f"Workspace: {approval.workspace_root}")
+        print("Approval is immutable, workspace-bound, and valid for one execution only.")
+        print(
+            f"Run with: team implement {approval.team_task_id} {approval.approval_id}"
+        )
+
+    def team_implement(self, payload: str):
+        parts = payload.split()
+        if len(parts) != 2:
+            print("Usage: team implement <team-task-id> <approval-id>")
+            return
+        team_task_id, approval_id = parts
+        print("Starting one approval-bound local Codex execution...")
+        try:
+            run = self.orion.codex_bridge.execute(team_task_id, approval_id)
+        except (FileNotFoundError, OSError, PermissionError, ValueError, CodexBridgeError) as exc:
+            print(f"Codex Bridge execution failed: {exc}")
+            run_id = getattr(exc, "run_id", "")
+            if run_id:
+                print(f"Saved run: {run_id}")
+            return
+        self._render_codex_run(run, self.orion.codex_bridge.store.run_directory(run.run_id))
+
+    def team_run_status(self, run_id: str):
+        try:
+            run = self.orion.codex_bridge.run(run_id)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(f"Codex Bridge Error: {exc}")
+            return
+        self._render_codex_run(run, self.orion.codex_bridge.store.run_directory(run.run_id))
 
     @staticmethod
     def _render_team_task(task):
@@ -1724,6 +1792,46 @@ class CommandRouter:
             print(f"Error: {task.error}")
         if task.status == "awaiting_approval":
             print("No implementation has been performed. This task is awaiting your approval.")
+            print(f"Approve this exact plan with: team approve {task.task_id}")
+
+    @staticmethod
+    def _render_codex_run(run, artifact_directory):
+        print("\nCodex Implementation")
+        print("-" * 72)
+        print(f"Run: {run.run_id}")
+        print(f"AI Team Task: {run.team_task_id}")
+        print(f"Approval: {run.approval_id}")
+        print(f"Plan SHA-256: {run.plan_hash}")
+        print(f"Workspace: {run.workspace_root}")
+        print(f"Status: {run.status.replace('_', ' ').title()}")
+        if run.result is not None:
+            print(f"\nSummary\n  {run.result.summary}")
+            print("\nFiles Changed")
+            if run.result.files_changed:
+                for item in run.result.files_changed:
+                    print(f"  - {item.path}: {item.summary}")
+            else:
+                print("  none")
+            print("\nTests")
+            for test in run.result.tests:
+                print(f"  - [{test.status.upper()}] {test.command}: {test.summary}")
+            if run.result.risks:
+                print("\nRisks")
+                for item in run.result.risks:
+                    print(f"  - {item}")
+            if run.result.remaining_work:
+                print("\nRemaining Work")
+                for item in run.result.remaining_work:
+                    print(f"  - {item}")
+            if run.result.review_notes:
+                print("\nReview Notes")
+                for item in run.result.review_notes:
+                    print(f"  - {item}")
+        if run.error:
+            print(f"Error category: {run.error}")
+        print(f"\nArtifacts: {artifact_directory}")
+        if run.status == "awaiting_review":
+            print("Stopped at Awaiting Review. No Git or pull-request action was performed.")
 
     def show_config(self):
         """Display loaded configuration."""
@@ -1757,6 +1865,7 @@ class CommandRouter:
 
         self.orion.project_context.bind(selected)
         self.orion.task_manager.bind(selected)
+        self.orion.codex_bridge.bind(selected)
         self.orion.conversation.bind(selected)
         self.orion.knowledge_index.bind(selected)
         self.orion.action_history.bind(selected)

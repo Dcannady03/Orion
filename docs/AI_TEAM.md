@@ -1,7 +1,7 @@
 # Orion AI Team — Phase 1
 
 Phase 1 proves that Orion can coordinate specialized AI roles and pass structured work
-between them. It is intentionally planning-only.
+between them. The planning workflow itself remains planning-only.
 
 ## Workflow
 
@@ -17,6 +17,12 @@ After a plan reaches `Awaiting Approval`, `task link-plan` can attach it to a
 first-class project task as an artifact. Linking does not approve the project task or
 start implementation.
 
+Codex Bridge is a separate explicit path. `team approve` binds the persisted plan's
+SHA-256 and current workspace to an immutable, single-use approval. Only
+`team implement <team-task-id> <approval-id>` can consume that approval. The bridge
+then stops at `Awaiting Review`; it does not change the AI Team planning schema or make
+planning itself executable.
+
 ## Commands
 
 ```text
@@ -24,6 +30,9 @@ team
 team roles
 team plan "Add OpenAI image generation"
 team status <task-id>
+team approve <task-id>
+team implement <task-id> <approval-id>
+team run <run-id>
 task link-plan <project-task-id> <team-task-id>
 ```
 
@@ -58,8 +67,8 @@ Use `team roles` to see each role-to-agent assignment and resolved runtime.
 The Reviewer assignment is reserved for a later implementation phase and is not
 called by `team plan`. Phase 1 accepts Orion's existing runtime providers (`ollama`,
 `openai`, and `gemini`). Engineer specialization comes from its dedicated role prompt;
-direct Codex execution is intentionally deferred until the approved implementation
-phase.
+direct Codex execution is handled only by the separate approval-gated bridge described
+in `CODEX_BRIDGE.md`.
 
 ## Structured role output
 

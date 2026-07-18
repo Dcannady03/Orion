@@ -49,6 +49,10 @@ class OrionPaths:
     def agents(self) -> Path:
         return self.user_root / "agents"
 
+    @property
+    def codex_bridge(self) -> Path:
+        return self.user_root / "codex"
+
     def ensure(self) -> None:
         for path in (
             self.user_root,

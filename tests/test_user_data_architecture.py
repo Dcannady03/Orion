@@ -26,6 +26,7 @@ class UserDataArchitectureTests(unittest.TestCase):
                 paths.backups,
                 paths.team_tasks,
                 paths.agents,
+                paths.codex_bridge,
             ):
                 self.assertFalse(mutable.is_relative_to(install))
 

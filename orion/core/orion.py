@@ -42,6 +42,7 @@ from orion.services.connect import ConnectService, ConnectBriefingProvider, Gmai
 from orion.services.request_router import RequestRouterService
 from orion.services.project_context import ProjectContext
 from orion.services.task_manager import TaskManager
+from orion.services.codex_bridge import CodexBridge, CodexBridgeStore
 from orion.services.companion import CompanionSettings, ActionTrustStore
 from orion.services.discovery import (
     ApplicationCatalog, ApplicationDiscoveryService, ApplicationMatcher, ApplicationLauncherService,
@@ -300,6 +301,15 @@ class Orion:
                 TeamTaskStore(self.paths.team_tasks),
                 team_provider_factory,
                 self.agents,
+            ),
+        )
+        self.codex_bridge = self.services.register(
+            "codex_bridge",
+            CodexBridge(
+                self.config_manager,
+                self.team.store,
+                CodexBridgeStore(self.paths.codex_bridge),
+                self.workspace_manager.root,
             ),
         )
 

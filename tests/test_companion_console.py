@@ -29,6 +29,9 @@ class CompanionConsoleTests(unittest.TestCase):
         team_document = Mock(text_before_cursor="team ")
         team_values = [item.text for item in completer.get_completions(team_document, None)]
         self.assertIn("team plan", team_values)
+        self.assertIn("team approve", team_values)
+        self.assertIn("team implement", team_values)
+        self.assertIn("team run", team_values)
         self.assertIn("team roles", team_values)
         agent_document = SimpleNamespace(text_before_cursor="agent ")
         agent_values = [item.text for item in completer.get_completions(agent_document, None)]

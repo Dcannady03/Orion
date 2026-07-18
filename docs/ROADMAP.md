@@ -86,8 +86,9 @@ tested, documented milestones.
 Ledger promotes project work into strict tasks with explicit approval, dependencies,
 artifacts, workspace isolation, and append-only progress events.
 
-**Active milestone:** Workflow Engine Phase 1. Cross-platform diagnostics through
-`orion doctor` remains planned after the AI Team orchestration foundation.
+**Active milestone:** Codex Bridge Phase 1 is complete in development. Cross-platform
+diagnostics through `orion doctor` remains planned after the AI Team orchestration
+foundation.
 
 ## v0.5.6 — Task Manager Phase 1 ✅
 
@@ -100,13 +101,26 @@ artifacts, workspace isolation, and append-only progress events.
 - [x] CLI exposes create, list, show, approve, cancel, events, and link-plan commands
 - [x] Workspace rebinding keeps project task stores isolated
 
-## Next — Workflow Engine Phase 1
+## In Development — Codex Bridge Phase 1 ✅
+
+- [x] Explicit approval binds an immutable AI Team plan SHA-256 and workspace
+- [x] Each approval is external, immutable, explicit by ID, and single-use
+- [x] Local `codex exec` is confined to the active Git workspace root
+- [x] Network, web search, extra roots, MCP, apps, hooks, plugins, and sub-agents are disabled
+- [x] Git metadata and all branch, commit, push, merge, tag, and PR actions remain blocked
+- [x] Strict implementation and test results persist under `~/.orion/codex/`
+- [x] Successful execution stops at `Awaiting Review`
+- [x] CLI exposes `team approve`, `team implement`, and `team run`
+
+## Next — Review Gate and Workflow Engine Phase 1
 
 - [ ] Start only from an explicitly approved Task Manager task
-- [ ] Move through bounded Architect → Engineer → Reviewer stages
-- [ ] Record every transition in the existing task event stream
-- [ ] Pause for user approval before any implementation capability
-- [ ] Keep Codex, tools, file writes, Git, and pull requests disabled
+- [ ] Link the project task, approved AI Team plan, and Codex run identities
+- [ ] Move through bounded Architect → Engineer → Awaiting Review stages
+- [ ] Record bridge transitions in the existing task event stream
+- [ ] Add a read-only Reviewer that consumes the persisted run and workspace diff
+- [ ] Require another explicit decision before any repair pass
+- [ ] Keep commits, pushes, merges, tags, and pull requests disabled
 
 ## v0.5.5 — Agent Registry Phase 1 ✅
 
@@ -126,7 +140,8 @@ artifacts, workspace isolation, and append-only progress events.
 - [x] CLI exposes `team`, `team roles`, `team plan`, and `team status`
 - [x] Token estimates and configurable cost estimates are displayed
 - [x] Planning stops at `Awaiting Approval` with no implementation or PR actions
-- [ ] Phase 2: `team implement <approved-task-id>` with patch and review safeguards
+- [x] Phase 2: approval-bound `team implement <task-id> <approval-id>` with structured artifacts
+- [ ] Phase 3: read-only reviewer and explicit repair approval
 
 ## v0.3.6.1 — Constellation ✅
 

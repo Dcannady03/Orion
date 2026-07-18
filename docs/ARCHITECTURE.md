@@ -35,9 +35,10 @@ records to `.orion/task-events.jsonl` for future Workflow Engine and streaming U
 consumers.
 
 Phase 1 exposes only user-triggered creation, approval, cancellation, inspection, and
-AI Team plan linking. It has no background runner, tool dispatcher, Codex adapter, or
-automatic state transitions. Workspace rebinding isolates each project's tasks and
-events.
+AI Team plan linking. Task Manager has no background runner or automatic state
+transitions. Codex Bridge remains a separate explicit approval and execution service;
+linking or approving a project task never invokes it. Workspace rebinding isolates
+each project's tasks and events.
 
 
 ## Workspace Search
@@ -96,3 +97,28 @@ role's `agent` assignment, then uses that agent's provider, model, and instructi
 while retaining the role's fixed structured-output contract. Tool and permission
 declarations are metadata only in Phase 1. Neither `agent test` nor `team plan` receives
 a tool dispatcher, filesystem access, shell execution, or Git actions.
+
+## Codex Bridge Phase 1
+
+`CodexBridge` is registered as `codex_bridge` after `TeamOrchestrator`. It reads strict
+`TeamTask` documents through the existing external `TeamTaskStore`, creates immutable
+`PlanApproval` records, and persists `CodexRun` state through `CodexBridgeStore` under
+`~/.orion/codex/`.
+
+The approval hash covers a canonical plan snapshot containing the task identity, goal,
+ordered final plan, and structured role artifacts. Approval is also bound to the
+resolved active workspace. Execution reloads and hashes the current persisted task,
+requires the explicit approval ID, rejects replay, and writes an `Executing` run record
+before starting the local process.
+
+`LocalCodexRunner` invokes `codex exec` without a shell, sends the plan over standard
+input, supplies a strict output schema, and confines the process to the active Git
+repository root. Web search, command network, extra writable roots, project config,
+MCP, apps, hooks, remote plugins, and sub-agents are disabled. Codex's workspace-write
+sandbox protects Git metadata, while the bridge prompt independently prohibits every
+branch, commit, push, merge, tag, and pull-request action.
+
+Valid JSONL and structured final output become immutable external artifacts and move
+the run to `Awaiting Review`. Invalid output or process failure records only a
+sanitized category. There is no reviewer, repair loop, Task Manager transition, Git
+write, or release action in this phase.

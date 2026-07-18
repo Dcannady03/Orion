@@ -62,6 +62,9 @@ agent test <name>            Run one bounded structured-output test
 team plan "<goal>"           Create a two-role implementation plan
 team roles                   Show AI Team role assignments
 team status <task-id>        Reopen a persisted AI Team plan
+team approve <task-id>       Approve this plan hash for the active workspace
+team implement <id> <approval-id> Run one bounded local Codex execution
+team run <run-id>            Show structured results awaiting review
 workspace                    Inspect the active workspace
 files                        List workspace files
 code tree                    Inspect the source tree
@@ -114,13 +117,13 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **229 passing tests**.
+The current codebase contains **244 passing tests**.
 
 ## Roadmap
 
-The next development milestone is the **Workflow Engine**, which will move explicitly
-approved tasks through bounded Architect, Engineer, and Reviewer stages. See
-`docs/ROADMAP.md` for the complete plan.
+The active development milestone is **Codex Bridge Phase 1**, which executes one exact,
+workspace-bound AI Team plan through the local Codex CLI and stops at `Awaiting
+Review`. See `docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish
 
@@ -245,10 +248,11 @@ task link-plan <task-id> <team-task-id>
 ```
 
 Approval moves a proposed task to `Ready` but starts nothing. AI Team plans can be
-linked only as reviewed artifacts, and Task Manager has no workflow runner, Codex
-bridge, tools, file modification, or automatic transitions. The event stream is the
-foundation for future workflow and streaming-progress consumers. See
-`docs/TASK_MANAGER.md` for the strict schemas and lifecycle.
+linked only as reviewed artifacts, and Task Manager itself has no automatic runner or
+state transitions. Codex Bridge is a separate, explicit AI Team approval path and does
+not silently execute linked project tasks. The event stream remains the foundation for
+future workflow and streaming-progress consumers. See `docs/TASK_MANAGER.md` for the
+strict schemas and lifecycle.
 
 ## Agent Registry Phase 1
 
@@ -288,10 +292,33 @@ team plan "Add OpenAI image generation"
 team status <task-id>
 ```
 
-Phase 1 makes exactly two AI calls and cannot implement code, execute tools, create
-commits, or open pull requests. Token usage is shown as an estimate. Cost is shown
-when rates are configured under `team.pricing`; local Ollama defaults to zero cost.
-See `docs/AI_TEAM.md` for role configuration and the persisted task schema.
+The planning phase makes exactly two AI calls and cannot implement code or execute
+tools. A separate, explicit Codex Bridge approval may execute the resulting immutable
+plan version. Token usage is shown as an estimate. Cost is shown when rates are
+configured under `team.pricing`; local Ollama defaults to zero cost. See
+`docs/AI_TEAM.md` for role configuration and the persisted task schema.
+
+## Codex Bridge Phase 1
+
+Codex Bridge turns one persisted AI Team plan into one bounded local implementation
+run. `team approve` creates an immutable external approval containing the plan
+snapshot, SHA-256 hash, and exact active workspace. `team implement` reloads and
+re-hashes the plan before invoking `codex exec`; changed plans, changed workspaces,
+missing approvals, and approval replay are rejected before the process starts.
+
+```text
+team approve <team-task-id>
+team implement <team-task-id> <approval-id>
+team run <run-id>
+```
+
+The Codex process receives workspace-write access only to the active Git repository
+root. Git metadata, network access, web search, extra writable roots, MCP, apps,
+plugins, hooks, and sub-agents remain unavailable. Orion requires strict structured
+implementation and test results, persists the approval, event stream, schema, and
+result beneath `~/.orion/codex/`, then stops at `Awaiting Review`. It never creates a
+branch, commit, push, merge, tag, or pull request. See `docs/CODEX_BRIDGE.md` for the
+complete security and persistence contract.
 
 ## Orion Vault
 
