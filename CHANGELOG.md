@@ -1,4 +1,4 @@
-# Unreleased — Codex Bridge Phase 1
+# v0.5.7 — Forge
 
 - Added immutable SHA-256 approvals bound to exact persisted AI Team plans and active workspaces.
 - Added single-use `team approve`, `team implement`, and `team run` execution commands.

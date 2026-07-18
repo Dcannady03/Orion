@@ -81,14 +81,28 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.5.6 — Ledger: COMPLETE**
+**v0.5.7 — Forge: COMPLETE**
 
-Ledger promotes project work into strict tasks with explicit approval, dependencies,
-artifacts, workspace isolation, and append-only progress events.
+Forge executes one immutable, workspace-bound AI Team plan through the local Codex
+CLI, persists strict implementation results, and stops at `Awaiting Review`.
 
-**Active milestone:** Codex Bridge Phase 1 is complete in development. Cross-platform
+**Active milestone:** Review Gate and Workflow Engine Phase 1. Cross-platform
 diagnostics through `orion doctor` remains planned after the AI Team orchestration
 foundation.
+
+## v0.5.7 — Codex Bridge Phase 1 ✅
+
+- [x] Explicit approval binds an immutable AI Team plan SHA-256 and workspace
+- [x] Each approval is external, immutable, explicit by ID, and single-use
+- [x] Local `codex exec` is confined to the active Git workspace root
+- [x] Network, web search, extra roots, MCP, apps, hooks, plugins, and sub-agents are disabled
+- [x] Git metadata and all branch, commit, push, merge, tag, and PR actions remain blocked
+- [x] Strict implementation and test results persist under `~/.orion/codex/`
+- [x] Successful execution stops at `Awaiting Review`
+- [x] CLI exposes `team approve`, `team implement`, and `team run`
+- [x] `execution status` distinguishes desktop apps, runnable CLIs, and Python readiness
+- [x] One shared resolver launches the exact Codex executable reported by discovery
+- [x] Missing engines are explained before an immutable approval is consumed
 
 ## v0.5.6 — Task Manager Phase 1 ✅
 
@@ -100,19 +114,6 @@ foundation.
 - [x] Append-only task events support later workflow and streaming consumers
 - [x] CLI exposes create, list, show, approve, cancel, events, and link-plan commands
 - [x] Workspace rebinding keeps project task stores isolated
-
-## In Development — Codex Bridge Phase 1 ✅
-
-- [x] Explicit approval binds an immutable AI Team plan SHA-256 and workspace
-- [x] Each approval is external, immutable, explicit by ID, and single-use
-- [x] Local `codex exec` is confined to the active Git workspace root
-- [x] Network, web search, extra roots, MCP, apps, hooks, plugins, and sub-agents are disabled
-- [x] Git metadata and all branch, commit, push, merge, tag, and PR actions remain blocked
-- [x] Strict implementation and test results persist under `~/.orion/codex/`
-- [x] Successful execution stops at `Awaiting Review`
-- [x] CLI exposes `team approve`, `team implement`, and `team run`
-- [x] `execution status` distinguishes desktop apps, runnable CLIs, and Python readiness
-- [x] Missing engines are explained before an immutable approval is consumed
 
 ## Next — Review Gate and Workflow Engine Phase 1
 

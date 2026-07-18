@@ -6,11 +6,12 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.5.6 — Ledger**
+**v0.5.7 — Forge**
 
-Ledger makes project work a first-class Orion object with strict task state, explicit
-approval and cancellation, dependency validation, AI Team plan artifacts, and an
-append-only progress stream inside each workspace's `.orion/` directory.
+Forge turns one reviewed AI Team plan into one immutable, approval-bound local Codex
+implementation run. Execution stays inside the active workspace, persists strict
+results under external user data, and always stops at `Awaiting Review` without Git
+or pull-request actions.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -118,13 +119,13 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **252 passing tests**.
+The current codebase contains **255 passing tests**.
 
 ## Roadmap
 
-The active development milestone is **Codex Bridge Phase 1**, which executes one exact,
-workspace-bound AI Team plan through the local Codex CLI and stops at `Awaiting
-Review`. See `docs/ROADMAP.md` for the complete plan.
+The active development milestone is **Review Gate and Workflow Engine Phase 1**,
+building on Forge's persisted approvals, runs, results, and execution diagnostics.
+See `docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish
 
