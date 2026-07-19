@@ -23,6 +23,11 @@ from orion.services.team import (
     TeamTaskStore,
 )
 from orion.services.team_roles import TeamRoleSnapshot
+from orion.services.team_validation import (
+    AutomaticValidationService,
+    ValidationAttempt,
+    ValidationRequest,
+)
 from orion.services.execution_engines import (
     ExecutionEngine,
     ExecutionEngineUnavailable,
@@ -79,6 +84,7 @@ RUN_ARTIFACT_NAMES = frozenset({
     "workspace-baseline.json",
     "workspace-changes.json",
     "workspace.diff",
+    "validation-protected-baseline.json",
     "rollback.json",
 })
 PROTECTED_WORKSPACE_PARTS = frozenset({".git", ".agents", ".codex"})
@@ -703,22 +709,31 @@ class CodexRun:
     completed_at: str
     result: ImplementationResult | None
     changes: WorkspaceChangeSet | None
+    validation: ValidationAttempt | None
+    validation_history: tuple[str, ...]
     error: str
     diagnostics: CodexRunDiagnostics
 
     @classmethod
     def from_value(cls, value: Any) -> "CodexRun":
-        if isinstance(value, dict) and "diagnostics" not in value:
-            # Existing v2 run records remain readable; new saves always include
-            # the strict diagnostics envelope.
-            value = {**value, "diagnostics": None}
+        if isinstance(value, dict):
+            additions: dict[str, Any] = {}
+            if "diagnostics" not in value:
+                # Existing v2 run records remain readable; new saves always include
+                # the strict diagnostics envelope.
+                additions["diagnostics"] = None
+            if "validation" not in value:
+                # Automatic validation was added without invalidating existing v2
+                # implementation and rollback records.
+                additions.update({"validation": None, "validation_history": []})
+            value = {**value, **additions}
         value = _exact_mapping(
             value,
             {
                 "schema_version", "run_id", "approval_id", "team_task_id",
                 "plan_hash", "workspace_root", "workspace", "status", "command",
                 "artifacts", "started_at", "completed_at", "result", "changes", "error",
-                "diagnostics",
+                "diagnostics", "validation", "validation_history",
             },
             "Codex run",
         )
@@ -770,8 +785,37 @@ class CodexRun:
             changes = WorkspaceChangeSet.from_value(changes_value)
             if not _same_path(changes.workspace_root, workspace):
                 raise ValueError("Codex run changes belong to a different workspace.")
+        validation_value = value["validation"]
+        validation = None if validation_value is None else ValidationAttempt.from_value(validation_value)
+        if validation is not None:
+            if validation.run_id != _run_id(value["run_id"]):
+                raise ValueError("Validation attempt belongs to a different Codex run.")
+            if validation.team_task_id != _team_task_id(value["team_task_id"]):
+                raise ValueError("Validation attempt belongs to a different AI Team task.")
+            if validation.approval_id != _approval_id(value["approval_id"]):
+                raise ValueError("Validation attempt belongs to a different approval.")
+            if not _same_path(validation.workspace_root, workspace):
+                raise ValueError("Validation attempt belongs to a different workspace.")
+        validation_history = _bounded_strings(
+            value["validation_history"],
+            "Codex validation history",
+            maximum_items=100,
+            maximum_length=100,
+        )
+        if len(set(validation_history)) != len(validation_history) or any(
+            not re.fullmatch(r"validation/validation-[0-9]{4}\.json", item)
+            for item in validation_history
+        ):
+            raise ValueError("Codex validation history paths are invalid or duplicated.")
+        if validation is None and validation_history:
+            raise ValueError("Codex validation history requires a latest validation attempt.")
+        if validation is not None and (
+            not validation_history
+            or validation_history[-1] != f"validation/{validation.attempt_id}.json"
+        ):
+            raise ValueError("Latest validation attempt does not match validation history.")
         if status_value == RUN_STATUS_EXECUTING:
-            if completed_at or result is not None or changes is not None or error:
+            if completed_at or result is not None or changes is not None or validation is not None or error:
                 raise ValueError("Executing Codex runs cannot contain completion fields.")
             if diagnostics.exit_code is not None or diagnostics.timed_out:
                 raise ValueError("Executing Codex runs cannot contain completion diagnostics.")
@@ -788,7 +832,7 @@ class CodexRun:
             if set(artifacts) != required:
                 raise ValueError("Awaiting-review Codex runs require all structured artifacts.")
         elif status_value == RUN_STATUS_FAILED:
-            if not completed_at or result is not None or error not in RUN_ERROR_CATEGORIES:
+            if not completed_at or result is not None or validation is not None or error not in RUN_ERROR_CATEGORIES:
                 raise ValueError("Failed Codex runs require a sanitized error category.")
         elif status_value == RUN_STATUS_ROLLED_BACK:
             if not completed_at or changes is None or error:
@@ -810,6 +854,8 @@ class CodexRun:
             completed_at=completed_at,
             result=result,
             changes=changes,
+            validation=validation,
+            validation_history=validation_history,
             error=error,
             diagnostics=diagnostics,
         )
@@ -830,6 +876,8 @@ class CodexRun:
             "completed_at": self.completed_at,
             "result": None if self.result is None else self.result.to_dict(),
             "changes": None if self.changes is None else self.changes.to_dict(),
+            "validation": None if self.validation is None else self.validation.to_dict(),
+            "validation_history": list(self.validation_history),
             "error": self.error,
             "diagnostics": self.diagnostics.to_dict(),
         }
@@ -881,6 +929,12 @@ class CodexBridgeStore:
             raise ValueError(f"Codex run is invalid: {run_id}") from exc
         if run.run_id != _run_id(run_id):
             raise ValueError("Codex run identity does not match its path.")
+        for artifact_path in run.validation_history:
+            attempt = self.load_validation_attempt(run.run_id, artifact_path)
+            if artifact_path == run.validation_history[-1] and (
+                run.validation is None or attempt.to_dict() != run.validation.to_dict()
+            ):
+                raise ValueError("Latest validation history artifact does not match run.json.")
         return run
 
     def claim_approval(
@@ -966,6 +1020,55 @@ class CodexBridgeStore:
 
     def snapshot_blob_root(self, run_id: str) -> Path:
         return self.run_directory(run_id) / "snapshot" / "blobs"
+
+    def next_validation_attempt(self, run_id: str) -> tuple[str, tuple[str, str]]:
+        directory = self.run_directory(run_id) / "validation"
+        existing = tuple(directory.glob("validation-*.json")) if directory.is_dir() else ()
+        numbers = [
+            int(match.group(1))
+            for path in existing
+            if (match := re.fullmatch(r"validation-([0-9]{4})\.json", path.name))
+        ]
+        number = (max(numbers) if numbers else 0) + 1
+        if number > 100:
+            raise ValueError("A Codex run cannot contain more than 100 validation attempts.")
+        attempt_id = f"validation-{number:04d}"
+        paths = (
+            f"validation/{attempt_id}.json",
+            f"validation/{attempt_id}.log",
+        )
+        return attempt_id, paths
+
+    def write_validation_attempt(self, attempt: ValidationAttempt, log: str) -> tuple[Path, Path]:
+        validated = ValidationAttempt.from_value(attempt.to_dict())
+        expected_id, paths = self.next_validation_attempt(validated.run_id)
+        if validated.attempt_id != expected_id or validated.artifact_paths != paths:
+            raise ValueError("Validation attempt does not match the next immutable history slot.")
+        directory = self.run_directory(validated.run_id)
+        json_path = self._write_immutable(
+            directory / paths[0],
+            json.dumps(validated.to_dict(), indent=2, ensure_ascii=False) + "\n",
+        )
+        try:
+            log_path = self._write_immutable(directory / paths[1], str(log))
+        except BaseException:
+            # The structured artifact is immutable once created. A retry therefore
+            # receives a new attempt identity instead of overwriting audit history.
+            raise
+        return json_path, log_path
+
+    def load_validation_attempt(self, run_id: str, artifact_path: str) -> ValidationAttempt:
+        normalized_run = _run_id(run_id)
+        if not re.fullmatch(r"validation/validation-[0-9]{4}\.json", str(artifact_path)):
+            raise ValueError("Validation artifact path is invalid.")
+        value = self._read_json(self.run_directory(normalized_run) / artifact_path, "Validation attempt")
+        attempt = ValidationAttempt.from_value(value)
+        if attempt.run_id != normalized_run:
+            raise ValueError("Validation attempt identity does not match its run path.")
+        for relative in attempt.artifact_paths:
+            if not (self.run_directory(normalized_run) / relative).is_file():
+                raise ValueError("Validation attempt is missing one of its immutable artifacts.")
+        return attempt
 
     @staticmethod
     def _write_immutable(path: Path, content: str) -> Path:
@@ -1244,6 +1347,8 @@ class CodexBridge:
         runner: LocalCodexRunner | None = None,
         capability_detector: CodexCLICapabilityDetector | None = None,
         execution_engines=None,
+        team_roles=None,
+        validation_service: AutomaticValidationService | None = None,
         default_execution_engine: ExecutionEngine | None = None,
         now: Callable[[], datetime] | None = None,
         approval_id_factory: Callable[[], str] | None = None,
@@ -1263,8 +1368,14 @@ class CodexBridge:
         # but execution never asks it to rediscover Codex. The router supplies the
         # validated immutable engine snapshot in ``ExecutionContext``.
         self.execution_engines = execution_engines
-        self._default_execution_engine = default_execution_engine
+        self.team_roles = team_roles
         self._now = now or (lambda: datetime.now(timezone.utc))
+        self.validation_service = validation_service or AutomaticValidationService(
+            config_manager,
+            snapshot_service=self.snapshots,
+            now=self._now,
+        )
+        self._default_execution_engine = default_execution_engine
         self._approval_id_factory = approval_id_factory or self._new_approval_id
         self._run_id_factory = run_id_factory or self._new_run_id
         self._lock = RLock()
@@ -1398,6 +1509,13 @@ class CodexBridge:
                 snapshot_limits,
                 created_at=self._timestamp(),
             )
+            if self.team_roles is not None:
+                protected_baseline = self.validation_service.protected_state(execution_workspace)
+                self.store.write_run_artifact(
+                    run_id,
+                    "validation-protected-baseline.json",
+                    json.dumps(protected_baseline, indent=2, ensure_ascii=False) + "\n",
+                )
             try:
                 self.store.claim_approval(
                     plan.team_task_id,
@@ -1646,13 +1764,128 @@ class CodexBridge:
             )
             CodexRun.from_value(completed.to_dict())
             self.store.save_run(completed)
-            return completed
+            if self.team_roles is None:
+                return completed
+            return self.validate(completed.run_id)
 
     def run(self, run_id: str) -> CodexRun:
         return self.store.load_run(run_id)
 
     def recent(self, limit: int = 10) -> tuple[CodexRun, ...]:
         return self.store.recent_runs(limit)
+
+    def validate(self, run_id: str) -> CodexRun:
+        """Run one bounded Tester attempt without consuming another approval."""
+        with self._lock:
+            self._require_workspace()
+            run = self.store.load_run(run_id)
+            if run.status == RUN_STATUS_ROLLED_BACK:
+                raise ValueError("Rolled-back runs cannot be validated again.")
+            if run.status != RUN_STATUS_AWAITING_REVIEW or run.result is None or run.changes is None:
+                raise ValueError("Only complete implementation runs awaiting review can be validated.")
+            if not _same_path(run.workspace_root, self._workspace_root):
+                raise PermissionError("Validation run belongs to a different active workspace.")
+            required = {
+                "approved-plan.json", "implementation-result.json",
+                "workspace-baseline.json", "workspace-changes.json",
+            }
+            missing = sorted(
+                name for name in required
+                if not (self.store.run_directory(run.run_id) / name).is_file()
+            )
+            if missing:
+                raise ValueError(f"Validation requires missing implementation artifacts: {missing}")
+
+            approval = PlanApproval.from_value(_strict_json_loads(
+                self.store.read_run_artifact(run.run_id, "approved-plan.json")
+            ))
+            if approval.plan_hash != run.plan_hash or approval.team_task_id != run.team_task_id:
+                raise ValueError("Validation approval artifact does not match the implementation run.")
+            baseline = WorkspaceBaseline.from_value(_strict_json_loads(
+                self.store.read_run_artifact(run.run_id, "workspace-baseline.json")
+            ))
+            if not _same_path(baseline.workspace.root, self._workspace_root):
+                raise PermissionError("Validation baseline belongs to a different active workspace.")
+
+            attempt_id, artifact_paths = self.store.next_validation_attempt(run.run_id)
+            tester, engine = self._tester_resolution()
+            protected_path = self.store.run_directory(run.run_id) / "validation-protected-baseline.json"
+            protected_baseline = None
+            if protected_path.is_file():
+                protected_baseline = _strict_json_loads(protected_path.read_text(encoding="utf-8"))
+            request = ValidationRequest(
+                attempt_id=attempt_id,
+                run_id=run.run_id,
+                team_task_id=run.team_task_id,
+                approval_id=run.approval_id,
+                workspace=run.workspace,
+                active_workspace=str(self._workspace_root),
+                changes=run.changes,
+                implementation_result=run.result.to_dict(),
+                plan_goal=approval.plan.goal,
+                plan_steps=approval.plan.final_plan,
+                tester=tester,
+                execution_engine=engine,
+                baseline=baseline,
+                blob_root=self.store.snapshot_blob_root(run.run_id),
+                protected_baseline=protected_baseline,
+                artifact_paths=artifact_paths,
+            )
+            try:
+                attempt = self.validation_service.validate(request)
+            except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
+                attempt = self.validation_service.error(
+                    request,
+                    f"Automatic validation stopped safely ({type(exc).__name__}).",
+                )
+            self.store.write_validation_attempt(
+                attempt,
+                self.validation_service.validation_log(attempt),
+            )
+            updated = replace(
+                run,
+                validation=attempt,
+                validation_history=tuple((*run.validation_history, artifact_paths[0])),
+            )
+            CodexRun.from_value(updated.to_dict())
+            self.store.save_run(updated)
+            return updated
+
+    def latest_validatable_run(self) -> CodexRun:
+        for run in self.store.recent_runs(100):
+            if run.status == RUN_STATUS_AWAITING_REVIEW and run.result is not None and run.changes is not None:
+                if _same_path(run.workspace_root, self._workspace_root):
+                    return run
+        raise FileNotFoundError("No complete AI Team implementation run is available in this workspace.")
+
+    def _tester_resolution(self) -> tuple[TeamRoleSnapshot, ExecutionEngine | None]:
+        if self.team_roles is None:
+            return TeamRoleSnapshot(
+                role="tester",
+                display_name="Tester",
+                category="Validation role (execution engine)",
+                requested_assignment="codex",
+                actual_assignment="codex",
+                available=False,
+                capability="Bounded local test execution",
+                fallback="none (fail closed)",
+                fallback_reason="AI Team role registry is unavailable.",
+                source="default",
+            ), None
+        resolved = self.team_roles.status("tester", prompt="AI Team automatic validation")
+        snapshot = resolved.snapshot()
+        if not snapshot.available:
+            return snapshot, None
+        try:
+            engine = self.team_roles.engine("tester")
+        except (ConnectionError, FileNotFoundError, OSError, RuntimeError, ValueError):
+            unavailable = TeamRoleSnapshot.from_value({
+                **snapshot.to_dict(),
+                "available": False,
+                "fallback_reason": "Configured Tester execution engine is unavailable.",
+            })
+            return unavailable, None
+        return snapshot, engine
 
     def rollback(self, run_id: str) -> CodexRun:
         """Restore one run after verifying no affected path changed again."""

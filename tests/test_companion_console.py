@@ -32,6 +32,8 @@ class CompanionConsoleTests(unittest.TestCase):
         self.assertIn("team approve", team_values)
         self.assertIn("team implement", team_values)
         self.assertIn("team run", team_values)
+        self.assertIn("team test", team_values)
+        self.assertIn("team test last", team_values)
         execution_document = Mock(text_before_cursor="execution ")
         execution_values = [item.text for item in completer.get_completions(execution_document, None)]
         self.assertIn("execution status", execution_values)

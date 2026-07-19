@@ -88,9 +88,20 @@ validation, routing-policy planning fallbacks, role metadata in immutable artifa
 and a complete living user/documentation process. Gatekeeper's approval, workspace,
 execution, review, and rollback protections remain intact.
 
-**Active milestone:** Email Phase B — persisted immutable approvals for sending,
-mailbox mutations, provider drafts, and attachment downloads. Cross-platform diagnostics
-through `orion doctor` remains planned.
+**Active milestone:** AI Team Automatic Validation (unreleased). Email Phase B and
+cross-platform diagnostics through `orion doctor` remain planned after this bounded
+Tester milestone.
+
+## Unreleased — AI Team Automatic Validation
+
+- [x] Successful implementation automatically enters a separate Tester stage
+- [x] Deterministic checks cover Python, JSON, YAML, TOML, Markdown, and file integrity
+- [x] Targeted Python discovery avoids full-suite execution when focused tests suffice
+- [x] Tester commands use isolated temporary state, no network, bounded output, and no Git
+- [x] `team test <run-id>` and `team test last` preserve immutable attempt history
+- [x] Validation Passed, Warnings, Failed, Unavailable, Error, and Not Run are distinct
+- [x] Human Keep Changes or Roll Back remains the only final decision
+- [x] Existing approval, workspace, snapshot, rollback, Vault, and run-artifact boundaries remain intact
 
 ## v0.7.0 — Conductor Role-Based AI Team Routing ✅
 

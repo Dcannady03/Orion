@@ -23,7 +23,9 @@ stable interface.
 `WorkspaceManager` owns the active Standard/Git capability snapshot and path boundary.
 `CodexBridge` owns a `WorkspaceSnapshotService` for bounded external baselines,
 deterministic created/modified/deleted review, redacted diffs, and conflict-safe rollback;
-it is not a second workspace selector or Git service.
+it also owns `AutomaticValidationService` for deterministic, read-only Tester attempts
+and immutable validation history. Neither service is a second workspace selector or Git
+service.
 
 ## Usage
 

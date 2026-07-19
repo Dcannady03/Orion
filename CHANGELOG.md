@@ -1,3 +1,20 @@
+# Unreleased — Automatic Validation
+
+- Added a real bounded Tester stage after successful AI Team implementation and before
+  human review, while keeping implementation success and validation success separate.
+- Added deterministic validation planning for Python compile/tests, JSON, YAML, TOML,
+  Markdown structure/local links, expected file state, snapshot integrity, and
+  protected `.git`/`.codex`/`.agents` metadata.
+- Added `team test <run-id>` and `team test last` without rerunning implementation or
+  consuming another immutable approval.
+- Persisted strict, redacted, immutable validation attempts and bounded logs under each
+  external Codex run directory; repeated attempts retain audit history.
+- Added Passed, Warnings, Failed, Unavailable, Error, and Not Run review reporting.
+- Kept Tester commands read-only toward implementation files, isolated temporary data,
+  network-disabled, command/output bounded, and free of Git or nested command access.
+- Preserved exact workspace binding, one-use approvals, snapshot/rollback behavior,
+  Vault isolation, and the human Keep Changes or Roll Back decision.
+
 # v0.7.0 — Conductor
 
 - Added persistent AI Team assignments for Architect, Engineering Reviewer,

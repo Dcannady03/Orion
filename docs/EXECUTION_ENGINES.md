@@ -150,6 +150,19 @@ sanitized `codex_cli_unavailable` category. Plan hashes, one-time claims, active
 workspace confinement, structured results, and the Awaiting Review stop remain
 unchanged.
 
+After successful implementation, Orion independently resolves the configured
+`tester` role. The default is the Ready Codex engine, but automatic validation itself
+uses Orion's deterministic, allowlisted local checks rather than granting the engine a
+second writable implementation turn. If the Tester assignment or engine is unavailable,
+validation fails closed as `Validation Unavailable`; Orion neither substitutes another
+engine nor rolls back the completed implementation. `team test <run-id>` and
+`team test last` repeat validation only and never consume another plan approval.
+
+Tester subprocesses inherit no provider credentials or OAuth/Vault locations, have
+network access blocked, use an Orion-controlled temporary home, and cannot start nested
+Git or arbitrary commands. The workspace is compared before and after validation so a
+write becomes a failed safety check rather than an accepted result.
+
 The configured default remains:
 
 ```yaml

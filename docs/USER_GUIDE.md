@@ -4,7 +4,7 @@
 
 **Project:** Orion — Personal AI Operating System
 
-**Documentation baseline:** v0.7.0 — Conductor
+**Documentation baseline:** v0.7.0 — Conductor plus unreleased Automatic Validation
 
 Orion is a local-first personal intelligence operating system. It coordinates local
 and cloud AI providers, project knowledge, communication services, applications, and
@@ -791,7 +791,7 @@ Immutable approval
   ↓
 Implementation Engine (Codex by default)
   ↓
-Tester / structured results
+Automatic Tester (bounded and read-only)
   ↓
 Awaiting Review
   ↓
@@ -822,9 +822,10 @@ documentation        active-planning-model
 
 `active-planning-model` follows the active provider and existing routing profile. Any
 dynamic fallback is reported. Explicit provider/model assignments are validated and do
-not silently change. Implementation and Tester require an installed engine with an
-Orion adapter and fail closed when unavailable. Assignments live in external user
-configuration, never the project or Vault.
+not silently change. Implementation requires an installed Orion adapter and stops
+before approval consumption when unavailable. An unavailable Tester launches no check
+and records `Validation Unavailable` after implementation. Assignments live in external
+user configuration, never the project or Vault.
 
 Examples:
 
@@ -867,18 +868,86 @@ team status <team-task-id>
 team approve <team-task-id>
 team implement <team-task-id> <approval-id>
 team run <run-id>
+team test <run-id>
+team test last
 team rollback <run-id>
 ```
 
-`team run` displays the structured implementation result, tests, actual workspace
-changes, safe diagnostics, and saved artifact directory. There is no `team accept`
-command: if you approve the result, leave the reviewed changes in place and continue
-your normal development workflow. Codex Bridge itself never commits, pushes, merges,
-tags, or opens a pull request.
+`team run` displays the structured implementation result, actual workspace changes,
+automatic validation summary, safe diagnostics, validation history count, and saved
+artifact directory. `team test <run-id>` validates that completed implementation again;
+`team test last` selects the newest eligible run in the active workspace. Neither
+command reruns implementation or consumes another approval.
+
+There is no `team accept` command: if you approve the result, leave the reviewed
+changes in place and continue your normal development workflow. Codex Bridge itself
+never commits, pushes, merges, tags, or opens a pull request.
 
 `team rollback` asks for confirmation and restores only the recorded run when affected
 files have not received conflicting later changes. It does not use destructive Git
 reset or checkout.
+
+### Automatic validation
+
+After successful implementation, Orion resolves the persisted Tester role and builds a
+deterministic plan from the actual created, modified, and deleted files. It selects only
+relevant checks:
+
+- changed Python receives compile validation and matching targeted tests;
+- broad shared Python changes, or changes without a target match, receive full test
+  discovery;
+- changed JSON, YAML, and TOML are parsed locally;
+- changed Markdown receives heading, fence, and practical local-link checks;
+- expected created/deleted files, snapshot integrity, and protected `.git`, `.codex`,
+  and `.agents` metadata are checked.
+
+The Tester is read-only toward implementation files. Its allowlisted Python commands
+run with a temporary home/cache, no inherited credentials, blocked network access, no
+nested commands, and bounded time/output. Orion checks the workspace again afterward;
+an attempted write is a failed safety check. Temporary validation data is removed.
+The Tester cannot repair failures, update documentation, change plans or roles, consume
+approvals, access Vault/OAuth data, or perform Git operations.
+
+Review statuses are:
+
+- `Awaiting Review — Validation Passed` — every selected check passed;
+- `Awaiting Review — Validation Warnings` — review non-blocking findings;
+- `Awaiting Review — Validation Failed` — one or more checks failed;
+- `Validation Unavailable` — no configured Tester engine was ready;
+- `Validation Error` — the bounded validation process could not complete safely;
+- `Awaiting Review — Validation Not Run` — a compatible older run has no attempt.
+
+Validation never accepts or rolls back changes automatically, including for warnings,
+failures, unavailable engines, and errors. The user always chooses whether to keep the
+implementation or run `team rollback <run-id>`.
+
+Representative output:
+
+```text
+Implementation Result
+Status: Awaiting Review
+
+Files Changed
+  Created:  2
+  Modified: 4
+  Deleted:  0
+
+Automatic Validation
+PASS  Python compile
+PASS  Targeted Python tests: 18 test(s)
+WARN  Markdown local links: docs/guide.md -> missing.md
+SKIP  Full Python test suite: Targeted tests were sufficient
+
+Validation Summary
+  Checks:   4
+  Passed:   2
+  Warnings: 1
+  Failed:   0
+  Skipped:  1
+
+Review Status
+Awaiting Review — Validation Warnings
+```
 
 ### Execution-engine diagnostics
 
@@ -923,12 +992,20 @@ Approve this exact plan?
 
 Starting one approval-bound local Codex execution...
 Status: Awaiting Review
+Automatic Validation: Passed
 ```
 
 Review the result:
 
 ```text
 team run <run-id>
+```
+
+If you need to repeat validation after a local dependency is restored, without running
+implementation again:
+
+```text
+team test <run-id>
 ```
 
 If the result is correct, leave the reviewed files in place and continue your normal
@@ -987,7 +1064,8 @@ fallback without exposing prompt content or raw provider errors.
 - **Review every AI Team plan before approval.** Use `D` to inspect the plan hash,
   risks, workspace, engine, sandbox, and expected permissions.
 - **Review every implementation result.** Run `team run <run-id>` and inspect the actual
-  changed files and tests before committing anything.
+  diff plus automatic validation before committing anything. PASS is evidence, not
+  automatic acceptance; FAIL is not automatic rollback.
 - **Create checkpoints before major changes.** `project checkpoint <summary>` produces
   a durable handoff for `project resume`.
 - **Connect multiple AI providers when useful.** Existing routing profiles can select
@@ -1108,6 +1186,22 @@ team roles
 Confirm Codex CLI—not only Codex Desktop or ChatGPT Desktop—is Ready. Orion supports
 Windows npm wrappers including extensionless, `.cmd`, `.exe`, and `.ps1` forms.
 
+### Automatic validation is unavailable or failed
+
+```text
+team roles
+team role show tester
+execution status
+team run <run-id>
+```
+
+`Validation Unavailable` means the configured Tester assignment or execution engine is
+not ready. Restore that engine, then run `team test <run-id>` or `team test last`.
+`Validation Failed` means a selected check found a real issue; review the named check
+and workspace diff. `Validation Error` means a timeout, bounded-output limit, safety
+guard, or other sanitized validator failure stopped the attempt. None of these states
+automatically changes or rolls back implementation files.
+
 ### Workspace is read-only or mismatched
 
 ```text
@@ -1206,7 +1300,9 @@ Developer mode can expose safe diagnostics. It does not bypass approval or polic
 | `team status <task-id>` | Reopen a persisted plan |
 | `team approve <task-id>` | Create an immutable manual approval |
 | `team implement <task-id> <approval-id>` | Run one bounded implementation |
-| `team run <run-id>` | Show results awaiting review |
+| `team run <run-id>` | Show implementation and automatic validation results |
+| `team test <run-id>` | Add one immutable validation attempt without implementation |
+| `team test last` | Validate the newest eligible run in the active workspace |
 | `team rollback <run-id>` | Safely restore one reviewed run |
 | `execution status` | Diagnose execution engines and desktop apps |
 

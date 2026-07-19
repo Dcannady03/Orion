@@ -304,6 +304,15 @@ class CommandRouter:
         elif command_lower.startswith("team run "):
             self.team_run_status(raw_command[len("team run "):].strip())
 
+        elif command_lower == "team test":
+            print("Usage: team test <run-id|last>")
+
+        elif command_lower == "team test last":
+            self.team_test("last")
+
+        elif command_lower.startswith("team test "):
+            self.team_test(raw_command[len("team test "):].strip())
+
         elif command_lower == "team rollback":
             print("Usage: team rollback <run-id>")
 
@@ -690,7 +699,9 @@ class CommandRouter:
         print("    team status <task-id>      Reopen a persisted team plan")
         print("    team approve <task-id>     Bind approval to this plan and workspace")
         print("    team implement <id> <approval> Run one bounded local Codex execution")
-        print("    team run <run-id>          Show structured results awaiting review")
+        print("    team run <run-id>          Show implementation and validation results")
+        print("    team test <run-id>         Rerun bounded automatic validation only")
+        print("    team test last             Validate the newest eligible workspace run")
         print("    team rollback <run-id>     Safely restore one reviewed workspace run")
         print("    execution status           Diagnose CLI and desktop execution engines")
         print()
@@ -1901,7 +1912,7 @@ class CommandRouter:
         print("AI Team")
         print("-" * 62)
         print("Planning: Architect -> Engineering Reviewer -> explicit Y/N/D approval.")
-        print("Implementation Engine + Tester: one approved bounded run -> Awaiting Review.")
+        print("Implementation Engine -> read-only Automatic Tester -> Awaiting Review.")
         print("Commits, pushes, merges, tags, and pull requests remain disabled.")
         if tasks:
             print("Recent tasks")
@@ -1915,7 +1926,7 @@ class CommandRouter:
             'team roles | team role show/set/reset | '
             'team approve <task-id> | '
             "team implement <task-id> <approval-id> | team run <run-id> | "
-            "team rollback <run-id>"
+            "team test <run-id|last> | team rollback <run-id>"
         )
 
     def show_team_roles(self):
@@ -2130,7 +2141,6 @@ class CommandRouter:
                 execution_engine = engines.require_codex()
             else:
                 execution_engine = role_registry.engine("implementation")
-                role_registry.engine("tester")
                 if execution_engine is None:
                     execution_engine = engines.require_codex()
         except (ConnectionError, OSError, RuntimeError, ValueError, ExecutionEngineUnavailable) as exc:
@@ -2347,6 +2357,27 @@ class CommandRouter:
             return
         self._render_codex_run(run, self.orion.codex_bridge.store.run_directory(run.run_id))
 
+    def team_test(self, run_id: str):
+        if not run_id:
+            print("Usage: team test <run-id|last>")
+            return None
+        try:
+            workspace_manager = getattr(self.orion, "workspace_manager", None)
+            if workspace_manager is not None:
+                capabilities = workspace_manager.refresh_capabilities()
+                self.orion.codex_bridge.bind(workspace_manager.root, capabilities)
+            selected = (
+                self.orion.codex_bridge.latest_validatable_run()
+                if run_id.strip().lower() == "last"
+                else self.orion.codex_bridge.run(run_id.strip())
+            )
+            run = self.orion.codex_bridge.validate(selected.run_id)
+        except (FileNotFoundError, OSError, PermissionError, RuntimeError, ValueError) as exc:
+            print(f"Automatic validation refused: {exc}")
+            return None
+        self._render_codex_run(run, self.orion.codex_bridge.store.run_directory(run.run_id))
+        return run
+
     def team_rollback(self, run_id: str):
         if not run_id:
             print("Usage: team rollback <run-id>")
@@ -2452,7 +2483,7 @@ class CommandRouter:
 
     @staticmethod
     def _render_codex_run(run, artifact_directory):
-        print("\nCodex Implementation")
+        print("\nImplementation Result")
         print("-" * 72)
         print(f"Run: {run.run_id}")
         print(f"AI Team Task: {run.team_task_id}")
@@ -2468,14 +2499,17 @@ class CommandRouter:
                 print(f"Commit: {run.workspace.commit[:12]}")
         print(f"Status: {run.status.replace('_', ' ').title()}")
         if run.result is not None:
-            print(f"\nSummary\n  {run.result.summary}")
+            print(f"Implementation: Complete\n\nSummary\n  {run.result.summary}")
             print("\nFiles Changed")
-            if run.result.files_changed:
-                for item in run.result.files_changed:
-                    print(f"  - {item.path}: {item.summary}")
+            if run.changes is not None:
+                print(f"  Created:  {len(run.changes.by_kind('created'))}")
+                print(f"  Modified: {len(run.changes.by_kind('modified'))}")
+                print(f"  Deleted:  {len(run.changes.by_kind('deleted'))}")
+            elif run.result.files_changed:
+                print(f"  Reported: {len(run.result.files_changed)}")
             else:
                 print("  none")
-            print("\nTests")
+            print("\nImplementation-Reported Tests")
             for test in run.result.tests:
                 print(f"  - [{test.status.upper()}] {test.command}: {test.summary}")
             if run.result.risks:
@@ -2503,15 +2537,53 @@ class CommandRouter:
                     print(f"    - {item.path}{suffix}")
             if run.changes.diff_truncated:
                 print("  Text diff was truncated at the configured safety limit.")
+
+        validation = getattr(run, "validation", None)
+        print("\nAutomatic Validation")
+        print("-" * 72)
+        if validation is None:
+            print("NOT RUN  No automatic validation attempt is recorded.")
+        else:
+            print(
+                f"Tester: {validation.tester_requested} -> "
+                f"{validation.tester_resolved or 'unavailable'}"
+            )
+            if validation.fallback_reason:
+                print(f"Fallback: {validation.fallback_reason}")
+            marker = {
+                "passed": "PASS",
+                "warning": "WARN",
+                "failed": "FAIL",
+                "skipped": "SKIP",
+                "error": "ERROR",
+            }
+            for check in validation.checks:
+                print(f"{marker.get(check.status, check.status.upper()):5} {check.name}: {check.summary}")
+            for diagnostic in validation.safe_diagnostics:
+                print(f"INFO  {diagnostic}")
+            print("\nValidation Summary")
+            print(f"  Checks:   {len(validation.checks)}")
+            print(f"  Passed:   {len(validation.checks_passed)}")
+            print(f"  Warnings: {len(validation.warnings)}")
+            print(f"  Failed:   {len(validation.checks_failed)}")
+            print(f"  Skipped:  {len(validation.skipped_checks)}")
+            print(f"  Attempts: {len(getattr(run, 'validation_history', ())) or 1}")
         if run.error:
             print(f"Error category: {run.error}")
         print(f"\nArtifacts: {artifact_directory}")
         if run.status == "awaiting_review":
-            print("Stopped at Awaiting Review. No Git or pull-request action was performed.")
+            print("\nReview Status")
+            print("-" * 72)
+            print(validation.review_status if validation is not None else "Awaiting Review — Validation Not Run")
+            print("Validation never accepts or rolls back implementation changes.")
+            print("No Git or pull-request action was performed.")
             print(f"Review the bounded diff at: {artifact_directory / 'workspace.diff'}")
+            print(f"Rerun validation with: team test {run.run_id}")
             print(f"Rollback with: team rollback {run.run_id}")
         elif run.status == "rolled_back":
             print("Workspace changes from this run have been safely rolled back.")
+            if validation is not None:
+                print("Validation artifacts were retained as audit history for this rolled-back run.")
 
     def show_config(self):
         """Display loaded configuration."""

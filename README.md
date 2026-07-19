@@ -18,6 +18,11 @@ roles reuse Orion's provider routing policy, implementation remains fail-closed 
 its engine is unavailable, and Gatekeeper's immutable approval, workspace sandbox,
 Awaiting Review, and rollback boundaries remain unchanged.
 
+The unreleased Automatic Validation milestone turns the configured Tester into a real
+post-implementation stage. Orion deterministically selects relevant local checks,
+stores redacted immutable validation history, and still leaves every Keep Changes or
+Roll Back decision to the user.
+
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
 
@@ -77,7 +82,9 @@ team role reset <role>       Restore the role's dynamic default
 team status <task-id>        Reopen a persisted AI Team plan
 team approve <task-id>       Approve this plan hash for the active workspace
 team implement <id> <approval-id> Run one bounded local Codex execution
-team run <run-id>            Show structured results awaiting review
+team run <run-id>            Show implementation and validation results
+team test <run-id>           Rerun validation without reimplementation
+team test last               Validate the newest eligible workspace run
 team rollback <run-id>       Restore a run when affected files are unchanged
 execution status             Detect usable local execution engines
 workspace                    Inspect the active workspace
@@ -345,6 +352,14 @@ approval commands. Token usage is shown as an estimate. Cost is shown when rates
 configured under `team.pricing`; local Ollama defaults to zero cost. See
 `docs/AI_TEAM.md` for role configuration and the persisted task schema.
 
+After a successful implementation, the configured Tester runs a separate automatic,
+bounded validation stage. Python changes receive compile validation and targeted tests
+when they can be identified; broad or unmatched Python changes use full discovery.
+Changed JSON, YAML, TOML, and Markdown files receive relevant deterministic checks.
+Orion also verifies expected created/deleted files, exact snapshot state, and protected
+workspace metadata. Validation never edits implementation files, commits, accepts, or
+rolls back a run.
+
 ## Codex Bridge Phase 1
 
 Codex Bridge turns one persisted AI Team plan into one bounded local implementation
@@ -360,6 +375,8 @@ the process starts.
 team approve <team-task-id>
 team implement <team-task-id> <approval-id>
 team run <run-id>
+team test <run-id>
+team test last
 team rollback <run-id>
 ```
 
@@ -375,7 +392,11 @@ extra writable roots, MCP, apps, plugins, hooks, and sub-agents remain unavailab
 
 Before Codex starts, Orion captures a bounded external baseline. Afterward it verifies
 the structured file list against actual created, modified, and deleted files, writes a
-redacted unified text diff plus binary metadata, and stops at `Awaiting Review`.
+redacted unified text diff plus binary metadata, invokes the configured Tester, and
+stops at `Awaiting Review` with a Passed, Warnings, Failed, Unavailable, or Error
+validation result. A validation failure is evidence for human review, not permission
+to repair or roll back automatically. `team test` creates another immutable validation
+attempt without rerunning implementation or consuming approval.
 `team rollback` restores saved preimages only when affected files have not changed
 again. No Team command initializes Git, creates a branch, commits, resets, pushes,
 merges, tags, or opens a pull request. See `docs/CODEX_BRIDGE.md` for the complete

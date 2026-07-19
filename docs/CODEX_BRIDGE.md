@@ -21,10 +21,13 @@ automatic bounded handoff or team implement <team-task-id> <approval-id>
         |
         | one local codex exec process
         v
-Structured implementation and test artifacts
+Structured implementation artifacts
         |
         v
-Awaiting Review
+Automatic Tester (bounded, read-only)
+        |
+        v
+Awaiting Review + validation result
 ```
 
 The interactive console offers approval immediately after rendering the final plan.
@@ -43,6 +46,8 @@ team approve <team-task-id>
 team implement <team-task-id> <approval-id>
 team plan --manual "<goal>"
 team run <run-id>
+team test <run-id>
+team test last
 team rollback <run-id>
 execution status
 ```
@@ -228,6 +233,33 @@ Valid structured output reaches `Awaiting Review` even when a reported test fail
 remaining work exists. That information belongs to the reviewer; it does not trigger
 an automatic repair loop.
 
+## Automatic validation boundary
+
+After implementation artifacts and actual workspace changes agree, Codex Bridge asks
+the existing role registry for the configured Tester. The requested and resolved
+assignment, engine, fallback reason, timestamps, duration, exit codes, checks, files,
+and safe diagnostics are stored with the attempt. Execution roles do not silently
+fall back; an unavailable Tester records `Validation Unavailable` without launching a
+command.
+
+Orion chooses checks deterministically from the actual change set. It compiles changed
+Python, prefers matching targeted tests, and uses full discovery only for broad shared
+infrastructure or when no target can be identified. JSON, YAML, TOML, and Markdown
+receive relevant local validation. Expected file state, snapshot integrity, and
+protected `.git`, `.codex`, and `.agents` metadata are checked before and after Tester
+commands.
+
+Tester commands use an isolated temporary home and cache, a fixed Python-module
+allowlist, time and output limits, no inherited credential variables, blocked network
+access, blocked nested commands, and a write guard outside the temporary validation
+directory. Raw stdout, stderr, environments, prompts, and file contents are never
+persisted. Validation may report failure, but it never repairs, accepts, commits, or
+rolls back implementation changes.
+
+`team test <run-id>` and `team test last` rerun only this validation stage. A rerun does
+not consume another approval or start Codex implementation. Each attempt receives a
+new immutable artifact pair, so older results remain available for audit history.
+
 ## External persistence
 
 All bridge state lives outside application and workspace files:
@@ -250,6 +282,12 @@ All bridge state lives outside application and workspace files:
       workspace-baseline.json
       workspace-changes.json
       workspace.diff
+      validation-protected-baseline.json
+      validation/
+        validation-0001.json
+        validation-0001.log
+        validation-0002.json  # present only after a rerun
+        validation-0002.log
       snapshot/
         blobs/
       rollback.json  # present only after an approved rollback
@@ -260,6 +298,11 @@ uses exclusive file creation before Codex starts, so two Orion processes cannot 
 the same approval concurrently. `run.json` uses atomic replacement while moving from
 `Executing` to `Awaiting Review` or `Failed`. Owner-only file permissions are requested
 where the platform supports them.
+
+`run.json` retains the newest strict validation envelope and a bounded list of immutable
+attempt paths. Existing schema-v2 runs without validation fields remain readable and
+display `Validation Not Run`. Validation logs contain only one bounded, redacted line
+per check; they are not raw process logs.
 
 The JSONL artifact contains parsed, validated events reserialized by Orion; raw process
 stdout and stderr are never written. The run document and final result use strict
@@ -288,12 +331,19 @@ codex_bridge:
   snapshot_max_file_bytes: 25000000
   snapshot_max_total_bytes: 250000000
   diff_max_bytes: 2000000
+team:
+  validation:
+    command_timeout_seconds: 120
+    max_output_bytes: 250000
 ```
 
 Timeout is bounded to 1–7,200 seconds. Captured process output is bounded to
 1–100,000,000 bytes. Snapshot limits are validated before the approval is claimed or
 the local process starts. Ignored paths are outside snapshot review and are explicitly
 prohibited in the implementation prompt.
+
+Each automatic validation command is separately bounded to 1–900 seconds. Validation
+output capture is bounded to 1,000–5,000,000 bytes and discarded rather than persisted.
 
 ## Phase boundary
 

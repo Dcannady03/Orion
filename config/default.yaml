@@ -88,6 +88,9 @@ ai:
     minimum_health_samples: 3
 team:
   enabled: true
+  validation:
+    command_timeout_seconds: 120
+    max_output_bytes: 250000
   assignments:
     architect: active-planning-model
     engineer_reviewer: active-planning-model

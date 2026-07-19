@@ -335,6 +335,7 @@ class Orion:
                 CodexBridgeStore(self.paths.codex_bridge),
                 self.workspace_manager.root,
                 workspace_capabilities=self.workspace_manager.capabilities,
+                team_roles=self.team_roles,
             ),
         )
 

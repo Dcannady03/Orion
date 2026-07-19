@@ -189,7 +189,17 @@ The prompt independently prohibits ignored/sensitive paths and every branch, com
 push, merge, tag, and pull-request action.
 
 Valid JSONL, structured output, baseline, change metadata, and bounded diff become
-external artifacts and move the run to `Awaiting Review`. `team rollback` restores
+external artifacts. `AutomaticValidationService`, owned by `CodexBridge`, then resolves
+the persisted Tester role and derives a deterministic validation plan from the actual
+change set. Language parsers run in-process; allowlisted Python compile/test commands
+run with isolated temporary state, blocked network/nested processes, bounded output,
+and a child write guard. A second snapshot comparison detects any Tester mutation.
+
+Each strict `ValidationAttempt` is immutable under the external run directory while
+`run.json` keeps the latest attempt and bounded history paths. Existing schema-v2 run
+records tolerate missing validation fields. Implementation and validation status remain
+separate. Every outcome moves the completed run to human review. `team rollback`
+restores
 preimages without Git only when affected paths still match the run. Invalid output or
 process failure records only a sanitized category. There is no autonomous reviewer,
 repair loop, Task Manager transition, Git write, or release action in this phase.

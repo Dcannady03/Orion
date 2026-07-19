@@ -41,6 +41,22 @@ and required adapter capability before saving or running an assignment. There is
 execution fallback; an unavailable Implementation Engine fails closed before approval
 is consumed or the workspace changes.
 
+The Tester is also execution-backed, but it runs only after implementation has
+completed. An unavailable Tester records `Validation Unavailable` without launching a
+check or changing the completed implementation. Automatic validation limits may be
+overridden externally:
+
+```yaml
+team:
+  validation:
+    command_timeout_seconds: 120  # each command; allowed range 1–900
+    max_output_bytes: 250000      # captured then discarded; 1,000–5,000,000
+```
+
+These settings are not permissions. The Tester remains network-disabled, read-only
+toward implementation files, unable to launch nested commands or Git, and confined to
+an Orion-controlled temporary directory for writes.
+
 Use Orion commands instead of editing YAML directly:
 
 ```text

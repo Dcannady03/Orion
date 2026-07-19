@@ -1,12 +1,14 @@
 # Orion AI Team
 
-Phase 1 proves that Orion can coordinate specialized AI roles and pass structured work
-between them. The planning workflow itself remains planning-only.
+Orion coordinates specialized planning, implementation, and validation roles while
+remaining the only user-facing orchestrator. Planning remains tool-free; execution and
+automatic validation use separate bounded stages.
 
 ## Workflow
 
 ```text
 Goal -> Architect JSON -> Engineering Reviewer JSON -> Final Plan -> Y/N/D Approval
+     -> Implementation Engine -> Automatic Tester -> Awaiting Review -> Human decision
 ```
 
 The orchestrator makes exactly two provider calls. It does not expose tools to either
@@ -28,7 +30,9 @@ The manual Codex Bridge path remains available. `team approve` binds the persist
 plan's SHA-256 and current workspace to an immutable, single-use approval. The same
 approval service is used by interactive `Y`. The same
 `team implement <team-task-id> <approval-id>` execution service consumes it and stops
-at `Awaiting Review`; approval replay is rejected in either workflow.
+at `Awaiting Review`; approval replay is rejected in either workflow. After successful
+implementation, the configured Tester runs deterministic validation before Orion
+renders the final review state.
 
 ## Commands
 
@@ -44,6 +48,8 @@ team status <task-id>
 team approve <task-id>
 team implement <task-id> <approval-id>
 team run <run-id>
+team test <run-id>
+team test last
 execution status
 task link-plan <project-task-id> <team-task-id>
 ```
@@ -101,12 +107,48 @@ closed when that engine is unavailable.
 Coding, or Research routing policy. If that dynamic assignment cannot be used, Orion
 may choose an available planning fallback from the same routing policy and reports the
 reason. Explicit `provider:model` assignments do not silently change to another model.
-Execution roles never use planning fallbacks.
+Execution roles never use planning fallbacks. An unavailable Tester records
+`Validation Unavailable` and launches no check; Orion never silently substitutes a
+different execution engine.
 
 Agent definitions under `~/.orion/agents/` remain the configurable workers behind
 planning roles. Their instructions specialize the role, while Orion continues to own
 every prompt, provider call, handoff, artifact, approval, and user-facing result.
 Providers never communicate directly with the user.
+
+## Automatic Tester
+
+The Tester is a separate validation role, not another implementation turn. After a
+successful implementation Orion inspects the recorded created, modified, and deleted
+files and selects only relevant deterministic checks:
+
+- changed Python files receive compile validation and matching targeted tests;
+- broad shared Python changes, or changes with no target match, receive full test
+  discovery;
+- changed JSON, YAML, and TOML files are parsed locally;
+- changed Markdown receives heading, fence, and practical local-link checks;
+- expected created/deleted files, the implementation result, workspace snapshot, and
+  protected `.git`, `.codex`, and `.agents` metadata are verified.
+
+Tester commands are allowlisted, time-bounded, and run with an isolated temporary home,
+disabled network access, no inherited credential variables, no nested processes, and a
+Python-level filesystem guard. Temporary caches stay outside the workspace and are
+removed after the attempt. Orion compares the workspace again after testing; any
+mutation becomes a validation failure. The Tester cannot fix failures, update plans or
+roles, access Vault/OAuth data, consume an approval, or run Git operations.
+
+Possible review results are:
+
+- `Awaiting Review — Validation Passed`;
+- `Awaiting Review — Validation Warnings`;
+- `Awaiting Review — Validation Failed`;
+- `Validation Unavailable`;
+- `Validation Error`; or
+- `Awaiting Review — Validation Not Run` for compatible older artifacts.
+
+Validation never accepts or rolls back changes. Use `team test <run-id>` to create a
+new immutable validation attempt, or `team test last` for the newest eligible run in
+the active workspace. Neither command reruns implementation or consumes an approval.
 
 When no supported CLI is runnable, `team implement` shows the Execution Engine report
 instead of a low-level “Codex not found” error. That preflight occurs before the
@@ -148,6 +190,12 @@ Persisted tasks are validated before saving and after loading. Orion rejects mis
 or mismatched task identity, unknown status values, malformed or timezone-free
 timestamps, invalid message and usage records, and unexpected fields rather than
 loading a partially valid task.
+
+Implementation and validation artifacts are separate from planning tasks under
+`~/.orion/codex/runs/<run-id>/`. The latest validation summary and bounded history paths
+live in `run.json`; each attempt has immutable `validation/validation-NNNN.json` and
+`.log` artifacts. Older run records without validation fields remain readable as
+`Validation Not Run`.
 
 ## Token and cost reporting
 
