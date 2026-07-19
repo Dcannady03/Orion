@@ -349,7 +349,7 @@ class Orion:
         )
 
         self.discord_interface = None
-        self.router = CommandRouter(self)
+        self.router = CommandRouter(self, interactive_team_approval=True)
         self.console = Console(self)
 
     def _save_calendar_provider_state(self, provider_key: str, enabled: bool) -> None:

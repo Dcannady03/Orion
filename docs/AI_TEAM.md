@@ -6,7 +6,7 @@ between them. The planning workflow itself remains planning-only.
 ## Workflow
 
 ```text
-Goal -> Architect JSON -> Engineer Review JSON -> Final Plan -> Awaiting Approval
+Goal -> Architect JSON -> Engineer Review JSON -> Final Plan -> Y/N/D Approval
 ```
 
 The orchestrator makes exactly two provider calls. It does not expose tools to either
@@ -17,11 +17,18 @@ After a plan reaches `Awaiting Approval`, `task link-plan` can attach it to a
 first-class project task as an artifact. Linking does not approve the project task or
 start implementation.
 
-Codex Bridge is a separate explicit path. `team approve` binds the persisted plan's
-SHA-256 and current workspace to an immutable, single-use approval. Only
-`team implement <team-task-id> <approval-id>` can consume that approval. The bridge
-then stops at `Awaiting Review`; it does not change the AI Team planning schema or make
-planning itself executable.
+In the interactive console, Orion asks whether to approve the exact displayed plan.
+Only `Y` or `Yes` creates the approval and immediately invokes the bounded Codex Bridge
+path. `N`, empty input, or Ctrl+C records no approval and performs no implementation.
+`D` displays the complete final plan, risks, workspace binding, execution engine,
+sandbox, and expected permissions before returning to the prompt. No natural-language
+response elsewhere in Orion is treated as approval.
+
+The manual Codex Bridge path remains available. `team approve` binds the persisted
+plan's SHA-256 and current workspace to an immutable, single-use approval. The same
+approval service is used by interactive `Y`. The same
+`team implement <team-task-id> <approval-id>` execution service consumes it and stops
+at `Awaiting Review`; approval replay is rejected in either workflow.
 
 ## Commands
 
@@ -29,6 +36,7 @@ planning itself executable.
 team
 team roles
 team plan "Add OpenAI image generation"
+team plan --manual "Add OpenAI image generation"
 team status <task-id>
 team approve <task-id>
 team implement <task-id> <approval-id>
@@ -36,6 +44,11 @@ team run <run-id>
 execution status
 task link-plan <project-task-id> <team-task-id>
 ```
+
+`team plan --manual` disables the Y/N/D prompt for scripting, recovery, and automated
+callers. Command routers are noninteractive unless the Orion console explicitly enables
+interactive Team approval, so tests and embedded callers cannot accidentally block on
+standard input.
 
 ## Role configuration
 

@@ -13,7 +13,7 @@ import shlex
 
 from orion.agents import AgentDefinition, AgentPermissions
 from orion.services.team import TeamPlanningError
-from orion.services.codex_bridge import CodexBridgeError
+from orion.services.codex_bridge import CodexBridgeError, PlanSnapshot
 from orion.services.execution_engines import ExecutionEngineUnavailable
 from orion.services.workspace_snapshot import WorkspaceRollbackError, WorkspaceSnapshotError
 from orion.services.email import redact_email_text
@@ -22,8 +22,16 @@ from orion.services.email import redact_email_text
 class CommandRouter:
     """Routes commands entered into Orion's CLI."""
 
-    def __init__(self, orion):
+    def __init__(
+        self,
+        orion,
+        *,
+        interactive_team_approval: bool = False,
+        team_approval_input=None,
+    ):
         self.orion = orion
+        self.interactive_team_approval = bool(interactive_team_approval)
+        self._team_approval_input = team_approval_input
 
     def handle(self, command: str) -> bool:
         """
@@ -249,7 +257,7 @@ class CommandRouter:
             self.show_team_roles()
 
         elif command_lower == "team plan":
-            print('Usage: team plan "<goal>"')
+            print('Usage: team plan [--manual] "<goal>"')
 
         elif command_lower.startswith("team plan "):
             self.team_plan(raw_command[len("team plan "):].strip())
@@ -655,7 +663,8 @@ class CommandRouter:
         print("    agent test <name>          Run one bounded structured-output test")
         print()
         print("  AI Team & Codex Bridge")
-        print('    team plan "<goal>"         Create an Architect + Engineer plan')
+        print('    team plan "<goal>"         Plan, then offer interactive approval')
+        print('    team plan --manual "<goal>" Plan without an approval prompt')
         print("    team roles                 Show role provider/model assignments")
         print("    team status <task-id>      Reopen a persisted team plan")
         print("    team approve <task-id>     Bind approval to this plan and workspace")
@@ -1870,7 +1879,7 @@ class CommandRouter:
         tasks = self.orion.team.recent(5)
         print("AI Team")
         print("-" * 62)
-        print("Planning: Architect -> Engineer Review -> Awaiting Approval.")
+        print("Planning: Architect -> Engineer Review -> explicit Y/N/D approval.")
         print("Codex Bridge: one approved workspace-confined run -> Awaiting Review.")
         print("Commits, pushes, merges, tags, and pull requests remain disabled.")
         if tasks:
@@ -1881,7 +1890,8 @@ class CommandRouter:
             print("No team planning tasks have been created yet.")
         print('-' * 62)
         print(
-            'Commands: team plan "<goal>" | team approve <task-id> | '
+            'Commands: team plan "<goal>" | team plan --manual "<goal>" | '
+            'team approve <task-id> | '
             "team implement <task-id> <approval-id> | team run <run-id> | "
             "team rollback <run-id>"
         )
@@ -1904,13 +1914,20 @@ class CommandRouter:
 
     def team_plan(self, payload: str):
         goal = payload.strip()
+        manual_mode = False
+        if goal.lower() == "--manual":
+            manual_mode = True
+            goal = ""
+        elif goal.lower().startswith("--manual "):
+            manual_mode = True
+            goal = goal[len("--manual "):].strip()
         if goal[:1] in {'"', "'"}:
             if len(goal) < 2 or goal[-1] != goal[0]:
                 print("Could not read team goal: closing quote is missing.")
                 return
             goal = goal[1:-1].strip()
         if not goal:
-            print('Usage: team plan "<goal>"')
+            print('Usage: team plan [--manual] "<goal>"')
             return
         print("AI Team is preparing a bounded two-role plan...")
         try:
@@ -1921,7 +1938,16 @@ class CommandRouter:
             if task_id:
                 print(f"Saved task: {task_id}")
             return
-        self._render_team_task(task)
+        self._render_team_task(
+            task,
+            show_manual_approval=manual_mode or not self.interactive_team_approval,
+        )
+        if (
+            task.status == "awaiting_approval"
+            and self.interactive_team_approval
+            and not manual_mode
+        ):
+            self._prompt_team_approval(task)
 
     def team_status(self, task_id: str):
         try:
@@ -1932,6 +1958,13 @@ class CommandRouter:
         self._render_team_task(task)
 
     def team_approve(self, task_id: str):
+        approval = self._create_team_approval(task_id)
+        if approval is None:
+            return None
+        self._render_team_approval(approval, show_manual_command=True)
+        return approval
+
+    def _create_team_approval(self, task_id: str):
         try:
             workspace_manager = getattr(self.orion, "workspace_manager", None)
             if workspace_manager is not None:
@@ -1940,7 +1973,11 @@ class CommandRouter:
             approval = self.orion.codex_bridge.approve(task_id)
         except (FileNotFoundError, OSError, PermissionError, ValueError) as exc:
             print(f"Codex Bridge approval failed: {exc}")
-            return
+            return None
+        return approval
+
+    @staticmethod
+    def _render_team_approval(approval, *, show_manual_command: bool):
         print("\nCodex Plan Approval")
         print("-" * 72)
         print(f"AI Team Task: {approval.team_task_id}")
@@ -1948,6 +1985,7 @@ class CommandRouter:
         print(f"Plan SHA-256: {approval.plan_hash}")
         print(f"Workspace: {approval.workspace_root}")
         print(f"Workspace Mode: {approval.workspace.mode.title()}")
+        print(f"Execution Engine: Codex CLI ({approval.execution_engine})")
         if approval.workspace.is_git_repository:
             print(f"Repository Root: {approval.workspace.git_root}")
             if approval.workspace.branch:
@@ -1956,28 +1994,32 @@ class CommandRouter:
             "Approval is immutable and bound to this plan, workspace capability, "
             "Codex engine, active-workspace scope, and one implementation."
         )
-        print(
-            f"Run with: team implement {approval.team_task_id} {approval.approval_id}"
-        )
+        if show_manual_command:
+            print(
+                f"Run with: team implement {approval.team_task_id} {approval.approval_id}"
+            )
 
     def team_implement(self, payload: str):
         parts = payload.split()
         if len(parts) != 2:
             print("Usage: team implement <team-task-id> <approval-id>")
-            return
+            return None
         team_task_id, approval_id = parts
+        return self._implement_approved_team_plan(team_task_id, approval_id)
+
+    def _implement_approved_team_plan(self, team_task_id: str, approval_id: str):
         engines = getattr(self.orion, "execution_engines", None) or getattr(
             self.orion.codex_bridge, "execution_engines", None
         )
         execution_engine = None
         if engines is None:
             print("No execution engine service is available.")
-            return
+            return None
         try:
             execution_engine = engines.require_codex()
         except ExecutionEngineUnavailable:
             self._render_no_execution_engine(engines)
-            return
+            return None
         try:
             workspace_manager = getattr(self.orion, "workspace_manager", None)
             capabilities = (
@@ -1995,13 +2037,13 @@ class CommandRouter:
             )
         except (OSError, PermissionError, TypeError, ValueError, ExecutionEngineUnavailable) as exc:
             print(f"Codex Bridge execution failed: {exc}")
-            return
+            return None
         print("Starting one approval-bound local Codex execution...")
         try:
             run = self.orion.codex_bridge.execute(context)
         except ExecutionEngineUnavailable:
             self._render_no_execution_engine(engines)
-            return
+            return None
         except (
             FileNotFoundError, OSError, PermissionError, ValueError,
             WorkspaceSnapshotError, CodexBridgeError,
@@ -2010,13 +2052,104 @@ class CommandRouter:
                 self._render_no_execution_engine(engines)
                 if exc.run_id:
                     print(f"Saved run: {exc.run_id}")
-                return
+                return None
             print(f"Codex Bridge execution failed: {exc}")
             run_id = getattr(exc, "run_id", "")
             if run_id:
                 print(f"Saved run: {run_id}")
-            return
+            return None
         self._render_codex_run(run, self.orion.codex_bridge.store.run_directory(run.run_id))
+        return run
+
+    def _prompt_team_approval(self, task):
+        while True:
+            print("\nApprove this exact plan?")
+            print("[Y] Yes  [N] No  [D] Details")
+            try:
+                answer = self._read_team_approval().strip().lower()
+            except KeyboardInterrupt:
+                print("\nApproval cancelled. The plan remains Awaiting Approval.")
+                return None
+            if not answer:
+                print("No approval recorded. The plan remains Awaiting Approval.")
+                return None
+            if answer in {"n", "no"}:
+                print("Plan not approved. No implementation was performed.")
+                return None
+            if answer in {"d", "details"}:
+                self._render_team_approval_details(task)
+                continue
+            if answer in {"y", "yes"}:
+                approval = self._create_team_approval(task.task_id)
+                if approval is None:
+                    return None
+                self._render_team_approval(approval, show_manual_command=False)
+                return self._implement_approved_team_plan(
+                    approval.team_task_id,
+                    approval.approval_id,
+                )
+            print("Please enter Y, N, or D. No approval has been recorded.")
+
+    def _read_team_approval(self) -> str:
+        if self._team_approval_input is not None:
+            return self._team_approval_input("> ")
+        return input("> ")
+
+    def _render_team_approval_details(self, task) -> None:
+        bridge = self.orion.codex_bridge
+        workspace_manager = getattr(self.orion, "workspace_manager", None)
+        try:
+            capabilities = (
+                workspace_manager.refresh_capabilities()
+                if workspace_manager is not None
+                else bridge.workspace_capabilities
+            )
+        except (OSError, ValueError):
+            capabilities = bridge.workspace_capabilities
+        engine_label = "Codex CLI (codex)"
+        engines = getattr(self.orion, "execution_engines", None) or getattr(
+            bridge, "execution_engines", None
+        )
+        if engines is not None:
+            try:
+                detected = {engine.engine_id: engine for engine in engines.status()}
+                engine = detected.get("codex")
+                if engine is None or not engine.ready_for_implementation:
+                    engine_label = "Codex CLI (not currently available)"
+                elif engine.version:
+                    engine_label = f"Codex CLI {engine.version} (codex)"
+            except (OSError, TypeError, ValueError):
+                pass
+
+        print("\nAI Team Approval Details")
+        print("-" * 72)
+        print(f"Task: {task.task_id}")
+        print(f"Plan SHA-256: {PlanSnapshot.from_team_task(task).hash}")
+        print(f"Workspace: {capabilities.root}")
+        print(f"Workspace Mode: {capabilities.mode.title()}")
+        print(f"Execution Engine: {engine_label}")
+        print("Sandbox Mode: workspace-write")
+        print("Expected Permissions:")
+        print("  - Read and write only inside the exact approved workspace")
+        print("  - Network and web search disabled")
+        print("  - Temporary, parent, profile, and unrelated writable roots excluded")
+        print("  - .git, .codex, and .agents protected; no commit, push, merge, or PR")
+        print("Final Plan:")
+        for index, item in enumerate(task.final_plan, start=1):
+            print(f"  {index}. {item}")
+        print("Risks:")
+        risks = []
+        for role in ("architect", "engineer"):
+            artifact = task.artifact(role)
+            if artifact is not None:
+                for risk in artifact.output.risks:
+                    if risk not in risks:
+                        risks.append(risk)
+        if risks:
+            for risk in risks:
+                print(f"  - {risk}")
+        else:
+            print("  none reported")
 
     def show_execution_status(self):
         engines = self.orion.execution_engines.status()
@@ -2117,7 +2250,7 @@ class CommandRouter:
         print(f"[OK] Run {rolled_back.run_id} was rolled back without Git reset or checkout.")
 
     @staticmethod
-    def _render_team_task(task):
+    def _render_team_task(task, *, show_manual_approval: bool = True):
         print("\nAI Team Plan")
         print("-" * 62)
         print(f"Task: {task.task_id}")
@@ -2162,7 +2295,8 @@ class CommandRouter:
             print(f"Error: {task.error}")
         if task.status == "awaiting_approval":
             print("No implementation has been performed. This task is awaiting your approval.")
-            print(f"Approve this exact plan with: team approve {task.task_id}")
+            if show_manual_approval:
+                print(f"Approve this exact plan with: team approve {task.task_id}")
 
     @staticmethod
     def _render_codex_run(run, artifact_directory):

@@ -285,13 +285,32 @@ class TeamRouterTests(unittest.TestCase):
             team, _, _, _ = helper.build(tmp)
             orion = SimpleNamespace(team=team)
             router = CommandRouter(orion)
-            with patch("builtins.print") as output:
+            with patch("builtins.input", side_effect=AssertionError("must not prompt")), patch(
+                "builtins.print"
+            ) as output:
                 self.assertTrue(router.handle('team plan "Add OpenAI image generation"'))
             rendered = "\n".join(str(call.args[0]) for call in output.call_args_list if call.args)
             self.assertIn("AI Team Plan", rendered)
             self.assertIn("Goal: Add OpenAI image generation", rendered)
             self.assertIn("Status: Awaiting Approval", rendered)
             self.assertIn("No implementation has been performed", rendered)
+            self.assertIn("Approve this exact plan with: team approve", rendered)
+
+    def test_manual_team_plan_mode_never_prompts_in_interactive_router(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            helper = TeamOrchestratorTests()
+            team, _, _, _ = helper.build(tmp)
+            router = CommandRouter(
+                SimpleNamespace(team=team),
+                interactive_team_approval=True,
+            )
+            with patch("builtins.input", side_effect=AssertionError("must not prompt")), patch(
+                "builtins.print"
+            ) as output:
+                router.handle('team plan --manual "Plan for an automated caller"')
+            rendered = "\n".join(str(call.args[0]) for call in output.call_args_list if call.args)
+            self.assertIn("Goal: Plan for an automated caller", rendered)
+            self.assertIn("Approve this exact plan with: team approve", rendered)
 
     def test_team_status_reopens_persisted_task(self):
         task = Mock(task_id="team-123", goal="Goal", status="awaiting_approval", error="")

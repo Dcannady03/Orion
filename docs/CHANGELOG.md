@@ -1,3 +1,19 @@
+# v0.6.1 — Gatekeeper
+
+- Added cached `codex exec --help` capability detection so command construction follows the resolved CLI's supported options instead of a hardcoded version.
+- Kept sandbox, configuration isolation, workspace binding, and structured-output flags fail-closed while treating the duplicate Codex approval flag as optional.
+- Added sanitized process diagnostics to `run.json` without persisting raw stdout or stderr.
+- Categorized rejected CLI arguments and recorded validated unsupported option names without workspace changes.
+- Repaired common UTF-8 mojibake before approval, result, and run persistence.
+- Restored Codex `workspace-write` access to the exact immutable approved workspace by removing the empty writable-roots override without granting any parent or unrelated directory.
+- Added fail-closed approval, execution-context, active-workspace, subprocess, and `--cd` identity checks while preserving network and temporary-directory restrictions.
+- Fixed noninteractive Codex 0.144.5 runs being declined by the child approval policy by supplying strict `approval_policy="never"` only after Orion validates its immutable one-use approval; `workspace-write` remains enforced.
+- Added strict `sandbox_mode="workspace-write"` compatibility alongside the required CLI sandbox flag and directed Codex to distinguish command-policy declines from actual filesystem write failures.
+- Restored native Windows file edits under isolated Codex configuration by explicitly selecting the preferred elevated Windows sandbox and validating the strict config before approval consumption.
+- Added interactive Y/N/D approval after `team plan`, with detailed boundary review, immediate bounded execution on explicit approval, and safe empty-input and Ctrl+C cancellation.
+- Preserved `team plan --manual`, `team approve`, and `team implement` for noninteractive callers, scripting, and recovery.
+- Added Codex CLI compatibility, interactive approval, workspace-bound sandbox, diagnostics, failure-isolation, caching, and encoding coverage; 351 tests pass.
+
 # v0.6.0 — Courier
 
 - Added one provider-neutral `EmailService` with Gmail and Microsoft Graph adapters.

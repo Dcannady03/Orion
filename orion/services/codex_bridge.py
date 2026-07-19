@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Callable, ClassVar, Iterable, Mapping
 from uuid import uuid4
 
 from orion.services.team import (
@@ -62,6 +62,7 @@ RUN_STATUSES = frozenset({
 TEST_STATUSES = frozenset({"passed", "failed", "not_run"})
 RUN_ERROR_CATEGORIES = frozenset({
     "codex_cli_unavailable",
+    "codex_cli_argument_error",
     "codex_timeout",
     "codex_process_failed",
     "codex_output_too_large",
@@ -80,6 +81,78 @@ RUN_ARTIFACT_NAMES = frozenset({
     "rollback.json",
 })
 PROTECTED_WORKSPACE_PARTS = frozenset({".git", ".agents", ".codex"})
+CODEX_REQUIRED_SECURITY_ARGUMENTS = frozenset({
+    "--sandbox",
+    "--config",
+    "--ignore-user-config",
+    "--strict-config",
+    "--cd",
+})
+CODEX_REQUIRED_PROTOCOL_ARGUMENTS = frozenset({"--json", "--output-schema"})
+CODEX_OPTIONAL_COMPATIBILITY_ARGUMENTS = frozenset({
+    "--ask-for-approval",
+    "--ephemeral",
+    "--skip-git-repo-check",
+})
+CODEX_HELP_OPTION_PATTERN = re.compile(r"(?<![\w-])(--[a-z0-9][a-z0-9-]*)\b", re.IGNORECASE)
+CODEX_UNSUPPORTED_ARGUMENT_PATTERN = re.compile(
+    r"(?:unexpected\s+argument|unknown\s+(?:argument|option)|"
+    r"unrecognized\s+(?:argument|option))\s+['\"]?(--[a-z0-9][a-z0-9-]*)",
+    re.IGNORECASE,
+)
+SAFE_STDERR_SUMMARIES = frozenset({
+    "",
+    "Codex could not be started.",
+    "Codex execution exceeded Orion's timeout.",
+    "Codex output exceeded Orion's capture limit.",
+    "Codex rejected an unsupported command-line argument.",
+    "Codex exited without a structured result.",
+})
+UTF8_MOJIBAKE_REPLACEMENTS = {
+    "â€™": "’",
+    "â€˜": "‘",
+    "â€œ": "“",
+    "â€": "”",
+    "â€“": "–",
+    "â€”": "—",
+    "â€¦": "…",
+}
+
+
+def _native_windows(platform_name: str) -> bool:
+    return str(platform_name).strip().casefold() in {"nt", "win32", "windows"}
+
+
+def _isolated_codex_config_values(platform_name: str) -> tuple[str, ...]:
+    """Return the strict static config shared by capability probes and execution."""
+
+    values = [
+        'approval_policy="never"',
+        'sandbox_mode="workspace-write"',
+    ]
+    if _native_windows(platform_name):
+        # Orion ignores user config, so the preferred native Windows sandbox must
+        # be selected again inside the isolated child configuration.
+        values.append('windows.sandbox="elevated"')
+    values.extend((
+        'web_search="disabled"',
+        "mcp_servers={}",
+        "features.apps=false",
+        "features.hooks=false",
+        "features.multi_agent=false",
+        "features.remote_plugin=false",
+        "sandbox_workspace_write.network_access=false",
+        "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+        "sandbox_workspace_write.exclude_slash_tmp=true",
+    ))
+    return tuple(values)
+
+
+def _normalize_utf8_text(value: str) -> str:
+    normalized = value
+    for broken, repaired in UTF8_MOJIBAKE_REPLACEMENTS.items():
+        normalized = normalized.replace(broken, repaired)
+    return normalized
 
 
 def _exact_mapping(value: Any, fields: set[str], label: str) -> dict[str, Any]:
@@ -98,7 +171,7 @@ def _exact_mapping(value: Any, fields: set[str], label: str) -> dict[str, Any]:
 def _required_string(value: Any, label: str, *, maximum: int) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must be a non-empty string.")
-    normalized = value.strip()
+    normalized = _normalize_utf8_text(value.strip())
     if len(normalized) > maximum:
         raise ValueError(f"{label} must be {maximum:,} characters or fewer.")
     return normalized
@@ -107,7 +180,7 @@ def _required_string(value: Any, label: str, *, maximum: int) -> str:
 def _optional_string(value: Any, label: str, *, maximum: int) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{label} must be a string.")
-    normalized = value.strip()
+    normalized = _normalize_utf8_text(value.strip())
     if len(normalized) > maximum:
         raise ValueError(f"{label} must be {maximum:,} characters or fewer.")
     return normalized
@@ -505,6 +578,94 @@ class ImplementationResult:
 
 
 @dataclass(frozen=True)
+class CodexRunDiagnostics:
+    """Strict, sanitized process diagnostics persisted without raw output."""
+
+    exit_code: int | None
+    timed_out: bool
+    resolved_executable: str
+    safe_stderr_summary: str = ""
+    unsupported_argument: str = ""
+
+    @classmethod
+    def from_value(
+        cls,
+        value: Any,
+        *,
+        default_executable: str,
+        successful: bool = False,
+    ) -> "CodexRunDiagnostics":
+        if value is None:
+            return cls(
+                exit_code=0 if successful else None,
+                timed_out=False,
+                resolved_executable=_required_string(
+                    default_executable,
+                    "Codex diagnostic executable",
+                    maximum=4_000,
+                ),
+            )
+        value = _exact_mapping(
+            value,
+            {
+                "exit_code",
+                "timed_out",
+                "resolved_executable",
+                "safe_stderr_summary",
+                "unsupported_argument",
+            },
+            "Codex run diagnostics",
+        )
+        exit_code = value["exit_code"]
+        if (
+            exit_code is not None
+            and (
+                isinstance(exit_code, bool)
+                or not isinstance(exit_code, int)
+                or not -(2 ** 31) <= exit_code <= (2 ** 32 - 1)
+            )
+        ):
+            raise ValueError("Codex diagnostic exit_code must be a bounded integer or null.")
+        if not isinstance(value["timed_out"], bool):
+            raise ValueError("Codex diagnostic timed_out must be a boolean.")
+        if value["timed_out"] and exit_code is not None:
+            raise ValueError("Timed-out Codex diagnostics cannot contain an exit code.")
+        executable = _required_string(
+            value["resolved_executable"],
+            "Codex diagnostic executable",
+            maximum=4_000,
+        )
+        if os.path.normcase(executable) != os.path.normcase(default_executable):
+            raise ValueError("Codex diagnostic executable does not match the run command.")
+        summary = _optional_string(
+            value["safe_stderr_summary"],
+            "Codex safe stderr summary",
+            maximum=200,
+        )
+        if summary not in SAFE_STDERR_SUMMARIES:
+            raise ValueError("Codex safe stderr summary is not a recognized sanitized value.")
+        unsupported = _optional_string(
+            value["unsupported_argument"],
+            "Codex unsupported argument",
+            maximum=100,
+        ).lower()
+        if unsupported and not re.fullmatch(r"--[a-z0-9][a-z0-9-]*", unsupported):
+            raise ValueError("Codex unsupported argument is not valid.")
+        if unsupported and summary != "Codex rejected an unsupported command-line argument.":
+            raise ValueError("Unsupported Codex arguments require the sanitized argument summary.")
+        return cls(exit_code, value["timed_out"], executable, summary, unsupported)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "exit_code": self.exit_code,
+            "timed_out": self.timed_out,
+            "resolved_executable": self.resolved_executable,
+            "safe_stderr_summary": self.safe_stderr_summary,
+            "unsupported_argument": self.unsupported_argument,
+        }
+
+
+@dataclass(frozen=True)
 class CodexRun:
     schema_version: int
     run_id: str
@@ -521,15 +682,21 @@ class CodexRun:
     result: ImplementationResult | None
     changes: WorkspaceChangeSet | None
     error: str
+    diagnostics: CodexRunDiagnostics
 
     @classmethod
     def from_value(cls, value: Any) -> "CodexRun":
+        if isinstance(value, dict) and "diagnostics" not in value:
+            # Existing v2 run records remain readable; new saves always include
+            # the strict diagnostics envelope.
+            value = {**value, "diagnostics": None}
         value = _exact_mapping(
             value,
             {
                 "schema_version", "run_id", "approval_id", "team_task_id",
                 "plan_hash", "workspace_root", "workspace", "status", "command",
                 "artifacts", "started_at", "completed_at", "result", "changes", "error",
+                "diagnostics",
             },
             "Codex run",
         )
@@ -547,7 +714,7 @@ class CodexRun:
         if status_value not in RUN_STATUSES:
             raise ValueError(f"Codex run status is not recognized: {status_value}")
         command = _bounded_strings(
-            value["command"], "Codex run command", maximum_items=40,
+            value["command"], "Codex run command", maximum_items=64,
             maximum_length=4_000, allow_empty=False,
         )
         executable_name = Path(command[0]).name.lower()
@@ -566,6 +733,11 @@ class CodexRun:
         if completed is not None and started is not None and completed < started:
             raise ValueError("Codex run completed_at cannot precede started_at.")
         error = _optional_string(value["error"], "Codex run error", maximum=100)
+        diagnostics = CodexRunDiagnostics.from_value(
+            value["diagnostics"],
+            default_executable=command[0],
+            successful=status_value in {RUN_STATUS_AWAITING_REVIEW, RUN_STATUS_ROLLED_BACK},
+        )
         result_value = value["result"]
         result = None
         if result_value is not None:
@@ -579,9 +751,13 @@ class CodexRun:
         if status_value == RUN_STATUS_EXECUTING:
             if completed_at or result is not None or changes is not None or error:
                 raise ValueError("Executing Codex runs cannot contain completion fields.")
+            if diagnostics.exit_code is not None or diagnostics.timed_out:
+                raise ValueError("Executing Codex runs cannot contain completion diagnostics.")
         elif status_value == RUN_STATUS_AWAITING_REVIEW:
             if not completed_at or result is None or changes is None or error:
                 raise ValueError("Awaiting-review Codex runs require a result and completion time.")
+            if diagnostics.exit_code != 0 or diagnostics.timed_out:
+                raise ValueError("Awaiting-review Codex runs require successful process diagnostics.")
             required = {
                 "approved-plan.json", "result-schema.json", "events.jsonl",
                 "implementation-result.json", "workspace-baseline.json",
@@ -613,6 +789,7 @@ class CodexRun:
             result=result,
             changes=changes,
             error=error,
+            diagnostics=diagnostics,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -632,6 +809,7 @@ class CodexRun:
             "result": None if self.result is None else self.result.to_dict(),
             "changes": None if self.changes is None else self.changes.to_dict(),
             "error": self.error,
+            "diagnostics": self.diagnostics.to_dict(),
         }
 
 
@@ -820,6 +998,41 @@ class LocalCodexRunner:
         prompt: str,
         timeout: int,
     ) -> CodexProcessResult:
+        return self._run_process(
+            command,
+            cwd=cwd,
+            input_text=prompt,
+            timeout=timeout,
+        )
+
+    def run_help(self, executable: str | Path, *, timeout: float) -> CodexProcessResult:
+        """Probe options and strict isolated config without starting an agent turn."""
+
+        command = [
+            str(executable),
+            "exec",
+            "--ignore-user-config",
+            "--strict-config",
+        ]
+        for value in _isolated_codex_config_values(self._platform_name):
+            command.extend(("--config", value))
+        command.append("--help")
+
+        return self._run_process(
+            command,
+            cwd=Path.cwd(),
+            input_text=None,
+            timeout=timeout,
+        )
+
+    def _run_process(
+        self,
+        command: Iterable[str],
+        *,
+        cwd: Path,
+        input_text: str | None,
+        timeout: float,
+    ) -> CodexProcessResult:
         environment = {
             name: value
             for name, value in os.environ.items()
@@ -843,7 +1056,7 @@ class LocalCodexRunner:
         completed = subprocess.run(
             list(launch_command),
             cwd=str(cwd),
-            input=prompt,
+            input=input_text,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -854,6 +1067,97 @@ class LocalCodexRunner:
             env=environment,
         )
         return CodexProcessResult(completed.returncode, completed.stdout, completed.stderr)
+
+
+@dataclass(frozen=True)
+class CodexCLICapabilities:
+    executable: str
+    supported_options: frozenset[str]
+
+    def supports(self, option: str) -> bool:
+        return str(option).strip().lower() in self.supported_options
+
+
+class CodexCLICompatibilityError(ValueError):
+    """Raised before approval claiming when the CLI lacks a required protection."""
+
+    def __init__(self, message: str, *, missing_required: Iterable[str] = ()) -> None:
+        super().__init__(message)
+        self.missing_required = tuple(sorted(set(missing_required)))
+
+
+class CodexCLICapabilityDetector:
+    """Discover ``codex exec`` options once per executable for this process."""
+
+    _cache: ClassVar[dict[str, CodexCLICapabilities]] = {}
+    _cache_lock: ClassVar[RLock] = RLock()
+
+    def __init__(
+        self,
+        runner: LocalCodexRunner | None = None,
+        *,
+        timeout: float = 5.0,
+    ) -> None:
+        self.runner = runner or LocalCodexRunner()
+        self.timeout = max(0.1, min(float(timeout), 10.0))
+
+    def detect(self, executable: str | Path) -> CodexCLICapabilities:
+        path = str(Path(executable).expanduser())
+        key = os.path.normcase(path)
+        with self._cache_lock:
+            cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        try:
+            process = self.runner.run_help(path, timeout=self.timeout)
+        except subprocess.TimeoutExpired as exc:
+            raise CodexCLICompatibilityError(
+                "Codex CLI capability detection timed out; no implementation was started."
+            ) from exc
+        except (FileNotFoundError, OSError, PermissionError) as exc:
+            raise CodexCLICompatibilityError(
+                "Codex CLI capability detection could not start the resolved executable."
+            ) from exc
+        if not isinstance(process, CodexProcessResult) or process.returncode != 0:
+            raise CodexCLICompatibilityError(
+                "Codex CLI capability detection failed; no implementation was started."
+            )
+        output_size = len(process.stdout.encode("utf-8")) + len(process.stderr.encode("utf-8"))
+        if output_size > 256_000:
+            raise CodexCLICompatibilityError(
+                "Codex CLI capability help exceeded Orion's safe capture limit."
+            )
+        help_text = f"{process.stdout}\n{process.stderr}"
+        options = frozenset(
+            match.group(1).lower()
+            for match in CODEX_HELP_OPTION_PATTERN.finditer(help_text)
+        )
+        if not options:
+            raise CodexCLICompatibilityError(
+                "Codex CLI capability help did not contain a supported option list."
+            )
+        capabilities = CodexCLICapabilities(path, options)
+        with self._cache_lock:
+            existing = self._cache.setdefault(key, capabilities)
+        return existing
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        with cls._cache_lock:
+            cls._cache.clear()
+
+
+@dataclass(frozen=True)
+class CodexCommandPlan:
+    command: tuple[str, ...]
+    required_security_arguments: tuple[str, ...]
+    optional_compatibility_arguments: tuple[str, ...]
+    unsupported_arguments: tuple[str, ...]
+
+
+def _unsupported_argument(stderr: str) -> str:
+    match = CODEX_UNSUPPORTED_ARGUMENT_PATTERN.search(str(stderr)[:32_000])
+    return match.group(1).lower() if match else ""
 
 
 class CodexBridgeError(RuntimeError):
@@ -916,16 +1220,22 @@ class CodexBridge:
         workspace_capabilities: WorkspaceCapabilities | None = None,
         snapshot_service: WorkspaceSnapshotService | None = None,
         runner: LocalCodexRunner | None = None,
+        capability_detector: CodexCLICapabilityDetector | None = None,
         execution_engines=None,
         default_execution_engine: ExecutionEngine | None = None,
         now: Callable[[], datetime] | None = None,
         approval_id_factory: Callable[[], str] | None = None,
         run_id_factory: Callable[[], str] | None = None,
+        platform_name: str | None = None,
     ) -> None:
         self.config = config_manager
         self.team_store = team_store
         self.store = store
-        self.runner = runner or LocalCodexRunner()
+        self._platform_name = platform_name or os.name
+        self.runner = runner or LocalCodexRunner(platform_name=self._platform_name)
+        self.capability_detector = capability_detector or CodexCLICapabilityDetector(
+            LocalCodexRunner(platform_name=self._platform_name)
+        )
         self.snapshots = snapshot_service or WorkspaceSnapshotService()
         # ``execution_engines`` remains accepted for constructor compatibility,
         # but execution never asks it to rediscover Codex. The router supplies the
@@ -1037,13 +1347,29 @@ class CodexBridge:
             if self.store.approval_used(plan.team_task_id, approval.approval_id):
                 raise PermissionError("Plan approval has already been consumed by a Codex run.")
             self._validate_approval_context(approval, context)
+            execution_workspace = self._validated_execution_workspace(approval, context)
             codex_executable = Path(context.execution_engine.executable).expanduser()
+
+            # Approval and workspace bindings are validated before the read-only
+            # help probe. Required protections are checked before baseline storage,
+            # approval claiming, or implementation execution.
+            capabilities = self.capability_detector.detect(codex_executable)
+            run_id = _run_id(self._run_id_factory())
+            run_directory = self.store.run_directory(run_id)
+            schema_path = run_directory / "result-schema.json"
+            command_plan = self._command(
+                codex_executable,
+                schema_path,
+                context.workspace,
+                capabilities,
+                execution_workspace,
+            )
+            command = command_plan.command
 
             timeout_seconds = self._timeout_seconds()
             max_output_bytes = self._max_output_bytes()
             snapshot_limits = SnapshotLimits.from_config(self.config)
 
-            run_id = _run_id(self._run_id_factory())
             baseline = self.snapshots.capture(
                 context.workspace,
                 self.store.snapshot_blob_root(run_id),
@@ -1061,16 +1387,13 @@ class CodexBridge:
                 raise PermissionError(
                     "Plan approval has already been consumed by a Codex run."
                 ) from exc
-            run_directory = self.store.run_directory(run_id)
-            schema_path = run_directory / "result-schema.json"
-            command = self._command(codex_executable, schema_path, context.workspace)
             run = CodexRun.from_value({
                 "schema_version": BRIDGE_SCHEMA_VERSION,
                 "run_id": run_id,
                 "approval_id": approval.approval_id,
                 "team_task_id": plan.team_task_id,
                 "plan_hash": plan.hash,
-                "workspace_root": str(self._workspace_root),
+                "workspace_root": str(execution_workspace),
                 "workspace": context.workspace.to_dict(),
                 "status": RUN_STATUS_EXECUTING,
                 "command": list(command),
@@ -1082,6 +1405,13 @@ class CodexBridge:
                 "result": None,
                 "changes": None,
                 "error": "",
+                "diagnostics": {
+                    "exit_code": None,
+                    "timed_out": False,
+                    "resolved_executable": str(codex_executable),
+                    "safe_stderr_summary": "",
+                    "unsupported_argument": "",
+                },
             })
             self.store.write_run_artifact(
                 run_id,
@@ -1103,26 +1433,54 @@ class CodexBridge:
             try:
                 process = self.runner.run(
                     command,
-                    cwd=self._workspace_root,
+                    cwd=execution_workspace,
                     prompt=self._prompt(approval),
                     timeout=timeout_seconds,
                 )
             except FileNotFoundError as exc:
-                self._fail(run, "codex_cli_unavailable", baseline, snapshot_limits)
+                self._fail(
+                    run,
+                    "codex_cli_unavailable",
+                    baseline,
+                    snapshot_limits,
+                    diagnostics=self._diagnostics(
+                        run,
+                        safe_stderr_summary="Codex could not be started.",
+                    ),
+                )
                 raise CodexBridgeError(
                     "Local Codex CLI was not found. Install or repair Codex, then approve a new run.",
                     run_id=run.run_id,
                     category="codex_cli_unavailable",
                 ) from exc
             except (OSError, PermissionError) as exc:
-                self._fail(run, "codex_cli_unavailable", baseline, snapshot_limits)
+                self._fail(
+                    run,
+                    "codex_cli_unavailable",
+                    baseline,
+                    snapshot_limits,
+                    diagnostics=self._diagnostics(
+                        run,
+                        safe_stderr_summary="Codex could not be started.",
+                    ),
+                )
                 raise CodexBridgeError(
                     "Local Codex CLI could not be started. Repair its installation, then approve a new run.",
                     run_id=run.run_id,
                     category="codex_cli_unavailable",
                 ) from exc
             except subprocess.TimeoutExpired as exc:
-                self._fail(run, "codex_timeout", baseline, snapshot_limits)
+                self._fail(
+                    run,
+                    "codex_timeout",
+                    baseline,
+                    snapshot_limits,
+                    diagnostics=self._diagnostics(
+                        run,
+                        timed_out=True,
+                        safe_stderr_summary="Codex execution exceeded Orion's timeout.",
+                    ),
+                )
                 raise CodexBridgeError(
                     "Codex execution reached Orion's timeout and stopped.",
                     run_id=run.run_id,
@@ -1138,18 +1496,55 @@ class CodexBridge:
                 )
             output_size = len(process.stdout.encode("utf-8")) + len(process.stderr.encode("utf-8"))
             if output_size > max_output_bytes:
-                self._fail(run, "codex_output_too_large", baseline, snapshot_limits)
+                self._fail(
+                    run,
+                    "codex_output_too_large",
+                    baseline,
+                    snapshot_limits,
+                    diagnostics=self._diagnostics(
+                        run,
+                        exit_code=process.returncode,
+                        safe_stderr_summary="Codex output exceeded Orion's capture limit.",
+                    ),
+                )
                 raise CodexBridgeError(
                     "Codex output exceeded Orion's configured capture limit.",
                     run_id=run.run_id,
                     category="codex_output_too_large",
                 )
             if process.returncode != 0:
-                self._fail(run, "codex_process_failed", baseline, snapshot_limits)
+                unsupported_argument = _unsupported_argument(process.stderr)
+                category = (
+                    "codex_cli_argument_error"
+                    if unsupported_argument
+                    else "codex_process_failed"
+                )
+                safe_summary = (
+                    "Codex rejected an unsupported command-line argument."
+                    if unsupported_argument
+                    else "Codex exited without a structured result."
+                )
+                self._fail(
+                    run,
+                    category,
+                    baseline,
+                    snapshot_limits,
+                    diagnostics=self._diagnostics(
+                        run,
+                        exit_code=process.returncode,
+                        safe_stderr_summary=safe_summary,
+                        unsupported_argument=unsupported_argument,
+                    ),
+                )
                 raise CodexBridgeError(
-                    "Codex execution failed; raw process errors were not persisted.",
+                    (
+                        f"Codex rejected unsupported argument {unsupported_argument}; "
+                        "the run stopped before implementation."
+                        if unsupported_argument
+                        else "Codex execution failed; raw process errors were not persisted."
+                    ),
                     run_id=run.run_id,
-                    category="codex_process_failed",
+                    category=category,
                 )
 
             try:
@@ -1160,7 +1555,7 @@ class CodexBridge:
                 )
                 self.store.write_run_artifact(run_id, "events.jsonl", events_text)
                 result_value = _strict_json_loads(final_message)
-                result = ImplementationResult.from_value(result_value, self._workspace_root)
+                result = ImplementationResult.from_value(result_value, execution_workspace)
             except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 self._fail(
                     run,
@@ -1168,6 +1563,7 @@ class CodexBridge:
                     baseline,
                     snapshot_limits,
                     include_events=(self.store.run_directory(run_id) / "events.jsonl").is_file(),
+                    diagnostics=self._diagnostics(run, exit_code=process.returncode),
                 )
                 raise CodexBridgeError(
                     "Codex did not return a valid structured implementation result.",
@@ -1179,14 +1575,28 @@ class CodexBridge:
                 changes, _ = self._capture_changes(run, baseline, snapshot_limits)
                 self._validate_reported_changes(result, changes, approval.plan)
             except WorkspaceSnapshotError as exc:
-                self._fail(run, "workspace_snapshot_failed", baseline, snapshot_limits, include_events=True)
+                self._fail(
+                    run,
+                    "workspace_snapshot_failed",
+                    baseline,
+                    snapshot_limits,
+                    include_events=True,
+                    diagnostics=self._diagnostics(run, exit_code=process.returncode),
+                )
                 raise CodexBridgeError(
                     "Orion could not safely capture the completed workspace state.",
                     run_id=run.run_id,
                     category="workspace_snapshot_failed",
                 ) from exc
             except ValueError as exc:
-                self._fail(run, "workspace_change_mismatch", baseline, snapshot_limits, include_events=True)
+                self._fail(
+                    run,
+                    "workspace_change_mismatch",
+                    baseline,
+                    snapshot_limits,
+                    include_events=True,
+                    diagnostics=self._diagnostics(run, exit_code=process.returncode),
+                )
                 raise CodexBridgeError(
                     "Codex reported file changes that did not match the bounded workspace review.",
                     run_id=run.run_id,
@@ -1210,6 +1620,7 @@ class CodexBridge:
                 completed_at=self._timestamp(),
                 result=result,
                 changes=changes,
+                diagnostics=self._diagnostics(run, exit_code=process.returncode),
             )
             CodexRun.from_value(completed.to_dict())
             self.store.save_run(completed)
@@ -1291,6 +1702,7 @@ class CodexBridge:
         limits: SnapshotLimits,
         *,
         include_events: bool = False,
+        diagnostics: CodexRunDiagnostics | None = None,
     ) -> CodexRun:
         artifacts = ["approved-plan.json", "result-schema.json", "workspace-baseline.json"]
         if include_events:
@@ -1311,10 +1723,28 @@ class CodexBridge:
             result=None,
             changes=changes,
             error=category,
+            diagnostics=diagnostics or run.diagnostics,
         )
         CodexRun.from_value(failed.to_dict())
         self.store.save_run(failed)
         return failed
+
+    @staticmethod
+    def _diagnostics(
+        run: CodexRun,
+        *,
+        exit_code: int | None = None,
+        timed_out: bool = False,
+        safe_stderr_summary: str = "",
+        unsupported_argument: str = "",
+    ) -> CodexRunDiagnostics:
+        return CodexRunDiagnostics.from_value({
+            "exit_code": exit_code,
+            "timed_out": timed_out,
+            "resolved_executable": run.command[0],
+            "safe_stderr_summary": safe_stderr_summary,
+            "unsupported_argument": unsupported_argument,
+        }, default_executable=run.command[0])
 
     def _validate_context(self, context: ExecutionContext) -> None:
         if not isinstance(context, ExecutionContext):
@@ -1339,6 +1769,23 @@ class CodexBridge:
             or approval.expected_operation != context.expected_operation
         ):
             raise PermissionError("Execution context does not match the approved engine, scope, or operation.")
+
+    def _validated_execution_workspace(
+        self,
+        approval: PlanApproval,
+        context: ExecutionContext,
+    ) -> Path:
+        """Return the one canonical workspace shared by approval, context, and launch."""
+        approved_workspace = Path(approval.workspace_root).expanduser().resolve()
+        execution_workspace = Path(context.workspace.root).expanduser().resolve()
+        if not (
+            _same_path(approved_workspace, execution_workspace)
+            and _same_path(approved_workspace, self._workspace_root)
+        ):
+            raise PermissionError(
+                "Approved, execution, and active workspace paths must match before Codex can start."
+            )
+        return approved_workspace
 
     @staticmethod
     def _validate_reported_changes(
@@ -1394,34 +1841,76 @@ class CodexBridge:
         codex_executable: Path,
         schema_path: Path,
         workspace: WorkspaceCapabilities,
-    ) -> tuple[str, ...]:
-        workspace_key = json.dumps(str(self._workspace_root))
-        command = [
-            str(codex_executable), "exec",
-        ]
+        capabilities: CodexCLICapabilities,
+        approved_workspace: Path,
+    ) -> CodexCommandPlan:
+        if os.path.normcase(capabilities.executable) != os.path.normcase(str(codex_executable)):
+            raise CodexCLICompatibilityError(
+                "Codex CLI capabilities belong to a different resolved executable."
+            )
+        required = CODEX_REQUIRED_SECURITY_ARGUMENTS | CODEX_REQUIRED_PROTOCOL_ARGUMENTS
+        missing_required = tuple(sorted(
+            option for option in required if not capabilities.supports(option)
+        ))
+        if missing_required:
+            missing = ", ".join(missing_required)
+            raise CodexCLICompatibilityError(
+                f"Codex CLI is missing required execution protections: {missing}. "
+                "No implementation was started and the approval remains unused.",
+                missing_required=missing_required,
+            )
+
+        command_workspace = Path(approved_workspace).expanduser().resolve()
+        if not (
+            _same_path(command_workspace, workspace.root)
+            and _same_path(command_workspace, self._workspace_root)
+        ):
+            raise PermissionError(
+                "Codex --cd must match the immutable approved execution workspace."
+            )
+
+        workspace_key = json.dumps(str(command_workspace))
+        command = [str(codex_executable), "exec"]
+        included_optional: list[str] = []
+        unsupported: list[str] = []
         if workspace.mode == WORKSPACE_MODE_STANDARD:
-            command.append("--skip-git-repo-check")
+            if capabilities.supports("--skip-git-repo-check"):
+                command.append("--skip-git-repo-check")
+                included_optional.append("--skip-git-repo-check")
+            else:
+                unsupported.append("--skip-git-repo-check")
+        command.append("--json")
+        if capabilities.supports("--ephemeral"):
+            command.append("--ephemeral")
+            included_optional.append("--ephemeral")
+        else:
+            unsupported.append("--ephemeral")
         command.extend((
-            "--json", "--ephemeral",
             "--sandbox", "workspace-write",
-            "--ask-for-approval", "never",
-            "--ignore-user-config", "--strict-config",
-            "--config", 'web_search="disabled"',
-            "--config", "mcp_servers={}",
-            "--config", "features.apps=false",
-            "--config", "features.hooks=false",
-            "--config", "features.multi_agent=false",
-            "--config", "features.remote_plugin=false",
-            "--config", "sandbox_workspace_write.network_access=false",
-            "--config", "sandbox_workspace_write.writable_roots=[]",
-            "--config", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-            "--config", "sandbox_workspace_write.exclude_slash_tmp=true",
+        ))
+        if capabilities.supports("--ask-for-approval"):
+            command.extend(("--ask-for-approval", "never"))
+            included_optional.append("--ask-for-approval")
+        else:
+            unsupported.append("--ask-for-approval")
+        command.extend((
+            "--ignore-user-config",
+            "--strict-config",
+        ))
+        for value in _isolated_codex_config_values(self._platform_name):
+            command.extend(("--config", value))
+        command.extend((
             "--config", f'projects.{workspace_key}.trust_level="untrusted"',
-            "--cd", str(self._workspace_root),
+            "--cd", str(command_workspace),
             "--output-schema", str(schema_path),
             "-",
         ))
-        return tuple(command)
+        return CodexCommandPlan(
+            command=tuple(command),
+            required_security_arguments=tuple(sorted(required)),
+            optional_compatibility_arguments=tuple(included_optional),
+            unsupported_arguments=tuple(unsupported),
+        )
 
     @staticmethod
     def _prompt(approval: PlanApproval) -> str:
@@ -1440,6 +1929,9 @@ Approved implementation plan:
 
 Hard boundaries:
 - Work only inside the current active workspace.
+- The active workspace is intentionally writable through Codex's workspace-write sandbox.
+- Use Codex's file-edit/patch tool for file changes instead of shell redirection or shell write commands.
+- If a complex shell preflight is declined by command policy, retry with simple fixed-argument read/test commands; do not infer that the workspace is read-only.
 - Make the smallest changes needed to implement the approved plan.
 - Do not modify ignored runtime, dependency, credential, or secret files.
 - Delete a file only when that exact deletion is explicitly named in the approved plan.

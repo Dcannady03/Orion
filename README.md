@@ -6,13 +6,17 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.6.0 — Courier**
+**v0.6.1 — Gatekeeper**
 
-Courier adds one provider-neutral, read-only Email service with Gmail and Microsoft
-Outlook / Microsoft 365 adapters. Connect Center, Home, First Contact, the CLI, and
-bounded natural-language mail questions use the same normalized service. OAuth tokens
-remain in owner-only external user data, Calendar permissions stay separate, raw HTML
-is converted to safe text, and attachments remain metadata-only.
+Gatekeeper completes Orion's first interactive, approval-gated AI Team implementation
+flow. A finished plan can be reviewed through an explicit Y/N/D prompt, bound to its
+immutable SHA-256 and active workspace, and handed once to a local Codex CLI run that
+stops at Awaiting Review.
+
+The Codex Bridge now adapts to the installed CLI's supported arguments, preserves the
+exact workspace-write sandbox, and explicitly selects Codex's elevated native sandbox
+on Windows while keeping network, user configuration, extra writable roots, and Git
+release actions unavailable.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -61,7 +65,8 @@ agent create                 Create a planning-safe custom agent
 agent enable <name>          Enable an agent
 agent disable <name>         Disable an agent
 agent test <name>            Run one bounded structured-output test
-team plan "<goal>"           Create a two-role implementation plan
+team plan "<goal>"           Plan, then offer explicit Y/N/D approval
+team plan --manual "<goal>"  Plan without an interactive approval prompt
 team roles                   Show AI Team role assignments
 team status <task-id>        Reopen a persisted AI Team plan
 team approve <task-id>       Approve this plan hash for the active workspace
@@ -306,22 +311,29 @@ unknown fields are rejected instead of being silently accepted.
 team
 team roles
 team plan "Add OpenAI image generation"
+team plan --manual "Plan without prompting"
 team status <task-id>
 ```
 
 The planning phase makes exactly two AI calls and cannot implement code or execute
-tools. A separate, explicit Codex Bridge approval may execute the resulting immutable
-plan version. Token usage is shown as an estimate. Cost is shown when rates are
+tools. In Orion's interactive console, the completed plan then offers `Y`, `N`, or
+`D`etails. Only explicit `Y` or `Yes` creates the immutable approval and immediately
+starts the bounded Codex Bridge run. `N`, empty input, and Ctrl+C leave the workspace
+unchanged. `team plan --manual` and noninteractive router callers retain the separate
+approval commands. Token usage is shown as an estimate. Cost is shown when rates are
 configured under `team.pricing`; local Ollama defaults to zero cost. See
 `docs/AI_TEAM.md` for role configuration and the persisted task schema.
 
 ## Codex Bridge Phase 1
 
 Codex Bridge turns one persisted AI Team plan into one bounded local implementation
-run. `team approve` creates an immutable external approval containing the plan
-snapshot, SHA-256 hash, and exact active workspace. `team implement` reloads and
-re-hashes the plan before invoking `codex exec`; changed plans, changed workspaces,
-missing approvals, and approval replay are rejected before the process starts.
+run. Interactive `team plan` can create and consume the approval after an explicit
+`Y`; the manual commands remain available for scripting and recovery. Both paths use
+the same approval and execution services. `team approve` creates an immutable external
+approval containing the plan snapshot, SHA-256 hash, and exact active workspace.
+`team implement` reloads and re-hashes the plan before invoking `codex exec`; changed
+plans, changed workspaces, missing approvals, and approval replay are rejected before
+the process starts.
 
 ```text
 team approve <team-task-id>
@@ -332,8 +344,13 @@ team rollback <run-id>
 
 The active folder may be a Standard workspace with no Git repository or a Git workspace,
 including a repository subdirectory. Git adds repository, branch, and commit metadata;
-it never expands Codex beyond the active folder. Network access, web search, extra
-writable roots, MCP, apps, plugins, hooks, and sub-agents remain unavailable.
+it never expands Codex beyond the active folder. Orion sets Codex's noninteractive
+approval policy only after validating its own immutable one-use approval and supplies
+both the `--sandbox workspace-write` flag and strict
+`sandbox_mode="workspace-write"` compatibility config. On native Windows, the isolated
+child also explicitly selects Codex's preferred `windows.sandbox="elevated"` mode;
+Orion does not reload the user's broader Codex configuration. Network access, web search,
+extra writable roots, MCP, apps, plugins, hooks, and sub-agents remain unavailable.
 
 Before Codex starts, Orion captures a bounded external baseline. Afterward it verifies
 the structured file list against actual created, modified, and deleted files, writes a

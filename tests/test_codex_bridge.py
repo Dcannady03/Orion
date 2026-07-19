@@ -15,7 +15,11 @@ from orion.services.codex_bridge import (
     CodexBridge,
     CodexBridgeError,
     CodexBridgeStore,
+    CodexCLICapabilities,
+    CodexCLICapabilityDetector,
+    CodexCLICompatibilityError,
     CodexProcessResult,
+    ExecutionContext,
     LocalCodexRunner,
     PlanSnapshot,
 )
@@ -95,6 +99,75 @@ class FakeRunner:
             target.write_text(f"bounded change {sequence}\n", encoding="utf-8")
 
 
+class WorkspaceWriteSimulatingRunner(FakeRunner):
+    """Model the writable boundary encoded by Orion's Codex command."""
+
+    def __init__(self, outside_target):
+        result = implementation_result(files_changed=[
+            {"path": "approved.txt", "summary": "Created inside the approved workspace."},
+        ])
+        super().__init__(CodexProcessResult(0, valid_jsonl(result), ""))
+        self.outside_target = Path(outside_target).resolve()
+        self.outside_blocked = False
+
+    def run(self, command, *, cwd, prompt, timeout):
+        command = tuple(command)
+        workspace = Path(command[command.index("--cd") + 1]).resolve()
+        if command[command.index("--sandbox") + 1] != "workspace-write":
+            raise PermissionError("Workspace-write sandbox was not selected.")
+        if workspace != Path(cwd).resolve():
+            raise PermissionError("Codex --cd and subprocess workspace differ.")
+        if "--add-dir" in command or any(
+            item.startswith("sandbox_workspace_write.writable_roots=")
+            for item in command
+        ):
+            raise PermissionError("Unexpected additional writable roots were granted.")
+        if 'approval_policy="never"' not in command:
+            raise PermissionError("Noninteractive Codex approval policy was not fixed.")
+        if 'sandbox_mode="workspace-write"' not in command:
+            raise PermissionError("Workspace-write compatibility config was not fixed.")
+        if 'windows.sandbox="elevated"' not in command:
+            raise PermissionError("Elevated native Windows sandbox was not selected.")
+
+        self.calls.append({
+            "command": command,
+            "cwd": Path(cwd),
+            "prompt": prompt,
+            "timeout": timeout,
+        })
+        (workspace / "approved.txt").write_text("approved workspace write\n", encoding="utf-8")
+        try:
+            self.outside_target.relative_to(workspace)
+        except ValueError:
+            self.outside_blocked = True
+        else:
+            self.outside_target.write_text("unexpected outside write\n", encoding="utf-8")
+        return self.result
+
+
+class StaticCapabilityDetector:
+    DEFAULT_OPTIONS = frozenset({
+        "--ask-for-approval",
+        "--cd",
+        "--config",
+        "--ephemeral",
+        "--ignore-user-config",
+        "--json",
+        "--output-schema",
+        "--sandbox",
+        "--skip-git-repo-check",
+        "--strict-config",
+    })
+
+    def __init__(self, options=None):
+        self.options = self.DEFAULT_OPTIONS if options is None else frozenset(options)
+        self.calls = []
+
+    def detect(self, executable):
+        self.calls.append(str(executable))
+        return CodexCLICapabilities(str(executable), self.options)
+
+
 def implementation_result(**updates):
     value = {
         "summary": "Implemented the approved plan and stopped for review.",
@@ -132,8 +205,10 @@ class CodexBridgeTests(unittest.TestCase):
         config=None,
         task_status=TEAM_STATUS_AWAITING_APPROVAL,
         execution_engines=None,
+        capability_detector=None,
         include_default_engine=True,
         git_workspace=True,
+        platform_name="nt",
     ):
         base = Path(root)
         workspace = base / "workspace"
@@ -184,13 +259,33 @@ class CodexBridgeTests(unittest.TestCase):
             workspace,
             workspace_capabilities=capabilities,
             runner=runner or FakeRunner(),
+            capability_detector=capability_detector or StaticCapabilityDetector(),
             execution_engines=execution_engines,
             default_execution_engine=default_engine if include_default_engine else None,
             now=lambda: datetime(2026, 7, 18, 13, 0, tzinfo=timezone.utc),
             approval_id_factory=lambda: next(approvals),
             run_id_factory=lambda: next(runs),
+            platform_name=platform_name,
         )
+        if isinstance(execution_engines, Mock):
+            execution_engines.status.return_value = [default_engine]
         return bridge, team_store, workspace
+
+    def interactive_router(self, root, answers, *, runner=None):
+        bridge, team_store, workspace = self.build(root, runner=runner)
+        team = Mock()
+        team.plan.return_value = team_store.load("team-test-001")
+        prompt = Mock(side_effect=answers)
+        router = CommandRouter(
+            SimpleNamespace(
+                team=team,
+                codex_bridge=bridge,
+                execution_engines=bridge.execution_engines,
+            ),
+            interactive_team_approval=True,
+            team_approval_input=prompt,
+        )
+        return router, bridge, team, prompt, workspace
 
     def test_approval_persists_immutable_plan_hash_outside_workspace(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -281,17 +376,31 @@ class CodexBridgeTests(unittest.TestCase):
             self.assertIn("features.hooks=false", command)
             self.assertIn("features.multi_agent=false", command)
             self.assertIn("features.remote_plugin=false", command)
+            self.assertIn('approval_policy="never"', command)
+            self.assertIn('sandbox_mode="workspace-write"', command)
+            self.assertIn('windows.sandbox="elevated"', command)
             self.assertIn("sandbox_workspace_write.network_access=false", command)
-            self.assertIn("sandbox_workspace_write.writable_roots=[]", command)
+            self.assertIn("sandbox_workspace_write.exclude_tmpdir_env_var=true", command)
+            self.assertIn("sandbox_workspace_write.exclude_slash_tmp=true", command)
+            self.assertFalse(any(
+                item.startswith("sandbox_workspace_write.writable_roots=")
+                for item in command
+            ))
             self.assertIn("--output-schema", command)
-            self.assertIn(str(workspace.resolve()), command)
+            self.assertEqual(command[command.index("--sandbox") + 1], "workspace-write")
+            self.assertEqual(command[command.index("--cd") + 1], str(workspace.resolve()))
             self.assertEqual(command[-1], "-")
             self.assertNotIn("--skip-git-repo-check", command)
             self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", command)
             self.assertNotIn("--add-dir", command)
+            self.assertIn("--ask-for-approval", command)
+            self.assertEqual(command[command.index("--ask-for-approval") + 1], "never")
             self.assertIn(approval.plan_hash, call["prompt"])
             self.assertIn("Do not create or switch branches", call["prompt"])
             self.assertIn("Do not invoke web search", call["prompt"])
+            self.assertIn("intentionally writable", call["prompt"])
+            self.assertIn("file-edit/patch tool", call["prompt"])
+            self.assertIn("do not infer that the workspace is read-only", call["prompt"])
 
             directory = bridge.store.run_directory(run.run_id)
             self.assertEqual(
@@ -314,6 +423,164 @@ class CodexBridgeTests(unittest.TestCase):
                 )
             self.assertEqual(bridge.run(run.run_id), run)
 
+    def test_codex_01445_help_is_parsed_and_cached_without_approval_flag(self):
+        help_text = """Run Codex non-interactively
+Options:
+  -c, --config <key=value>
+      --strict-config
+  -s, --sandbox <SANDBOX_MODE>
+  -C, --cd <DIR>
+      --skip-git-repo-check
+      --ephemeral
+      --ignore-user-config
+      --output-schema <FILE>
+      --json
+  -h, --help
+"""
+        help_runner = Mock()
+        help_runner.run_help.return_value = CodexProcessResult(0, help_text, "")
+        detector = CodexCLICapabilityDetector(help_runner, timeout=2.0)
+        CodexCLICapabilityDetector.clear_cache()
+        executable = str((Path(tempfile.gettempdir()) / "codex-01445.cmd").resolve())
+        try:
+            first = detector.detect(executable)
+            second = detector.detect(executable)
+        finally:
+            CodexCLICapabilityDetector.clear_cache()
+        self.assertIs(first, second)
+        self.assertTrue(first.supports("--sandbox"))
+        self.assertTrue(first.supports("--ephemeral"))
+        self.assertFalse(first.supports("--ask-for-approval"))
+        help_runner.run_help.assert_called_once_with(executable, timeout=2.0)
+
+    def test_01445_command_omits_unsupported_approval_flag_and_keeps_supported_options(self):
+        detector = StaticCapabilityDetector(
+            StaticCapabilityDetector.DEFAULT_OPTIONS - {"--ask-for-approval"}
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner()
+            bridge, _, _ = self.build(
+                tmp,
+                runner=runner,
+                capability_detector=detector,
+            )
+            approval = bridge.approve("team-test-001")
+            run = bridge.execute("team-test-001", approval.approval_id)
+            command = runner.calls[0]["command"]
+            self.assertNotIn("--ask-for-approval", command)
+            self.assertIn("--ephemeral", command)
+            self.assertIn("--sandbox", command)
+            self.assertIn("--ignore-user-config", command)
+            self.assertIn("--strict-config", command)
+            self.assertIn('approval_policy="never"', command)
+            self.assertIn('sandbox_mode="workspace-write"', command)
+            self.assertIn('windows.sandbox="elevated"', command)
+            self.assertEqual(run.diagnostics.exit_code, 0)
+            self.assertFalse(run.diagnostics.timed_out)
+            capabilities = detector.detect(command[0])
+            command_plan = bridge._command(
+                Path(command[0]),
+                bridge.store.run_directory(run.run_id) / "result-schema.json",
+                run.workspace,
+                capabilities,
+                bridge.workspace_root,
+            )
+            self.assertIn("--sandbox", command_plan.required_security_arguments)
+            self.assertIn("--ephemeral", command_plan.optional_compatibility_arguments)
+            self.assertIn("--ask-for-approval", command_plan.unsupported_arguments)
+
+    def test_non_windows_command_does_not_emit_native_windows_sandbox_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner()
+            bridge, _, _ = self.build(tmp, runner=runner, platform_name="posix")
+            approval = bridge.approve("team-test-001")
+
+            bridge.execute("team-test-001", approval.approval_id)
+
+            self.assertNotIn('windows.sandbox="elevated"', runner.calls[0]["command"])
+
+    def test_missing_required_security_option_aborts_before_claim_or_workspace_change(self):
+        detector = StaticCapabilityDetector(
+            StaticCapabilityDetector.DEFAULT_OPTIONS - {"--sandbox"}
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner()
+            bridge, _, workspace = self.build(
+                tmp,
+                runner=runner,
+                capability_detector=detector,
+            )
+            approval = bridge.approve("team-test-001")
+            with self.assertRaises(CodexCLICompatibilityError) as raised:
+                bridge.execute("team-test-001", approval.approval_id)
+            self.assertEqual(raised.exception.missing_required, ("--sandbox",))
+            self.assertEqual(runner.calls, [])
+            self.assertFalse(bridge.store.approval_used(approval.team_task_id, approval.approval_id))
+            self.assertFalse((workspace / "orion").exists())
+            self.assertFalse((bridge.store.root / "runs").exists())
+
+    def test_cli_argument_error_is_sanitized_and_records_no_workspace_changes(self):
+        stderr = "error: unexpected argument '--ask-for-approval' found\nSECRET_TOKEN=hidden"
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner(CodexProcessResult(2, "RAW_STDOUT_SECRET", stderr))
+            bridge, _, workspace = self.build(tmp, runner=runner)
+            approval = bridge.approve("team-test-001")
+            with self.assertRaises(CodexBridgeError) as raised:
+                bridge.execute("team-test-001", approval.approval_id)
+            self.assertEqual(raised.exception.category, "codex_cli_argument_error")
+            failed = bridge.run(raised.exception.run_id)
+            self.assertEqual(failed.error, "codex_cli_argument_error")
+            self.assertEqual(failed.diagnostics.exit_code, 2)
+            self.assertFalse(failed.diagnostics.timed_out)
+            self.assertEqual(failed.diagnostics.unsupported_argument, "--ask-for-approval")
+            self.assertEqual(
+                failed.diagnostics.safe_stderr_summary,
+                "Codex rejected an unsupported command-line argument.",
+            )
+            self.assertEqual(failed.changes.changes, ())
+            self.assertFalse((workspace / "orion").exists())
+            run_document = json.loads(
+                bridge.store.run_path(failed.run_id).read_text(encoding="utf-8")
+            )
+            self.assertEqual(set(run_document["diagnostics"]), {
+                "exit_code",
+                "timed_out",
+                "resolved_executable",
+                "safe_stderr_summary",
+                "unsupported_argument",
+            })
+            persisted = "".join(
+                path.read_text(encoding="utf-8")
+                for path in bridge.store.run_directory(failed.run_id).iterdir()
+                if path.is_file()
+            )
+            self.assertNotIn("SECRET_TOKEN", persisted)
+            self.assertNotIn("RAW_STDOUT_SECRET", persisted)
+            self.assertNotIn("unexpected argument", persisted)
+
+    def test_utf8_mojibake_is_repaired_before_result_persistence(self):
+        result = implementation_result(summary="Orionâ€™s compatibility fix is ready.")
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner(CodexProcessResult(0, valid_jsonl(result), ""))
+            bridge, team_store, _ = self.build(
+                tmp,
+                runner=runner,
+            )
+            task = team_store.load("team-test-001")
+            task.goal = "Verify Orionâ€™s UTF-8 persistence."
+            team_store.save(task)
+            approval = bridge.approve("team-test-001")
+            run = bridge.execute("team-test-001", approval.approval_id)
+            self.assertEqual(run.result.summary, "Orion’s compatibility fix is ready.")
+            persisted = "".join((
+                bridge.store.run_path(run.run_id).read_text(encoding="utf-8"),
+                bridge.store.read_run_artifact(run.run_id, "approved-plan.json"),
+                runner.calls[0]["prompt"],
+            ))
+            self.assertIn("Verify Orion’s UTF-8 persistence.", persisted)
+            self.assertIn("Orion’s compatibility fix is ready.", persisted)
+            self.assertNotIn("Orionâ€™s", persisted)
+
     def test_standard_workspace_approves_executes_and_uses_narrow_codex_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
             runner = FakeRunner()
@@ -324,7 +591,10 @@ class CodexBridgeTests(unittest.TestCase):
 
             self.assertEqual(approval.workspace.mode, "standard")
             self.assertEqual(run.workspace.mode, "standard")
-            self.assertIn("--skip-git-repo-check", runner.calls[0]["command"])
+            command = runner.calls[0]["command"]
+            self.assertIn("--skip-git-repo-check", command)
+            self.assertEqual(command[command.index("--sandbox") + 1], "workspace-write")
+            self.assertEqual(command[command.index("--cd") + 1], str(workspace.resolve()))
             self.assertEqual(runner.calls[0]["cwd"], workspace.resolve())
             self.assertFalse((workspace / ".git").exists())
             self.assertEqual(
@@ -358,10 +628,150 @@ class CodexBridgeTests(unittest.TestCase):
 
             self.assertEqual(run.workspace.git_root, str(repository))
             self.assertEqual(run.workspace.branch, "feature/test")
-            self.assertNotIn("--skip-git-repo-check", runner.calls[0]["command"])
+            command = runner.calls[0]["command"]
+            self.assertNotIn("--skip-git-repo-check", command)
+            self.assertEqual(command[command.index("--sandbox") + 1], "workspace-write")
+            self.assertEqual(command[command.index("--cd") + 1], str(workspace.resolve()))
             self.assertEqual(runner.calls[0]["cwd"], workspace.resolve())
             baseline = bridge.store.read_run_artifact(run.run_id, "workspace-baseline.json")
             self.assertNotIn("outside-active.txt", baseline)
+
+    def test_simulated_workspace_write_allows_active_file_and_blocks_outside(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = Path(tmp) / "outside-workspace.txt"
+            runner = WorkspaceWriteSimulatingRunner(outside)
+            bridge, _, workspace = self.build(tmp, runner=runner, git_workspace=False)
+
+            approval = bridge.approve("team-test-001")
+            run = bridge.execute("team-test-001", approval.approval_id)
+
+            self.assertEqual(run.status, RUN_STATUS_AWAITING_REVIEW)
+            self.assertEqual(
+                (workspace / "approved.txt").read_text(encoding="utf-8"),
+                "approved workspace write\n",
+            )
+            self.assertTrue(runner.outside_blocked)
+            self.assertFalse(outside.exists())
+            self.assertEqual(
+                [item.path for item in run.changes.by_kind("created")],
+                ["approved.txt"],
+            )
+
+    def test_interactive_yes_approves_exact_plan_and_starts_one_implementation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner()
+            router, bridge, team, prompt, workspace = self.interactive_router(
+                tmp,
+                ["yes"],
+                runner=runner,
+            )
+
+            with patch("builtins.print") as output:
+                router.handle('team plan "Implement the approved bridge"')
+
+            approval = bridge.store.load_approval("team-test-001", "approval-test-001")
+            task = bridge.team_store.load("team-test-001")
+            self.assertEqual(approval.plan_hash, PlanSnapshot.from_team_task(task).hash)
+            self.assertEqual(approval.workspace_root, str(workspace.resolve()))
+            self.assertEqual(approval.execution_engine, "codex")
+            self.assertTrue(bridge.store.approval_used(task.task_id, approval.approval_id))
+            self.assertEqual(len(runner.calls), 1)
+            prompt.assert_called_once_with("> ")
+            team.plan.assert_called_once_with("Implement the approved bridge")
+            rendered = "\n".join(str(call.args[0]) for call in output.call_args_list if call.args)
+            self.assertIn("Approve this exact plan?", rendered)
+            self.assertIn("Approval ID: approval-test-001", rendered)
+            self.assertIn(f"Plan SHA-256: {approval.plan_hash}", rendered)
+            self.assertIn(f"Workspace: {workspace.resolve()}", rendered)
+            self.assertIn("Execution Engine: Codex CLI (codex)", rendered)
+            self.assertIn("Status: Awaiting Review", rendered)
+            with self.assertRaises(PermissionError):
+                bridge.execute(
+                    task.task_id,
+                    approval.approval_id,
+                    execution_engine=bridge._default_execution_engine,
+                )
+
+    def test_interactive_no_launches_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            router, bridge, _, prompt, _ = self.interactive_router(tmp, ["n"])
+            with patch("builtins.print") as output:
+                router.handle('team plan "Do not approve"')
+            rendered = "\n".join(str(call.args[0]) for call in output.call_args_list if call.args)
+            self.assertIn("Plan not approved. No implementation was performed.", rendered)
+            self.assertEqual(bridge.runner.calls, [])
+            self.assertFalse(bridge.store.approval_path(
+                "team-test-001", "approval-test-001"
+            ).exists())
+            prompt.assert_called_once_with("> ")
+
+    def test_interactive_details_show_boundaries_and_prompt_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            router, bridge, _, prompt, workspace = self.interactive_router(tmp, ["d", "n"])
+            with patch("builtins.print") as output:
+                router.handle('team plan "Inspect details"')
+            rendered = "\n".join(str(call.args[0]) for call in output.call_args_list if call.args)
+            self.assertEqual(rendered.count("Approve this exact plan?"), 2)
+            self.assertIn("AI Team Approval Details", rendered)
+            self.assertIn("Final Plan:", rendered)
+            self.assertIn("Risks:", rendered)
+            self.assertIn("Keep execution workspace-confined", rendered)
+            self.assertIn(f"Workspace: {workspace.resolve()}", rendered)
+            self.assertIn("Execution Engine: Codex CLI (codex)", rendered)
+            self.assertIn("Sandbox Mode: workspace-write", rendered)
+            self.assertIn("Expected Permissions:", rendered)
+            self.assertEqual(prompt.call_count, 2)
+            self.assertEqual(bridge.runner.calls, [])
+
+    def test_interactive_empty_input_cancels_without_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            router, bridge, _, prompt, _ = self.interactive_router(tmp, [""])
+            with patch("builtins.print") as output:
+                router.handle('team plan "Empty is not approval"')
+            rendered = "\n".join(str(call.args[0]) for call in output.call_args_list if call.args)
+            self.assertIn("No approval recorded", rendered)
+            self.assertEqual(prompt.call_count, 1)
+            self.assertEqual(bridge.runner.calls, [])
+
+    def test_interactive_invalid_input_prompts_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            router, bridge, _, prompt, _ = self.interactive_router(tmp, ["approve it", "no"])
+            with patch("builtins.print") as output:
+                router.handle('team plan "Require explicit approval"')
+            rendered = "\n".join(str(call.args[0]) for call in output.call_args_list if call.args)
+            self.assertIn("Please enter Y, N, or D", rendered)
+            self.assertEqual(prompt.call_count, 2)
+            self.assertEqual(bridge.runner.calls, [])
+
+    def test_interactive_ctrl_c_cancels_safely(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            router, bridge, _, prompt, _ = self.interactive_router(
+                tmp,
+                KeyboardInterrupt(),
+            )
+            with patch("builtins.print") as output:
+                router.handle('team plan "Cancel safely"')
+            rendered = "\n".join(str(call.args[0]) for call in output.call_args_list if call.args)
+            self.assertIn("Approval cancelled", rendered)
+            self.assertEqual(prompt.call_count, 1)
+            self.assertEqual(bridge.runner.calls, [])
+
+    def test_interactive_implementation_failure_keeps_review_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner(CodexProcessResult(9, "", "private failure detail"))
+            router, bridge, _, _, _ = self.interactive_router(tmp, ["y"], runner=runner)
+            with patch("builtins.print") as output:
+                router.handle('team plan "Preserve failure artifacts"')
+            failed = bridge.run("run-test-001")
+            directory = bridge.store.run_directory(failed.run_id)
+            self.assertEqual(failed.status, RUN_STATUS_FAILED)
+            self.assertTrue((directory / "run.json").is_file())
+            self.assertTrue((directory / "workspace-baseline.json").is_file())
+            self.assertTrue((directory / "workspace-changes.json").is_file())
+            self.assertTrue((directory / "workspace.diff").is_file())
+            rendered = "\n".join(str(call.args[0]) for call in output.call_args_list if call.args)
+            self.assertIn("Saved run: run-test-001", rendered)
+            self.assertEqual(len(runner.calls), 1)
 
     def test_standard_workspace_tracks_created_modified_deleted_and_rolls_back(self):
         result = implementation_result(files_changed=[
@@ -557,6 +967,33 @@ class CodexBridgeTests(unittest.TestCase):
             self.assertEqual(runner.calls, [])
             self.assertFalse(bridge.store.approval_used(approval.team_task_id, approval.approval_id))
 
+    def test_execution_workspace_mismatch_aborts_before_codex_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner()
+            detector = StaticCapabilityDetector()
+            bridge, _, _ = self.build(
+                tmp,
+                runner=runner,
+                capability_detector=detector,
+            )
+            approval = bridge.approve("team-test-001")
+            other = Path(tmp) / "unapproved-workspace"
+            other.mkdir()
+            other_capabilities = WorkspaceCapabilities.detect(other, which=lambda _name: None)
+            context = ExecutionContext(
+                team_task_id=approval.team_task_id,
+                approval_id=approval.approval_id,
+                workspace=other_capabilities,
+                execution_engine=bridge._default_execution_engine,
+            )
+
+            with self.assertRaisesRegex(PermissionError, "different active workspace"):
+                bridge.execute(context)
+
+            self.assertEqual(detector.calls, [])
+            self.assertEqual(runner.calls, [])
+            self.assertFalse(bridge.store.approval_used(approval.team_task_id, approval.approval_id))
+
     def test_observed_changes_must_match_structured_result(self):
         result = implementation_result(files_changed=[
             {"path": "reported.txt", "summary": "Reported a different file."},
@@ -664,9 +1101,16 @@ class CodexBridgeTests(unittest.TestCase):
     def test_unapproved_tampered_or_workspace_mismatched_plan_never_runs(self):
         with tempfile.TemporaryDirectory() as tmp:
             runner = FakeRunner()
-            bridge, team_store, _ = self.build(tmp, runner=runner)
+            detector = StaticCapabilityDetector()
+            bridge, team_store, _ = self.build(
+                tmp,
+                runner=runner,
+                capability_detector=detector,
+            )
             with self.assertRaises(FileNotFoundError):
                 bridge.execute("team-test-001", "approval-missing-001")
+            self.assertEqual(detector.calls, [])
+            self.assertEqual(runner.calls, [])
 
             approval = bridge.approve("team-test-001")
             task = team_store.load("team-test-001")
@@ -807,6 +1251,16 @@ class CodexBridgeTests(unittest.TestCase):
                 self.assertEqual(raised.exception.category, category)
                 failed = bridge.run(raised.exception.run_id)
                 self.assertEqual(failed.error, category)
+                self.assertEqual(
+                    failed.diagnostics.resolved_executable,
+                    failed.command[0],
+                )
+                if category == "codex_timeout":
+                    self.assertTrue(failed.diagnostics.timed_out)
+                    self.assertIsNone(failed.diagnostics.exit_code)
+                elif category == "codex_process_failed":
+                    self.assertFalse(failed.diagnostics.timed_out)
+                    self.assertEqual(failed.diagnostics.exit_code, 9)
                 persisted = "".join(
                     path.read_text(encoding="utf-8")
                     for path in bridge.store.run_directory(failed.run_id).iterdir()
@@ -901,6 +1355,21 @@ class CodexBridgeTests(unittest.TestCase):
         self.assertNotIn("CODEX_API_KEY", arguments["env"])
         self.assertNotIn("CODEX_ACCESS_TOKEN", arguments["env"])
         self.assertNotIn("GITHUB_TOKEN", arguments["env"])
+
+    def test_windows_help_probe_validates_the_same_strict_sandbox_configuration(self):
+        completed = SimpleNamespace(returncode=0, stdout="--sandbox --config", stderr="")
+        with patch.dict(os.environ, {"PATH": "safe-path"}, clear=True), patch(
+            "orion.services.codex_bridge.subprocess.run", return_value=completed
+        ) as execute:
+            LocalCodexRunner(platform_name="Windows").run_help("codex.exe", timeout=2.0)
+
+        command = execute.call_args.args[0]
+        self.assertEqual(command[:4], [
+            "codex.exe", "exec", "--ignore-user-config", "--strict-config"
+        ])
+        self.assertIn('windows.sandbox="elevated"', command)
+        self.assertEqual(command[-1], "--help")
+        self.assertIsNone(execute.call_args.kwargs["input"])
 
     def test_local_runner_launches_windows_cmd_wrapper_with_fixed_arguments(self):
         completed = SimpleNamespace(returncode=0, stdout="ok", stderr="")

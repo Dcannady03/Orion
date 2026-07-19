@@ -1,6 +1,6 @@
 orion:
   name: Orion
-  version: 0.6.0
+  version: 0.6.1
   codename: Courier
 providers:
   default: ollama

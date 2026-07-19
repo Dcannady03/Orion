@@ -107,6 +107,21 @@ version, and probe result. `team implement` passes that object from the router t
 Bridge. The bridge does not call `which()`, run another probe, or fall back to a bare
 `codex` command. Direct bridge callers must supply an equally validated snapshot.
 
+Codex Bridge separately caches a bounded `codex exec --help` capability probe. This is
+not executable rediscovery: it verifies which optional and required arguments the
+already-resolved CLI supports. Required sandbox, configuration-isolation, workspace,
+and structured-output options fail closed when missing. Optional compatibility flags,
+including the duplicate Codex approval flag, are emitted only when supported. Orion's
+external immutable approval remains authoritative for every CLI version.
+For noninteractive execution Orion supplies the supported strict configuration key
+`approval_policy="never"` after validating that external approval. This prevents an
+unattended Codex prompt or policy decline while retaining `--sandbox workspace-write`,
+the matching strict `sandbox_mode="workspace-write"` compatibility config, the exact
+approved `--cd`, and all network and writable-root restrictions. Native Windows runs
+also explicitly select `windows.sandbox="elevated"` inside Orion's isolated strict
+configuration, and the preflight help probe validates that configuration before approval
+consumption.
+
 ## Desktop applications
 
 `WindowsAppDetector` performs a bounded, no-shell PowerShell Appx identity query and

@@ -81,15 +81,28 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.6.0 — Courier: COMPLETE**
+**v0.6.1 — Gatekeeper: COMPLETE**
 
-Courier provides one normalized read-only Email service for Gmail and Microsoft
-Outlook / Microsoft 365, including Connect Center, Home, First Contact, diagnostics,
-and bounded local question handling.
+Gatekeeper provides interactive immutable AI Team approval, one bounded Codex
+implementation, strict Windows workspace-write compatibility, persisted diagnostics,
+and a mandatory stop at Awaiting Review.
 
 **Active milestone:** Email Phase B — persisted immutable approvals for sending,
 mailbox mutations, provider drafts, and attachment downloads. Cross-platform diagnostics
 through `orion doctor` remains planned.
+
+## v0.6.1 — Gatekeeper Interactive Approval and Codex Compatibility ✅
+
+- [x] Interactive `team plan` offers explicit Y/N/D approval without copied IDs
+- [x] Manual planning, approval, and implementation commands remain available
+- [x] Approvals remain immutable, single-use, plan-hash-bound, and workspace-bound
+- [x] Codex CLI options are detected from a cached bounded help probe
+- [x] Unsupported optional flags are omitted without weakening required protections
+- [x] The exact approved Standard or Git workspace receives `workspace-write`
+- [x] Native Windows execution explicitly uses the elevated Codex sandbox
+- [x] Network, user configuration, extra writable roots, Git actions, and raw output remain unavailable
+- [x] Structured implementation and test artifacts stop at Awaiting Review
+- [x] The complete regression suite passes with 351 tests
 
 ## v0.6.0 — Courier Email and Windows Discovery ✅
 

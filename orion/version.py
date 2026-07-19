@@ -1,2 +1,2 @@
-__version__ = "0.6.0"
-__codename__ = "Courier"
+__version__ = "0.6.1"
+__codename__ = "Gatekeeper"
