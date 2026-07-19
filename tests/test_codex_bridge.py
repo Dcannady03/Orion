@@ -132,6 +132,7 @@ class CodexBridgeTests(unittest.TestCase):
         config=None,
         task_status=TEAM_STATUS_AWAITING_APPROVAL,
         execution_engines=None,
+        include_default_engine=True,
         git_workspace=True,
     ):
         base = Path(root)
@@ -164,17 +165,18 @@ class CodexBridgeTests(unittest.TestCase):
         team_store.save(task)
         approvals = iter([f"approval-test-{index:03d}" for index in range(1, 20)])
         runs = iter([f"run-test-{index:03d}" for index in range(1, 20)])
+        default_engine = ExecutionEngine(
+            engine_id="codex",
+            name="Codex CLI",
+            status=ENGINE_STATUS_INSTALLED,
+            installed=True,
+            cli_support=True,
+            implementation_supported=True,
+            executable=str((base / "tools" / "codex.cmd").resolve()),
+        )
         if execution_engines is None:
             execution_engines = Mock()
-            execution_engines.require_codex.return_value = ExecutionEngine(
-                engine_id="codex",
-                name="Codex CLI",
-                status=ENGINE_STATUS_INSTALLED,
-                installed=True,
-                cli_support=True,
-                implementation_supported=True,
-                executable=str((base / "tools" / "codex.cmd").resolve()),
-            )
+            execution_engines.require_codex.return_value = default_engine
         bridge = CodexBridge(
             FlatConfig(config),
             team_store,
@@ -183,6 +185,7 @@ class CodexBridgeTests(unittest.TestCase):
             workspace_capabilities=capabilities,
             runner=runner or FakeRunner(),
             execution_engines=execution_engines,
+            default_execution_engine=default_engine if include_default_engine else None,
             now=lambda: datetime(2026, 7, 18, 13, 0, tzinfo=timezone.utc),
             approval_id_factory=lambda: next(approvals),
             run_id_factory=lambda: next(runs),
@@ -603,7 +606,11 @@ class CodexBridgeTests(unittest.TestCase):
                 for engine in engines.status()
                 if engine.engine_id == "codex"
             )
-            run = bridge.execute("team-test-001", approval.approval_id)
+            run = bridge.execute(
+                "team-test-001",
+                approval.approval_id,
+                execution_engine=engines.require_codex(),
+            )
 
             self.assertEqual(status_executable, str(Path("C:/tools/codex.cmd")))
             self.assertEqual(runner.calls[0]["command"][0], status_executable)
@@ -631,6 +638,7 @@ class CodexBridgeTests(unittest.TestCase):
                 tmp,
                 runner=runner,
                 execution_engines=engines,
+                include_default_engine=False,
             )
             router = CommandRouter(SimpleNamespace(
                 execution_engines=engines,
@@ -705,6 +713,7 @@ class CodexBridgeTests(unittest.TestCase):
                 tmp,
                 runner=runner,
                 execution_engines=engines,
+                include_default_engine=False,
             )
             approval = bridge.approve("team-test-001")
 
@@ -717,8 +726,7 @@ class CodexBridgeTests(unittest.TestCase):
             )
             self.assertEqual(runner.calls, [])
 
-            engines.require_codex.side_effect = None
-            engines.require_codex.return_value = ExecutionEngine(
+            resolved = ExecutionEngine(
                 engine_id="codex",
                 name="Codex CLI",
                 status=ENGINE_STATUS_INSTALLED,
@@ -727,7 +735,11 @@ class CodexBridgeTests(unittest.TestCase):
                 implementation_supported=True,
                 executable=str((Path(tmp) / "tools" / "codex.cmd").resolve()),
             )
-            run = bridge.execute("team-test-001", approval.approval_id)
+            run = bridge.execute(
+                "team-test-001",
+                approval.approval_id,
+                execution_engine=resolved,
+            )
             self.assertEqual(run.status, RUN_STATUS_AWAITING_REVIEW)
 
     def test_invalid_structured_results_fail_closed_and_preserve_sanitized_run(self):
@@ -889,6 +901,42 @@ class CodexBridgeTests(unittest.TestCase):
         self.assertNotIn("CODEX_API_KEY", arguments["env"])
         self.assertNotIn("CODEX_ACCESS_TOKEN", arguments["env"])
         self.assertNotIn("GITHUB_TOKEN", arguments["env"])
+
+    def test_local_runner_launches_windows_cmd_wrapper_with_fixed_arguments(self):
+        completed = SimpleNamespace(returncode=0, stdout="ok", stderr="")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            appdata = root / "AppData" / "Roaming"
+            wrapper = appdata / "npm" / "codex.cmd"
+            wrapper.parent.mkdir(parents=True)
+            wrapper.write_text("@echo off\n", encoding="utf-8")
+            program_files = root / "Program Files"
+            node = program_files / "nodejs" / "node.exe"
+            node.parent.mkdir(parents=True)
+            node.write_text("runtime", encoding="utf-8")
+            environment = {
+                "APPDATA": str(appdata),
+                "COMSPEC": "C:\\Windows\\System32\\cmd.exe",
+                "PATH": "C:\\Windows\\System32",
+                "PROGRAMFILES": str(program_files),
+            }
+            with patch.dict(os.environ, environment, clear=True), patch(
+                "orion.services.codex_bridge.subprocess.run", return_value=completed
+            ) as execute:
+                result = LocalCodexRunner(platform_name="Windows").run(
+                    [str(wrapper), "exec", "--json", "-"],
+                    cwd=root,
+                    prompt="approved prompt",
+                    timeout=30,
+                )
+        self.assertEqual(result.returncode, 0)
+        command = execute.call_args.args[0]
+        self.assertEqual(command[:4], [
+            "C:\\Windows\\System32\\cmd.exe", "/d", "/s", "/c"
+        ])
+        self.assertEqual(command[4:], [str(wrapper), "exec", "--json", "-"])
+        self.assertFalse(execute.call_args.kwargs["shell"])
+        self.assertIn(str(node.parent), execute.call_args.kwargs["env"]["PATH"])
 
     def test_bridge_can_be_disabled_and_timeout_is_bounded(self):
         with tempfile.TemporaryDirectory() as tmp:

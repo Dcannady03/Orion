@@ -14,6 +14,7 @@ from orion.services.execution_engines import (
     ENGINE_STATUS_NOT_INSTALLED,
     ExecutionEngine,
 )
+from orion.services.email import EmailAccount, EmailProvider
 from orion.services.provider_manager import ProviderStatus
 from orion.services.vault import VaultService
 
@@ -120,6 +121,44 @@ class FakeExecutionEngines:
         )
 
 
+class FakeEmailAdapter:
+    def __init__(self, key, *, connected=False, failure=False):
+        self.key = key
+        self.display_name = "Gmail" if key == "gmail" else "Outlook / Microsoft 365"
+        self.connected = connected
+        self.configured = True
+        self.failure = failure
+
+
+class FakeEmailService:
+    def __init__(self, config, *, failures=(), connected=()):
+        self.config = config
+        self.connect_calls = []
+        self.providers = {
+            key: EmailProvider(
+                key,
+                "Gmail" if key == "gmail" else "Outlook / Microsoft 365",
+                FakeEmailAdapter(key, connected=key in connected, failure=key in failures),
+                key in connected,
+            )
+            for key in ("gmail", "microsoft")
+        }
+
+    def connect(self, key):
+        self.connect_calls.append(key)
+        provider = self.providers[key]
+        if provider.adapter.failure:
+            raise ConnectionError("sanitized connection failure")
+        provider.enabled = True
+        provider.adapter.connected = True
+        self.config.set(f"email.{key}.enabled", True)
+        self.config.set("email.enabled", True)
+        if not self.config.get("email.default_provider", ""):
+            self.config.set("email.default_provider", key)
+        self.config.save()
+        return EmailAccount(key, f"{key}-account", f"{key}@example.test")
+
+
 class FirstContactTests(unittest.TestCase):
     def build(
         self,
@@ -130,6 +169,8 @@ class FirstContactTests(unittest.TestCase):
         failures=(),
         ollama_available=True,
         codex_installed=False,
+        email_failures=(),
+        email_connected=(),
     ):
         root = Path(root)
         config_path = root / "config.yaml"
@@ -153,6 +194,11 @@ class FirstContactTests(unittest.TestCase):
         output = []
         answer_queue = AnswerQueue(answers)
         secret_queue = AnswerQueue(secrets)
+        email_service = FakeEmailService(
+            config,
+            failures=email_failures,
+            connected=email_connected,
+        )
         setup = FirstContact(
             config_path,
             profile_path,
@@ -164,7 +210,9 @@ class FirstContactTests(unittest.TestCase):
             vault=vault,
             routing_service=routing,
             execution_engines=FakeExecutionEngines(codex_installed=codex_installed),
+            email_service=email_service,
         )
+        setup.test_email_service = email_service
         return setup, config, store, manager, output
 
     @staticmethod
@@ -435,6 +483,95 @@ class FirstContactTests(unittest.TestCase):
                 rendered = "\n".join(output)
                 self.assertIn(expected, rendered)
                 self.assertIn("ChatGPT Desktop is not a CLI execution engine", rendered)
+
+    def test_first_contact_connects_gmail_read_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            answers = self.base_answers(workspace, 5)
+            answers[10] = "2"
+            setup, config, _, _, output = self.build(temp, answers)
+            setup.run()
+            self.assertEqual(setup.test_email_service.connect_calls, ["gmail"])
+            self.assertTrue(config.get("email.gmail.enabled"))
+            self.assertIn("Gmail Mail connected", "\n".join(output))
+
+    def test_first_contact_connects_microsoft_mail(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            answers = self.base_answers(workspace, 5)
+            answers[10] = "3"
+            setup, config, _, _, _ = self.build(temp, answers)
+            setup.run()
+            self.assertEqual(setup.test_email_service.connect_calls, ["microsoft"])
+            self.assertTrue(config.get("email.microsoft.enabled"))
+
+    def test_first_contact_connects_both_email_providers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            answers = self.base_answers(workspace, 5)
+            answers[10] = "4"
+            setup, config, _, _, _ = self.build(temp, answers)
+            setup.run()
+            self.assertEqual(setup.test_email_service.connect_calls, ["gmail", "microsoft"])
+            self.assertTrue(config.get("email.gmail.enabled"))
+            self.assertTrue(config.get("email.microsoft.enabled"))
+
+    def test_first_contact_skip_email_preserves_no_provider_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            setup, config, _, _, _ = self.build(
+                temp, self.base_answers(workspace, 5)
+            )
+            setup.run()
+            self.assertEqual(setup.test_email_service.connect_calls, [])
+            self.assertFalse(config.get("email.gmail.enabled", False))
+            self.assertFalse(config.get("email.microsoft.enabled", False))
+
+    def test_existing_calendar_explains_incremental_mail_consent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            answers = self.base_answers(workspace, 5)
+            answers[9] = "2"
+            answers[10] = "2"
+            setup, _, _, _, output = self.build(temp, answers)
+            setup.run()
+            rendered = "\n".join(output)
+            self.assertIn("Google Calendar is configured", rendered)
+            self.assertIn("separate explicit read-only consent", rendered)
+
+    def test_rerun_preserves_working_email_connection_without_reauthorization(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            answers = self.base_answers(workspace, 5)
+            answers[10] = "2"
+            setup, config, _, _, output = self.build(
+                temp,
+                answers,
+                email_connected={"gmail"},
+            )
+            config.set("email.gmail.enabled", True)
+            setup.run()
+            self.assertEqual(setup.test_email_service.connect_calls, [])
+            self.assertIn("Gmail Mail authorization preserved", "\n".join(output))
+
+    def test_failed_email_connection_preserves_existing_provider(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            answers = self.base_answers(workspace, 5)
+            answers[10] = "4"
+            setup, config, _, _, output = self.build(
+                temp,
+                answers,
+                email_failures={"gmail"},
+                email_connected={"microsoft"},
+            )
+            config.set("email.microsoft.enabled", True)
+            config.set("email.default_provider", "microsoft")
+            setup.run()
+            self.assertFalse(config.get("email.gmail.enabled", False))
+            self.assertTrue(config.get("email.microsoft.enabled"))
+            self.assertEqual(config.get("email.default_provider"), "microsoft")
+            self.assertIn("existing Email and Calendar settings were preserved", "\n".join(output))
 
 
 if __name__ == "__main__":

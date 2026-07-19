@@ -25,7 +25,8 @@ from orion.services.team import (
 from orion.services.execution_engines import (
     ExecutionEngine,
     ExecutionEngineUnavailable,
-    resolve_codex_executable,
+    executable_environment,
+    safe_executable_command,
 )
 from orion.services.workspace import (
     WORKSPACE_MODE_STANDARD,
@@ -550,7 +551,7 @@ class CodexRun:
             maximum_length=4_000, allow_empty=False,
         )
         executable_name = Path(command[0]).name.lower()
-        if executable_name not in {"codex", "codex.cmd", "codex.exe"}:
+        if executable_name not in {"codex", "codex.cmd", "codex.exe", "codex.ps1"}:
             raise ValueError("Codex run command must invoke the local Codex CLI.")
         artifacts = _bounded_strings(
             value["artifacts"], "Codex run artifacts", maximum_items=8,
@@ -803,10 +804,13 @@ class LocalCodexRunner:
     SAFE_ENVIRONMENT_NAMES = frozenset({
         "APPDATA", "CODEX_CA_CERTIFICATE", "CODEX_HOME", "COMSPEC", "HOME", "HOMEDRIVE",
         "HOMEPATH", "LANG", "LC_ALL", "LOCALAPPDATA", "NUMBER_OF_PROCESSORS",
-        "OS", "PATH", "PATHEXT", "PROCESSOR_ARCHITECTURE", "SSL_CERT_FILE",
+        "OS", "PATH", "PATHEXT", "PROCESSOR_ARCHITECTURE", "PROGRAMFILES", "SSL_CERT_FILE",
         "SYSTEMDRIVE", "SYSTEMROOT", "TEMP", "TERM", "TMP", "USERDOMAIN",
         "USERNAME", "USERPROFILE", "VIRTUAL_ENV", "WINDIR",
     })
+
+    def __init__(self, *, platform_name: str | None = None) -> None:
+        self._platform_name = platform_name or os.name
 
     def run(
         self,
@@ -822,8 +826,22 @@ class LocalCodexRunner:
             if name.upper() in self.SAFE_ENVIRONMENT_NAMES
         }
         environment["RUST_LOG"] = "error"
+        logical_command = list(command)
+        if not logical_command:
+            raise ValueError("Codex command cannot be empty.")
+        environment = executable_environment(
+            logical_command[0],
+            environment,
+            platform_name=self._platform_name,
+        )
+        launch_command = safe_executable_command(
+            logical_command[0],
+            logical_command[1:],
+            platform_name=self._platform_name,
+            environment=environment,
+        )
         completed = subprocess.run(
-            list(command),
+            list(launch_command),
             cwd=str(cwd),
             input=prompt,
             capture_output=True,
@@ -899,6 +917,7 @@ class CodexBridge:
         snapshot_service: WorkspaceSnapshotService | None = None,
         runner: LocalCodexRunner | None = None,
         execution_engines=None,
+        default_execution_engine: ExecutionEngine | None = None,
         now: Callable[[], datetime] | None = None,
         approval_id_factory: Callable[[], str] | None = None,
         run_id_factory: Callable[[], str] | None = None,
@@ -908,7 +927,11 @@ class CodexBridge:
         self.store = store
         self.runner = runner or LocalCodexRunner()
         self.snapshots = snapshot_service or WorkspaceSnapshotService()
+        # ``execution_engines`` remains accepted for constructor compatibility,
+        # but execution never asks it to rediscover Codex. The router supplies the
+        # validated immutable engine snapshot in ``ExecutionContext``.
         self.execution_engines = execution_engines
+        self._default_execution_engine = default_execution_engine
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._approval_id_factory = approval_id_factory or self._new_approval_id
         self._run_id_factory = run_id_factory or self._new_run_id
@@ -995,20 +1018,12 @@ class CodexBridge:
             else:
                 if approval_id is None:
                     raise TypeError("Approval ID is required for Codex execution.")
-                executable = self._resolve_codex_executable(execution_engine)
-                fallback_engine = execution_engine or ExecutionEngine(
-                    engine_id="codex",
-                    name="Codex CLI",
-                    status="installed",
-                    installed=True,
-                    cli_support=True,
-                    implementation_supported=True,
-                    executable=str(executable),
-                )
+                supplied_engine = execution_engine or self._default_execution_engine
+                self._resolve_codex_executable(supplied_engine)
                 context = self.execution_context(
                     team_task_id,
                     approval_id,
-                    fallback_engine,
+                    supplied_engine,
                     self._workspace_capabilities,
                 )
             self._validate_context(context)
@@ -1351,38 +1366,23 @@ class CodexBridge:
         self,
         execution_engine: ExecutionEngine | None = None,
     ) -> Path:
-        if execution_engine is not None:
-            if (
-                not isinstance(execution_engine, ExecutionEngine)
-                or execution_engine.engine_id != "codex"
-                or not execution_engine.ready_for_implementation
-            ):
-                raise ExecutionEngineUnavailable(
-                    "No execution engine is currently available."
-                )
-            value = execution_engine.executable
-            if not isinstance(value, (str, os.PathLike)) or not str(value).strip():
-                raise ExecutionEngineUnavailable(
-                    "No execution engine is currently available."
-                )
-            executable = Path(value).expanduser()
-        elif self.execution_engines is not None:
-            engine = self.execution_engines.require_codex()
-            value = engine.executable
-            if not isinstance(value, (str, os.PathLike)) or not str(value).strip():
-                raise ExecutionEngineUnavailable(
-                    "No execution engine is currently available."
-                )
-            executable = Path(value).expanduser()
-        else:
-            executable = resolve_codex_executable()
-            if executable is None:
-                raise ExecutionEngineUnavailable(
-                    "No execution engine is currently available."
-                )
+        if (
+            not isinstance(execution_engine, ExecutionEngine)
+            or execution_engine.engine_id != "codex"
+            or not execution_engine.ready_for_implementation
+        ):
+            raise ExecutionEngineUnavailable(
+                "No validated execution engine was supplied by the command router."
+            )
+        value = execution_engine.executable
+        if not isinstance(value, (str, os.PathLike)) or not str(value).strip():
+            raise ExecutionEngineUnavailable(
+                "No validated execution engine was supplied by the command router."
+            )
+        executable = Path(value).expanduser()
         if (
             executable is None
-            or executable.name.lower() not in {"codex", "codex.cmd", "codex.exe"}
+            or executable.name.lower() not in {"codex", "codex.cmd", "codex.exe", "codex.ps1"}
         ):
             raise ExecutionEngineUnavailable(
                 "No execution engine is currently available."

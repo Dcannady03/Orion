@@ -15,6 +15,7 @@ from orion.core.paths import OrionPaths
 from orion.intelligence.secrets import SecretStore
 from orion.services.ai_routing import AIRoutingService
 from orion.services.execution_engines import ExecutionEngineService
+from orion.services.email import build_email_service
 from orion.services.provider_manager import ProviderManager
 from orion.services.vault import VaultService
 
@@ -60,6 +61,7 @@ class FirstContact:
         vault=None,
         routing_service=None,
         execution_engines=None,
+        email_service=None,
     ) -> None:
         self.paths = OrionPaths()
         self.paths.ensure()
@@ -96,6 +98,13 @@ class FirstContact:
         self.execution_engines = execution_engines or ExecutionEngineService(
             self.config_manager
         )
+        if email_service is None:
+            email_paths = self.paths if default_config else OrionPaths(
+                user_root=self.config_path.parent / "user"
+            )
+            email_paths.ensure()
+            email_service = build_email_service(self.config_manager, email_paths)
+        self.email_service = email_service
 
     @property
     def is_required(self) -> bool:
@@ -188,7 +197,7 @@ class FirstContact:
                 1,
             ),
         )
-        email_options = ("Not now", "Gmail", "Microsoft Outlook")
+        email_options = ("Not now", "Gmail", "Outlook / Microsoft 365", "Both")
         email_choice = self._choose(
             "Prepare email integration?",
             email_options,
@@ -244,6 +253,8 @@ class FirstContact:
                     connected.add(provider)
             elif self._setup_cloud_provider(provider):
                 connected.add(provider)
+
+        self._setup_email(email_choice)
 
         if ai_choice != "Skip for now":
             self._select_active_provider(selected_providers, connected)
@@ -420,9 +431,70 @@ class FirstContact:
         self.config_manager.set("calendar.enabled", google_enabled or microsoft_enabled)
         self.config_manager.set("calendar.google.enabled", google_enabled)
         self.config_manager.set("calendar.microsoft.enabled", microsoft_enabled)
-        self.config_manager.set("email.enabled", email_choice != "Not now")
-        self.config_manager.set("email.provider", email_choice.lower().replace(" ", "_"))
         self.config_manager.set("docker.enabled", docker_enabled)
+
+    def _setup_email(self, email_choice: str) -> None:
+        selected = []
+        if email_choice in {"Gmail", "Both"}:
+            selected.append("gmail")
+        if email_choice in {"Outlook / Microsoft 365", "Both"}:
+            selected.append("microsoft")
+        for key in selected:
+            provider = self.email_service.providers[key]
+            if provider.enabled and provider.adapter.connected:
+                self.output(f"[OK] {provider.display_name} Mail authorization preserved.")
+                continue
+            if key == "gmail" and not provider.adapter.configured:
+                default = str(provider.adapter.credentials_path)
+                entered = self._ask(
+                    "Google Desktop OAuth client file for Gmail",
+                    default=default,
+                )
+                try:
+                    self.email_service.configure_provider("gmail", credentials_path=entered)
+                except (OSError, ValueError):
+                    self.output("Gmail OAuth client configuration could not be saved.")
+                    continue
+                if not provider.adapter.configured:
+                    self.output(
+                        "Gmail setup skipped because the Google OAuth client file is not available."
+                    )
+                    continue
+            if key == "microsoft" and not provider.adapter.configured:
+                client_id = self._ask(
+                    "Microsoft Application (client) ID for Mail",
+                    default=None,
+                )
+                if not client_id:
+                    self.output(
+                        "Microsoft Mail setup skipped because an Entra Application client ID is required."
+                    )
+                    continue
+                tenant = self._ask(
+                    "Microsoft tenant",
+                    default=str(getattr(provider.adapter.oauth, "tenant", "common")),
+                )
+                try:
+                    self.email_service.configure_provider(
+                        "microsoft", client_id=client_id, tenant=tenant
+                    )
+                except (OSError, ValueError):
+                    self.output("Microsoft Mail client configuration could not be saved.")
+                    continue
+            if key == "gmail" and bool(self.config_manager.get("calendar.google.enabled", False)):
+                self.output("Google Calendar is configured; Gmail requires separate explicit read-only consent.")
+            if key == "microsoft" and bool(self.config_manager.get("calendar.microsoft.enabled", False)):
+                self.output("Microsoft Calendar is configured; Mail.Read requires separate explicit consent.")
+            self.output(f"Connecting {provider.display_name} with read-only Mail permission...")
+            try:
+                account = self.email_service.connect(key)
+            except (ConnectionError, OSError, ValueError):
+                self.output(
+                    f"{provider.display_name} Mail could not be connected; existing Email and Calendar "
+                    "settings were preserved."
+                )
+                continue
+            self.output(f"[OK] {provider.display_name} Mail connected: {account.email_address}")
 
     def _show_welcome(self) -> None:
         self.output("=" * 58)
@@ -483,9 +555,20 @@ class FirstContact:
             engines = self.execution_engines.status()
         except (OSError, TypeError, ValueError):
             engines = ()
+        codex_ready = any(
+            engine.engine_id == "codex" and engine.ready_for_implementation
+            for engine in engines
+        )
         for engine in engines:
             if engine.engine_id == "chatgpt_desktop":
                 state = "Installed (desktop app only; not a CLI execution engine)" if engine.installed else "Not Installed"
+            elif engine.engine_id == "codex_desktop":
+                if engine.installed and codex_ready:
+                    state = "Installed (separate CLI detected)"
+                elif engine.installed:
+                    state = "Installed (desktop app only)"
+                else:
+                    state = engine.status.replace("_", " ").title()
             elif engine.ready_for_implementation:
                 state = "Ready"
             else:
@@ -502,8 +585,10 @@ class FirstContact:
             services.append("Google Calendar")
         if bool(self.config_manager.get("calendar.microsoft.enabled", False)):
             services.append("Microsoft Outlook Calendar")
-        if bool(self.config_manager.get("email.enabled", False)):
-            services.append(str(self.config_manager.get("email.provider", "Email")).replace("_", " ").title())
+        if bool(self.config_manager.get("email.gmail.enabled", False)):
+            services.append("Gmail (read-only)")
+        if bool(self.config_manager.get("email.microsoft.enabled", False)):
+            services.append("Outlook / Microsoft 365 Mail (read-only)")
         if bool(self.config_manager.get("docker.enabled", False)):
             services.append("Docker")
         if bool(self.config_manager.get("connect.discord_bot.enabled", False)) and bool(
@@ -548,10 +633,19 @@ class FirstContact:
         return "Not now"
 
     def _email_choice(self) -> str:
-        if not bool(self.config_manager.get("email.enabled", False)):
-            return "Not now"
-        provider = str(self.config_manager.get("email.provider", "gmail")).lower()
-        return "Microsoft Outlook" if "outlook" in provider else "Gmail"
+        gmail = bool(self.config_manager.get("email.gmail.enabled", False))
+        microsoft = bool(self.config_manager.get("email.microsoft.enabled", False))
+        if gmail and microsoft:
+            return "Both"
+        if gmail:
+            return "Gmail"
+        if microsoft:
+            return "Outlook / Microsoft 365"
+        # Preserve the legacy single-provider default during migration.
+        if bool(self.config_manager.get("email.enabled", False)):
+            provider = str(self.config_manager.get("email.provider", "gmail")).lower()
+            return "Outlook / Microsoft 365" if "outlook" in provider else "Gmail"
+        return "Not now"
 
     def _ask(self, prompt: str, *, default: str | None = None, required: bool = False) -> str:
         while True:

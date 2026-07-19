@@ -47,6 +47,25 @@ class RequestRouterTests(unittest.TestCase):
         self.assertEqual(result.source, "calendar")
         self.assertEqual(brain.prompts, [])
 
+    def test_email_questions_use_bounded_email_service_before_ai(self):
+        brain = Brain()
+        email = Service(Result(output="2 unread messages from the bounded check"))
+        router = RequestRouterService(brain, email_service=email)
+        result = router.route("Do I have any important unread email?")
+        self.assertEqual(result.source, "email")
+        self.assertEqual(email.requests, ["Do I have any important unread email?"])
+        self.assertEqual(brain.prompts, [])
+
+    def test_email_provider_error_does_not_fall_through_to_ai(self):
+        brain = Brain()
+        email = Service(Result(success=False, error="No email provider is connected."))
+        router = RequestRouterService(brain, email_service=email)
+        result = router.route("Summarize my unread email")
+        self.assertFalse(result.success)
+        self.assertEqual(result.source, "email")
+        self.assertIn("Email unavailable", result.output)
+        self.assertEqual(brain.prompts, [])
+
     def test_unknown_request_falls_back_to_ai(self):
         brain = Brain()
         router = RequestRouterService(brain)

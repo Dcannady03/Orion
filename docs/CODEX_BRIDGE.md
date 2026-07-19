@@ -48,11 +48,13 @@ Execution Engine service. If no compatible engine is available, Orion displays t
 host capability report and leaves the approval unconsumed. See
 `EXECUTION_ENGINES.md` for detection rules and status output.
 
-The Execution Engine service returns the exact resolved CLI path. `team implement`
-hands that validated engine snapshot to the bridge, which uses the same path as its
-first subprocess argument, including `codex.cmd` on Windows. It does not repeat engine
-probing or command lookup after announcing that execution is starting. Direct bridge
-callers without a supplied snapshot perform one equivalent pre-claim resolution.
+The Execution Engine service returns the exact resolved and version-probed CLI path.
+`team implement` hands that immutable engine snapshot to the bridge, which uses the
+same path as its logical first subprocess argument, including npm-installed
+`codex.cmd` wrappers on Windows. The runner selects the fixed-argument Windows wrapper
+invocation without `shell=True`. The bridge never repeats engine probing or command
+lookup after the router announces that execution is starting; direct service callers
+must also supply a validated engine snapshot.
 
 ## Immutable approval contract
 

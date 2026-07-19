@@ -66,8 +66,25 @@ The completion summary reports:
 - active routing profile;
 - active workspace;
 - configured services;
-- detected execution engines, including Codex CLI readiness.
+- detected CLI engines and independent Codex/ChatGPT desktop-app status.
 
 ChatGPT Desktop is always labeled as a desktop application, not a CLI execution
-engine. Execution detection is informational and does not change Codex Bridge approval,
-workspace, or single-use execution safety.
+engine. `OpenAI.Codex` is labeled Codex Desktop, not ChatGPT Desktop. Execution
+detection is informational and does not change Codex Bridge approval, workspace, or
+single-use execution safety.
+
+## Email choices
+
+First Contact offers Gmail, Outlook / Microsoft 365, both providers, or skipping Email.
+It constructs the same `EmailService` and adapters used after startup. Selecting a
+provider requests only read access and never enables send or mailbox mutations.
+
+Google Calendar configuration can supply the same Desktop OAuth client file, and
+Microsoft Calendar configuration can supply the same Entra client ID and tenant. Mail
+still requires separate explicit read-only consent and uses a separate token cache, so
+rerunning setup or disconnecting Mail cannot replace or remove Calendar authorization.
+
+Working Mail connections are preserved on rerun. Failed or cancelled consent does not
+enable the new provider, replace the default account, delete another provider, or modify
+Calendar. OAuth tokens remain beneath external `~/.orion/tokens/`; First Contact never
+prints or writes them to profile or normal configuration.

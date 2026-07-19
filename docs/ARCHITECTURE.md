@@ -12,8 +12,9 @@ The core initializes shared components. Consumers discover them through the regi
 
 `FirstContact` runs before the complete `Orion` service graph, but it does not maintain
 an onboarding-only provider stack. It constructs the normal layered `ConfigManager`,
-`ProviderManager`, `VaultService`, `AIRoutingService`, and read-only
-`ExecutionEngineService` against the same external user-data paths used at runtime.
+`ProviderManager`, `VaultService`, `AIRoutingService`, read-only
+`ExecutionEngineService`, and the canonical `EmailService` factory against the same
+external user-data paths used at runtime.
 Profile fields are merged into the existing profile, and configuration changes use
 `ConfigManager.set()` and `save()` rather than replacing the complete document.
 
@@ -81,6 +82,33 @@ Startup depends only on `BriefingService`. Integrations implement the `BriefingP
 contract and register independently. The service validates items, sorts them by priority,
 and isolates provider failures. This prevents Weather, Email, Calendar, Docker, or any
 future integration from becoming a hard dependency of Orion startup.
+
+## Provider-neutral Email Phase A
+
+`EmailService` is registered as `email` and is the only mail dependency exposed to the
+CLI, Connect Center, Home, First Contact, shared request router, or future interfaces.
+`GmailAdapter` and `MicrosoftGraphEmailAdapter` translate provider responses into
+immutable normalized account, folder, summary, full-message, thread, attachment, and
+status records. Provider access tokens never enter those models.
+
+`GoogleInstalledAppOAuth` and `MicrosoftPublicClientOAuth` centralize the OAuth behavior
+shared by Calendar and Email: non-interactive startup, explicit interactive connect,
+refresh, sanitized failures, atomic external token writes, and owner-only permissions.
+Mail uses scope-specific token caches separate from Calendar. This deliberately trades
+one incremental consent for clean capability boundaries and lets local Mail disconnect
+preserve a working Calendar connection. Google client-file configuration and Microsoft
+client ID/tenant values are reused where available.
+
+Phase A requests only Gmail `gmail.readonly` or Microsoft Graph `User.Read`, `Mail.Read`,
+and `offline_access`. Message pages are capped centrally, HTML becomes safe plain text,
+attachments remain metadata-only, and bounded summaries are formatted locally without
+mailbox fallback to an AI provider. Home reads cached counts only and never performs a
+mailbox request during startup.
+
+Legacy direct Gmail send has been removed from the runtime path. Send, reply, forward,
+provider drafts, mailbox mutations, and attachment downloads remain disabled until
+Phase B adds persisted, immutable, single-use outbound approvals and safe attachment
+destinations.
 
 ## Adaptive AI Performance
 
@@ -158,18 +186,19 @@ repair loop, Task Manager transition, Git write, or release action in this phase
 
 ## Execution Engine Discovery
 
-`ExecutionEngineService` is registered as `execution_engines`. It performs read-only
-host capability probes for Codex CLI, ChatGPT Desktop, Claude Code, Gemini CLI, and the
-current Python runtime. CLI status requires both PATH resolution and a successful
-bounded `--version` process; desktop discovery uses the application catalog and common
-host locations.
+`ExecutionEngineService` is registered as `execution_engines`. Its reusable
+`ExecutableResolver` searches and version-probes Codex, Claude, and Gemini command
+forms. Windows behavior is isolated: PATH lookup includes extensionless, `.cmd`,
+`.exe`, and `.ps1` forms, then falls back to `%APPDATA%\npm` and a bounded
+`npm prefix -g` query. A `WindowsAppDetector` separately reads registered Appx package
+identities for Codex Desktop and ChatGPT Desktop, supplemented by the application
+catalog and known install locations.
 
 Detection, CLI capability, and implementation-adapter support are independent fields.
 Only Codex currently has an implementation adapter. `CommandRouter` uses the service
 for `execution status` and friendly AI Team failure output. During `team implement`,
-the router passes its validated `ExecutionEngine` snapshot into `CodexBridge`, avoiding
-a second availability probe before the exclusive approval claim. Direct bridge callers
-perform one equivalent service check. Both paths use the shared platform-aware Codex
-resolver, and the bridge launches its returned executable path directly, so UI bypass,
-Windows command-extension differences, or transient duplicate probes cannot create a
-discovery/launch mismatch.
+the router passes its validated immutable `ExecutionEngine` snapshot into
+`CodexBridge`, avoiding a second availability probe before the exclusive approval
+claim. Direct bridge callers must supply the same snapshot. The bridge runner safely
+adapts `.cmd` and `.ps1` wrappers with fixed argument arrays and `shell=False`, so
+Windows command-extension differences cannot create a discovery/launch mismatch.

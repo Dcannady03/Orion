@@ -1,7 +1,8 @@
 # Execution Engines
 
-Execution Engine discovery explains which local runtimes Orion can see and which of
-them can currently implement an approved AI Team plan.
+Execution discovery reports local implementation CLIs and desktop applications as
+separate capabilities. Discovery is read-only and never grants an engine approval,
+workspace access, or permission to execute.
 
 ## Command
 
@@ -9,7 +10,7 @@ them can currently implement an approved AI Team plan.
 execution status
 ```
 
-Example:
+Representative Windows output:
 
 ```text
 Execution Engines
@@ -17,104 +18,126 @@ Execution Engines
 
 Codex CLI
 Status:
-Not Installed
+Ready
+Executable:
+C:\Users\name\AppData\Roaming\npm\codex.cmd
+PATH Visibility:
+No
+Discovery Source:
+npm global directory (%APPDATA%\npm)
+Version:
+codex-cli 0.144.5
+Version Probe:
+Succeeded
 
-ChatGPT Desktop
+Codex Desktop
 Status:
 Installed
 CLI Support:
+Separate CLI detected
+Discovery Source:
+Store package
+
+ChatGPT Desktop
+Status:
+Not Installed
+CLI Support:
 No
-
-Claude Code
-Status:
-Not Installed
-
-Gemini CLI
-Status:
-Not Installed
-
-Python Executor
-Status:
-Ready
 ```
 
-Desktop installation and CLI availability are different capabilities. ChatGPT Desktop
-can be installed and usable as an application without providing a command-line engine
-that Orion can invoke. Orion therefore never treats a desktop-app shortcut as a Codex
-CLI installation.
+The full report also includes Claude Code, Gemini CLI, and Orion's Python runtime.
 
-## Detection
+## Status meanings
 
-Orion checks engines without modifying the host:
+- **Ready** — the CLI path resolved and completed a bounded `--version` probe.
+- **Installed but not executable** — a path or wrapper exists, but the launch or
+  version probe failed. The safe diagnostic distinguishes launch, timeout, and
+  nonzero-version failures.
+- **Not Installed** — no candidate was found through supported discovery sources.
+- **Detection Error** — a bounded discovery mechanism was unavailable or failed, so
+  Orion will not claim absence as certainty.
+- **Unsupported as CLI** — the capability is a desktop application or has no CLI
+  adapter. Desktop status remains independently Installed, Not Installed, or Detection
+  Error and its `CLI Support` field explains the boundary.
 
-- **Codex CLI:** on Windows, Orion resolves `codex.cmd`, `codex.exe`, then `codex`; on
-  other platforms it resolves `codex`. The resolved executable must complete
-  `--version` successfully.
-- **ChatGPT Desktop:** detected from Orion's application catalog, common Windows or
-  macOS installation locations, and bundled OpenAI Windows desktop package aliases.
-  It is reported with `CLI Support: No`.
-- **Claude Code:** the `claude` command must exist and complete `--version`.
-- **Gemini CLI:** the `gemini` command must exist and complete `--version`.
-- **Python Executor:** Orion's current Python executable must be a readable file.
+Diagnostics include only current PATH visibility, the resolved executable, discovery
+source, bounded version-probe result, and safe error category. Orion does not print the
+PATH value, the full environment, process output from failed probes, or secrets.
 
-A command found on `PATH` but blocked, broken, or unable to run is reported as `Not
-Installed`. This prevents Windows application aliases from being mistaken for usable
-CLI engines. Probe errors are reduced to internal safe categories and are not printed.
+## Reusable CLI resolution
 
-## Detection versus adapter support
+`ExecutableResolver` handles Codex, Claude, and Gemini from engine-registry metadata.
+Non-Windows systems keep their normal extensionless command lookup. Windows searches
+these forms for each CLI:
 
-Detection does not grant execution permission and does not mean Orion has an adapter
-for that engine. Codex Bridge Phase 1 supports only a runnable Codex CLI. Claude Code
-and Gemini CLI are detected now so future adapters can be added without redesigning
-the status experience. Python readiness describes Orion's local Python runtime; it is
-not an AI implementation adapter.
+```text
+<command>.cmd
+<command>.exe
+<command>
+<command>.ps1
+```
 
-The configured default is reserved under:
+All common forms are considered. A working `.cmd` or `.exe` is preferred over a
+PowerShell shim when several variants resolve. `shutil.which()` remains the primary
+PATH lookup and extensionless npm shims are accepted.
+
+If PATH candidates are missing or present but broken, Windows discovery checks:
+
+1. `%APPDATA%\npm`;
+2. the global prefix returned by `npm prefix -g`, only when npm itself resolves.
+
+Orion does not require npm to rediscover a wrapper already visible on PATH or in the
+conventional per-user npm directory. When the host process has an incomplete PATH,
+Orion also makes the conventional `%ProgramFiles%\nodejs` runtime visible only to a
+discovered per-user npm wrapper; it does not modify the user's environment.
+
+## Safe version and execution probes
+
+Each candidate receives a short, bounded `<resolved executable> --version` probe.
+Standard output and standard error are captured separately; a successful version
+written to stderr is accepted. Timeouts, launch failures, and known broken-wrapper
+messages become safe diagnostic categories.
+
+Native executables run directly. On Windows, `.cmd` and `.ps1` shims are launched with
+their platform interpreter, a fixed argument list, `shell=False`, captured output, and
+a bounded timeout. Orion never builds a free-form command from user input.
+
+The immutable `ExecutionEngine` retains the exact path, source, PATH visibility,
+version, and probe result. `team implement` passes that object from the router to Codex
+Bridge. The bridge does not call `which()`, run another probe, or fall back to a bare
+`codex` command. Direct bridge callers must supply an equally validated snapshot.
+
+## Desktop applications
+
+`WindowsAppDetector` performs a bounded, no-shell PowerShell Appx identity query and
+uses exact product matching:
+
+- `OpenAI.Codex` identifies **Codex Desktop**;
+- a ChatGPT package identity, Start menu entry, application-catalog record, or known
+  ChatGPT install path identifies **ChatGPT Desktop**.
+
+An OpenAI-branded package is never assumed to be ChatGPT. If the Appx query is blocked
+and no independent evidence exists, status is Detection Error rather than a false Not
+Installed. Desktop applications are informational and never become execution engines.
+Codex Desktop may display `CLI Support: Separate CLI detected` when the independent
+Codex CLI probe is Ready. ChatGPT Desktop always displays `CLI Support: No`.
+
+## Adapter and approval boundary
+
+Claude Code and Gemini CLI can be Ready, but this release has no implementation adapter
+for them. Python readiness describes Orion's runtime and is not an AI implementation
+adapter. Codex Bridge Phase 1 supports only a Ready Codex CLI.
+
+`team implement` discovers Codex before claiming an immutable plan approval. When no
+supported engine is Ready, Orion prints the capability summary and leaves the approval
+unconsumed. If Codex disappears after preflight, the persisted run records the existing
+sanitized `codex_cli_unavailable` category. Plan hashes, one-time claims, active-
+workspace confinement, structured results, and the Awaiting Review stop remain
+unchanged.
+
+The configured default remains:
 
 ```yaml
 execution:
   default_engine: codex
 ```
-
-Selecting unsupported adapters is intentionally deferred until those adapters have
-their own sandbox, approval, output-schema, and persistence contracts.
-
-## AI Team behavior
-
-`team implement` performs engine discovery before Codex Bridge claims the immutable
-plan approval. When Codex is unavailable, Orion reports the detected engines and
-points to `execution status`. No local process starts, no run or claim artifact is
-created, and the approval remains valid after the CLI is installed.
-
-Discovery and implementation use the same resolver. `team implement` resolves the
-engine once and combines that exact engine snapshot with the active Standard/Git
-workspace capability in one immutable execution context. The bridge sends the resolved
-path directly to the no-shell subprocess call; it neither probes a second time nor
-falls back to a bare `codex` command. Direct service callers that do not supply a
-preflight snapshot still perform one bridge-owned check before approval claiming.
-
-Codex CLI does not require Git when invoked with `codex exec
---skip-git-repo-check`. Orion adds that narrow option only in Standard Workspace Mode.
-Git mode omits it and retains repository metadata. Both modes use the same workspace-
-write sandbox and exact active directory.
-
-```text
-No execution engine is currently available.
-
-Detected:
-
-✓ ChatGPT Desktop
-✗ Codex CLI
-✗ Claude Code
-✗ Gemini CLI
-
-Use:
-
-  execution status
-
-to configure an execution engine.
-```
-
-If Codex disappears after preflight but before the process starts, the existing Codex
-Bridge failure record still captures the race as `codex_cli_unavailable` without raw
-process output.

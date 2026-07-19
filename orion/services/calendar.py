@@ -10,6 +10,11 @@ from zoneinfo import ZoneInfo
 
 from orion.services.base import ServiceResult, ServiceState, ServiceStatus
 from orion.services.briefing import BriefingItem, BriefingPriority
+from orion.services.oauth import (
+    GoogleInstalledAppOAuth,
+    MicrosoftPublicClientOAuth,
+    OAuthError,
+)
 
 
 class CalendarError(RuntimeError):
@@ -59,56 +64,50 @@ class GoogleCalendarClient:
     SCOPES = ("https://www.googleapis.com/auth/calendar.readonly",)
 
     def __init__(self, credentials_path: str, token_path: str) -> None:
-        self.credentials_path = Path(credentials_path)
-        self.token_path = Path(token_path)
+        self.oauth = GoogleInstalledAppOAuth(
+            credentials_path,
+            token_path,
+            self.SCOPES,
+            service_name="Google Calendar",
+            connect_command="calendar connect google",
+        )
         self._service = None
+
+    @property
+    def credentials_path(self) -> Path:
+        return self.oauth.credentials_path
+
+    @credentials_path.setter
+    def credentials_path(self, value: str | Path) -> None:
+        self.oauth.credentials_path = Path(value)
+
+    @property
+    def token_path(self) -> Path:
+        return self.oauth.token_path
 
     def _imports(self):
         try:
-            from google.auth.transport.requests import Request
-            from google.oauth2.credentials import Credentials
-            from google_auth_oauthlib.flow import InstalledAppFlow
             from googleapiclient.discovery import build
         except ImportError as exc:  # pragma: no cover
             raise CalendarError("Google Calendar dependencies are not installed. Run: python -m pip install -r requirements.txt") from exc
-        return Request, Credentials, InstalledAppFlow, build
+        return build
 
     def _load_credentials(self, *, interactive: bool):
-        Request, Credentials, InstalledAppFlow, _ = self._imports()
-        credentials = None
-        if self.token_path.exists():
-            try:
-                credentials = Credentials.from_authorized_user_file(str(self.token_path), self.SCOPES)
-            except Exception as exc:
-                raise CalendarError(f"Google Calendar token could not be read: {exc}") from exc
-        if credentials and credentials.expired and credentials.refresh_token:
-            try:
-                credentials.refresh(Request())
-                self._save_token(credentials)
-            except Exception as exc:
-                raise CalendarError(f"Google Calendar authorization refresh failed: {exc}") from exc
-        if credentials and credentials.valid:
-            return credentials
-        if not interactive:
-            raise CalendarError("Google Calendar is not connected. Run 'calendar connect google'.")
-        if not self.credentials_path.exists():
-            raise CalendarError(f"Google Calendar credentials were not found at {self.credentials_path}.")
         try:
-            flow = InstalledAppFlow.from_client_secrets_file(str(self.credentials_path), self.SCOPES)
-            credentials = flow.run_local_server(port=0)
-            self._save_token(credentials)
-            return credentials
-        except Exception as exc:
-            raise CalendarError(f"Google Calendar authorization failed: {exc}") from exc
+            return self.oauth.credentials(interactive=interactive)
+        except OAuthError as exc:
+            raise CalendarError(str(exc)) from exc
 
     def _save_token(self, credentials) -> None:
-        self.token_path.parent.mkdir(parents=True, exist_ok=True)
-        self.token_path.write_text(credentials.to_json(), encoding="utf-8")
+        try:
+            self.oauth._save(credentials)
+        except OAuthError as exc:
+            raise CalendarError(str(exc)) from exc
 
     def _build_service(self, *, interactive: bool = False):
         if self._service is not None:
             return self._service
-        _, _, _, build = self._imports()
+        build = self._imports()
         credentials = self._load_credentials(interactive=interactive)
         try:
             self._service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
@@ -151,50 +150,56 @@ class MicrosoftCalendarClient:
     GRAPH_URL = "https://graph.microsoft.com/v1.0/me/calendarView"
 
     def __init__(self, client_id: str, token_path: str, *, tenant: str = "common", timeout: float = 10.0) -> None:
-        self.client_id = client_id.strip()
-        self.token_path = Path(token_path)
-        self.tenant = tenant or "common"
+        self.oauth = MicrosoftPublicClientOAuth(
+            client_id,
+            token_path,
+            self.SCOPES,
+            tenant=tenant,
+            service_name="Microsoft Calendar",
+            connect_command="calendar connect microsoft",
+        )
         self.timeout = timeout
+
+    @property
+    def client_id(self) -> str:
+        return self.oauth.client_id
+
+    @client_id.setter
+    def client_id(self, value: str) -> None:
+        self.oauth.client_id = str(value).strip()
+
+    @property
+    def token_path(self) -> Path:
+        return self.oauth.token_path
+
+    @property
+    def tenant(self) -> str:
+        return self.oauth.tenant
 
     def _imports(self):
         try:
-            import msal
             import requests
         except ImportError as exc:  # pragma: no cover
             raise CalendarError("Microsoft Calendar dependencies are not installed. Run: python -m pip install -r requirements.txt") from exc
-        return msal, requests
+        return None, requests
 
     def _cache_and_app(self):
-        if not self.client_id:
-            raise CalendarError("Microsoft Calendar client_id is not configured.")
-        msal, _ = self._imports()
-        cache = msal.SerializableTokenCache()
-        if self.token_path.exists():
-            try:
-                cache.deserialize(self.token_path.read_text(encoding="utf-8"))
-            except Exception as exc:
-                raise CalendarError(f"Microsoft Calendar token cache could not be read: {exc}") from exc
-        app = msal.PublicClientApplication(self.client_id, authority=f"https://login.microsoftonline.com/{self.tenant}", token_cache=cache)
-        return app, cache
+        try:
+            return self.oauth._cache_and_app()
+        except OAuthError as exc:
+            raise CalendarError(str(exc)) from exc
 
     def _save_cache(self, cache) -> None:
-        if cache.has_state_changed:
-            self.token_path.parent.mkdir(parents=True, exist_ok=True)
-            self.token_path.write_text(cache.serialize(), encoding="utf-8")
+        try:
+            self.oauth._save(cache)
+        except OAuthError as exc:
+            raise CalendarError(str(exc)) from exc
 
     def _token(self, *, interactive: bool) -> str:
-        app, cache = self._cache_and_app()
-        accounts = app.get_accounts()
-        result = app.acquire_token_silent(list(self.SCOPES), account=accounts[0]) if accounts else None
-        if not result and interactive:
-            result = app.acquire_token_interactive(scopes=list(self.SCOPES), prompt="select_account")
-        self._save_cache(cache)
-        if not result or "access_token" not in result:
-            detail = (result or {}).get("error_description", "Microsoft Calendar is not connected.")
-            if not interactive:
-                detail = "Microsoft Calendar is not connected. Run 'calendar connect microsoft'."
-            raise CalendarError(detail)
-        return str(result["access_token"])
+        try:
+            return self.oauth.token(interactive=interactive)
+        except OAuthError as exc:
+            raise CalendarError(str(exc)) from exc
 
     def connect(self) -> None:
         self._token(interactive=True)

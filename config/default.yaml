@@ -1,7 +1,7 @@
 orion:
   name: Orion
-  version: 0.5.9
-  codename: Canvas
+  version: 0.6.0
+  codename: Courier
 providers:
   default: ollama
   secrets_path: vault/vault.yaml
@@ -59,6 +59,24 @@ calendar:
     client_id: ''
     tenant: common
     token_path: microsoft-calendar-token.json
+    timeout_seconds: 10
+email:
+  enabled: false
+  default_provider: ''
+  result_limit: 10
+  summary_limit: 10
+  cache_seconds: 300
+  gmail:
+    enabled: false
+    name: Gmail
+    credentials_path: ''
+    token_path: google-gmail-token.json
+  microsoft:
+    enabled: false
+    name: Outlook / Microsoft 365
+    client_id: ''
+    tenant: common
+    token_path: microsoft-mail-token.json
     timeout_seconds: 10
 ai:
   active_profile: balanced

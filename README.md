@@ -6,13 +6,13 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.5.9 — Canvas**
+**v0.6.0 — Courier**
 
-Canvas removes Git as a prerequisite for AI Team implementation. Codex Bridge now
-supports ordinary Standard workspaces and Git-enhanced workspaces through one explicit
-capability model, immutable execution context, bounded snapshots, deterministic diffs,
-and conflict-safe rollback. Git metadata remains available when present without
-expanding execution beyond the active workspace.
+Courier adds one provider-neutral, read-only Email service with Gmail and Microsoft
+Outlook / Microsoft 365 adapters. Connect Center, Home, First Contact, the CLI, and
+bounded natural-language mail questions use the same normalized service. OAuth tokens
+remain in owner-only external user data, Calendar permissions stay separate, raw HTML
+is converted to safe text, and attachments remain metadata-only.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -121,12 +121,12 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **256 passing tests**.
+The current codebase contains **323 passing tests**.
 
 ## Roadmap
 
-The active development milestone is **Review Gate and Workflow Engine Phase 1**,
-building on Forge's persisted approvals, runs, results, and execution diagnostics.
+The active development milestone is **Email Phase B: Approval-Gated Mail Actions**,
+building on Courier's read-only provider-neutral foundation.
 See `docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish
@@ -345,20 +345,23 @@ security and persistence contract.
 
 ## Execution Engine Discovery
 
-`execution status` separates installed desktop applications from runnable CLI engines.
-Orion detects Codex CLI, ChatGPT Desktop, Claude Code, Gemini CLI, and its current
-Python runtime. A command must complete `--version` successfully before it is reported
-as installed; merely finding a blocked Windows App alias is not enough.
+`execution status` separates runnable CLI engines from Codex Desktop and ChatGPT
+Desktop. Orion detects Codex, Claude, and Gemini command-line tools, both OpenAI
+desktop applications, and its current Python runtime. A CLI must pass a bounded
+`--version` probe before it is Ready; a path that exists but cannot launch is reported
+as Installed but not executable.
 
-On Windows, one shared resolver checks `codex.cmd`, `codex.exe`, and then `codex`.
-The exact path that passes discovery is also the path Codex Bridge launches, avoiding
-differences between status detection and subprocess command lookup.
+On Windows, one reusable resolver checks extensionless, `.cmd`, `.exe`, and `.ps1`
+forms, preferring a working `.cmd` or `.exe` wrapper. If PATH is incomplete, it also
+checks `%APPDATA%\npm` and the bounded result of `npm prefix -g`. Orion safely invokes
+npm `.cmd` wrappers through the Windows command interpreter with fixed arguments and
+uses the exact validated path for Codex Bridge—there is no second bridge lookup.
 
-ChatGPT Desktop is reported independently with `CLI Support: No`. Claude Code and
-Gemini CLI detection prepares the capability model for future adapters, but Codex
-Bridge Phase 1 still supports only a runnable Codex CLI. If no supported engine is
-available, `team implement` prints the detected capabilities and preserves the
-single-use approval for a later retry. See `docs/EXECUTION_ENGINES.md` for details.
+Codex Desktop and ChatGPT Desktop are detected independently. `OpenAI.Codex` is never
+reported as ChatGPT, desktop apps remain informational, and ChatGPT Desktop displays
+`CLI Support: No`. Claude and Gemini discovery prepares future adapters, but Codex
+Bridge Phase 1 still supports only a Ready Codex CLI. See
+`docs/EXECUTION_ENGINES.md` for status and diagnostic details.
 
 ## Orion Vault
 
@@ -381,17 +384,35 @@ Orion Connect unifies communication services behind one center.
 ```text
 connect
 connect health
-connect add gmail
+email status
+email providers
+email connect gmail
+email connect microsoft
+email disconnect gmail
+email disconnect microsoft
+email accounts
+email inbox [gmail|microsoft]
+email unread [gmail|microsoft]
+email search "<query>" [gmail|microsoft]
+email read <provider:message-id>
+email thread <provider:message-id>
+email summarize [gmail|microsoft]
 connect add discord
-email inbox
-email unread
-email search <text>
-email read <number|id>
-email compose
 discord send <message>
 ```
 
-Gmail uses Google OAuth and stores its refresh token outside normal configuration. Discord webhooks are stored in Orion Vault. Sending email or posting to Discord always requires an explicit preview and confirmation.
+Gmail uses Google OAuth with `gmail.readonly`. Outlook and Microsoft 365 use Microsoft
+Graph with `Mail.Read`, `User.Read`, and `offline_access`. Mail token caches are stored
+outside the application under `~/.orion/tokens/` with owner-only permissions where the
+platform supports them. They are separate from Calendar tokens so incremental Mail
+consent and disconnect cannot damage a working Calendar connection.
+
+Courier is intentionally read-only. It never downloads attachments or renders raw HTML.
+`email send`, reply, forward, archive, trash, mark-state, provider-saved draft, and
+attachment-download operations remain disabled until Phase B can bind a one-use,
+persisted approval to the exact provider, account, recipients, subject, complete body,
+attachments, and action. Installing the Outlook desktop application does not authorize
+Orion to access Microsoft mail.
 
 ## Two-Way Discord Interface
 

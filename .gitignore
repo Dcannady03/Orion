@@ -6,5 +6,8 @@ __pycache__/
 .orion/*token*.json
 .orion/knowledge-index.json
 config/google-calendar-credentials.json
+config/google-gmail-credentials.json
+config/google-oauth-credentials.json
+.orion/oauth-state*.json
 .orion/vault.yaml
 .orion/vault.yaml.tmp

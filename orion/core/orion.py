@@ -38,7 +38,8 @@ from orion.services.ai_routing import AIRoutingService
 from orion.services.ai_performance import AIPerformanceStore
 from orion.services.team import TeamOrchestrator, TeamTaskStore
 from orion.services.vault import VaultService
-from orion.services.connect import ConnectService, ConnectBriefingProvider, GmailClient, DiscordWebhookClient
+from orion.services.connect import ConnectService, ConnectBriefingProvider, DiscordWebhookClient
+from orion.services.email import EmailBriefingProvider, build_email_service
 from orion.services.request_router import RequestRouterService
 from orion.services.project_context import ProjectContext
 from orion.services.task_manager import TaskManager
@@ -233,6 +234,12 @@ class Orion:
             ),
         )
         self.briefing_service.register_provider(CalendarBriefingProvider(self.calendar_service))
+
+        self.email_service = self.services.register(
+            "email",
+            build_email_service(self.config_manager, self.paths),
+        )
+        self.briefing_service.register_provider(EmailBriefingProvider(self.email_service))
         self.action_service.register_handler(
             "open_app",
             lambda action: self.application_launcher.launch(
@@ -265,7 +272,7 @@ class Orion:
         )
         self.request_router = self.services.register(
             "request_router", RequestRouterService(
-                self.brain, self.weather_service, self.calendar_service
+                self.brain, self.weather_service, self.calendar_service, self.email_service
             )
         )
         self.provider_manager = self.services.register(
@@ -316,7 +323,6 @@ class Orion:
                 CodexBridgeStore(self.paths.codex_bridge),
                 self.workspace_manager.root,
                 workspace_capabilities=self.workspace_manager.capabilities,
-                execution_engines=self.execution_engines,
             ),
         )
 
@@ -324,10 +330,7 @@ class Orion:
         self.connect_service = self.services.register(
             "connect",
             ConnectService(
-                GmailClient(
-                    self.config_manager.get("connect.gmail.credentials_path", "config/google-gmail-credentials.json"),
-                    str(self.paths.user_file(self.config_manager.get("connect.gmail.token_path", "google-gmail-token.json"), category="tokens")),
-                ),
+                self.email_service,
                 DiscordWebhookClient(
                     self.vault.store.get("discord"),
                     timeout=float(self.config_manager.get("connect.discord.timeout_seconds", 10.0)),

@@ -1,2 +1,2 @@
-__version__ = "0.5.9"
-__codename__ = "Canvas"
+__version__ = "0.6.0"
+__codename__ = "Courier"

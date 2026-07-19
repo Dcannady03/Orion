@@ -9,12 +9,14 @@ Responsible for:
 
 from getpass import getpass
 from pathlib import Path
+import shlex
 
 from orion.agents import AgentDefinition, AgentPermissions
 from orion.services.team import TeamPlanningError
 from orion.services.codex_bridge import CodexBridgeError
 from orion.services.execution_engines import ExecutionEngineUnavailable
 from orion.services.workspace_snapshot import WorkspaceRollbackError, WorkspaceSnapshotError
+from orion.services.email import redact_email_text
 
 
 class CommandRouter:
@@ -61,8 +63,11 @@ class CommandRouter:
         elif command_lower in {"connect health", "connect test"}:
             self.connect_health()
 
-        elif command_lower in {"connect add gmail", "email configure gmail"}:
-            self.connect_gmail()
+        elif command_lower == "connect add gmail":
+            self.email_connect("gmail")
+
+        elif command_lower in {"connect add microsoft", "connect add outlook"}:
+            self.email_connect("microsoft")
 
         elif command_lower in {"connect add discord", "discord configure"}:
             self.connect_discord()
@@ -81,11 +86,29 @@ class CommandRouter:
         elif command_lower in {"connect disable discord bot", "discord bot disable"}:
             self.set_discord_bot_enabled(False)
 
-        elif command_lower in {"email", "email inbox"}:
-            self.email_inbox()
+        elif command_lower in {"email", "email status"}:
+            self.email_status()
 
-        elif command_lower == "email unread":
-            self.email_unread()
+        elif command_lower == "email providers":
+            self.email_providers()
+
+        elif command_lower.startswith("email connect "):
+            self.email_connect(raw_command[len("email connect "):].strip())
+
+        elif command_lower.startswith("email disconnect "):
+            self.email_disconnect(raw_command[len("email disconnect "):].strip())
+
+        elif command_lower.startswith("email configure "):
+            self.email_configure(raw_command[len("email configure "):].strip())
+
+        elif command_lower == "email accounts":
+            self.email_accounts()
+
+        elif command_lower == "email inbox" or command_lower.startswith("email inbox "):
+            self.email_inbox(raw_command[len("email inbox"):].strip())
+
+        elif command_lower == "email unread" or command_lower.startswith("email unread "):
+            self.email_unread(raw_command[len("email unread"):].strip())
 
         elif command_lower.startswith("email search "):
             self.email_search(raw_command[len("email search "):].strip())
@@ -93,8 +116,20 @@ class CommandRouter:
         elif command_lower.startswith("email read "):
             self.email_read(raw_command[len("email read "):].strip())
 
-        elif command_lower in {"email compose", "email send"}:
-            self.email_compose()
+        elif command_lower.startswith("email thread "):
+            self.email_thread(raw_command[len("email thread "):].strip())
+
+        elif command_lower == "email summarize" or command_lower.startswith("email summarize "):
+            self.email_summarize(raw_command[len("email summarize"):].strip())
+
+        elif command_lower == "email use" or command_lower.startswith("email use "):
+            self.email_use(raw_command[len("email use"):].strip())
+
+        elif command_lower in {"email draft", "email compose", "email send"} or command_lower.startswith((
+            "email reply ", "email forward ", "email archive ", "email trash ",
+            "email mark read ", "email mark unread ", "email attachment ",
+        )):
+            self.email_write_unavailable()
 
         elif command_lower.startswith("discord send "):
             self.discord_send(raw_command[len("discord send "):].strip())
@@ -553,6 +588,9 @@ class CommandRouter:
         elif self._looks_like_calendar(raw_command):
             self.show_calendar(raw_command)
 
+        elif self._looks_like_email(raw_command):
+            self.show_email_request(raw_command)
+
         elif command_lower in ["exit", "quit"]:
             print("Shutting down Orion.")
             return False
@@ -624,7 +662,20 @@ class CommandRouter:
         print("    team implement <id> <approval> Run one bounded local Codex execution")
         print("    team run <run-id>          Show structured results awaiting review")
         print("    team rollback <run-id>     Safely restore one reviewed workspace run")
-        print("    execution status           Detect local execution engines")
+        print("    execution status           Diagnose CLI and desktop execution engines")
+        print()
+        print("  Email & Connect")
+        print("    email status|providers     Show Gmail and Microsoft Mail health")
+        print("    email connect <provider>   Approve read-only Mail access")
+        print("    email disconnect <provider> Remove local Mail authorization")
+        print("    email accounts             Show connected account identities")
+        print("    email inbox [provider]     List a bounded recent inbox")
+        print("    email unread [provider]    List bounded unread mail")
+        print('    email search "<query>" [provider] Search connected mail')
+        print("    email read <provider:id>   Read safe plain text and attachment metadata")
+        print("    email thread <provider:id> Read a bounded conversation")
+        print("    email summarize [provider] Summarize bounded unread mail locally")
+        print("    connect                    Open the unified Connect Center")
         print()
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
@@ -688,6 +739,7 @@ class CommandRouter:
             ("Briefing", f"{len(self.orion.briefing_service.provider_names())} providers"),
             ("Weather", self.orion.weather_service.get_status().message),
             ("Calendar", self.orion.calendar_service.get_status().message),
+            ("Email", self.orion.email_service.get_status().message),
             ("Services", f"{len(self.orion.services)} registered"),
         )
         print("\nOrion Status")
@@ -724,6 +776,20 @@ class CommandRouter:
             "what's on my calendar", "what is on my calendar",
         )
         return any(phrase in value for phrase in calendar_phrases)
+
+    @staticmethod
+    def _looks_like_email(text: str) -> bool:
+        value = text.strip().lower()
+        email_phrases = (
+            "email", "emails", "inbox", "unread mail", "message from",
+            "latest message in this thread",
+        )
+        return any(phrase in value for phrase in email_phrases)
+
+    def show_email_request(self, request: str):
+        """Answer bounded mail questions through EmailService before the AI."""
+        result = self.orion.email_service.handle_request(request)
+        print(result.output if result.success else f"Email unavailable: {result.error}")
 
     def show_calendar(self, request: str):
         """Read connected calendar providers directly instead of asking the language model."""
@@ -898,37 +964,26 @@ class CommandRouter:
         print("=" * 62)
         print(f"{'ORION CONNECT':^62}")
         print("=" * 62)
-        for item in self.orion.connect_service.statuses():
+        for item in self.orion.connect_service.statuses(refresh_email=True):
             state = "[OK]" if item.healthy else ("[!]" if item.configured else "[--]")
             print(f"  {state} {item.name:<12} {item.detail}")
         print("-" * 62)
-        print("Commands: connect add gmail | connect add discord | connect health")
-        print("          email inbox | email unread | email search <text>")
-        print("          email read <number|id> | email compose")
+        print("Commands: email status | email connect gmail | email connect microsoft")
+        print("          email inbox [provider] | email unread [provider]")
+        print("          email search <text> [provider] | email read <provider:id>")
+        print("          connect add discord | connect health")
         print("          discord send <message> | connect add discord bot")
         print("          Start two-way Discord with: python -m orion.main --discord")
 
     def connect_health(self):
         print("Connect Health")
         print("-" * 62)
-        for item in self.orion.connect_service.statuses():
+        for item in self.orion.connect_service.statuses(refresh_email=True):
             state = "[OK]" if item.healthy else "[--]"
             print(f"  {state} {item.name:<12} {item.detail}")
 
-    def connect_gmail(self):
-        print("Connect Gmail")
-        print("A browser window will open for Google authorization.")
-        print(f"OAuth file: {self.orion.connect_service.gmail.credentials_path}")
-        answer = input("Continue? [Y/n]: ").strip().lower()
-        if answer not in {"", "y", "yes"}:
-            print("Gmail connection cancelled.")
-            return
-        try:
-            self.orion.connect_service.gmail.connect()
-            profile = self.orion.connect_service.gmail.profile()
-            print(f"[OK] Gmail connected: {profile.get('emailAddress', 'account')}" )
-        except Exception as exc:
-            print(f"Could not connect Gmail: {exc}")
+        print()
+        print(self.orion.email_service.provider_summary(refresh=False))
 
     def connect_discord(self):
         print("Connect Discord")
@@ -1064,93 +1119,255 @@ class CommandRouter:
         if enabled:
             print("Restart Orion to apply the change.")
 
-    def _mail_rows(self, query="in:inbox"):
-        messages = self.orion.connect_service.gmail.list_messages(query=query, limit=10)
+    @staticmethod
+    def _email_query_provider(value: str) -> tuple[str, str]:
+        try:
+            parts = shlex.split(value)
+        except ValueError:
+            parts = value.split()
+        provider = ""
+        if len(parts) > 1 and parts[-1].lower() in {
+            "gmail", "google", "microsoft", "outlook", "m365", "office365",
+        }:
+            provider = parts.pop()
+        return " ".join(parts).strip(), provider
+
+    def _email_rows(self, page):
+        messages = list(page.messages)
         self._last_email_messages = messages
         if not messages:
             print("No matching messages.")
-            return []
+            return messages
         for index, item in enumerate(messages, start=1):
             unread = "*" if item.unread else " "
-            print(f"{index:>2}. [{unread}] {item.subject}")
-            print(f"    From: {item.sender}")
-            if item.snippet:
-                print(f"    {item.snippet[:110]}")
+            important = "!" if item.importance == "high" else " "
+            sender = item.sender.address or item.sender.name or "Unknown sender"
+            print(
+                f"{index:>2}. [{unread}{important}] [{item.provider}] "
+                f"{redact_email_text(item.subject, limit=1000)}"
+            )
+            print(f"    From: {sender}  Date: {item.received_at or 'Unknown'}")
+            if item.preview:
+                print(f"    {redact_email_text(item.preview, limit=160)}")
+            if item.has_attachments:
+                print("    Attachments: metadata available; nothing downloaded")
+            print(f"    ID: {item.reference}")
+        if page.next_page_token:
+            print("More messages are available from the provider; Orion displayed the bounded first page.")
         return messages
 
-    def email_inbox(self):
-        print("Gmail Inbox")
+    def email_status(self):
+        print("Email Status")
         print("-" * 62)
         try:
-            self._mail_rows("in:inbox")
-        except Exception as exc:
-            print(f"Could not read Gmail: {exc}")
+            print(self.orion.email_service.provider_summary(refresh=True))
+        except Exception:
+            print("Email status could not be refreshed safely. Try again or reconnect the provider.")
+        print("Mail access is read-only. Sending and mailbox changes are not enabled.")
 
-    def email_unread(self):
+    def email_providers(self):
+        print(self.orion.email_service.provider_summary(refresh=False))
+
+    def email_connect(self, provider_name: str):
         try:
-            count = self.orion.connect_service.gmail.unread_count()
-            print(f"Unread Gmail messages: {count}")
-            if count:
-                self._mail_rows("in:inbox is:unread")
+            key = self.orion.email_service.normalize_provider(provider_name)
+            provider = self.orion.email_service.providers[key]
+        except (KeyError, ValueError) as exc:
+            print(str(exc))
+            print("Usage: email connect gmail | microsoft")
+            return
+        print(f"Connect {provider.display_name}")
+        print("Orion will request read-only mail access.")
+        if key == "gmail":
+            print("Permission: Gmail read-only")
+            print(f"OAuth client: {provider.adapter.credentials_path}")
+        else:
+            print("Permissions: User.Read, Mail.Read, offline_access")
+            print("The Outlook desktop application does not authorize Orion.")
+            if not provider.adapter.configured:
+                print("Microsoft client ID is missing. Run: email configure microsoft")
+                return
+        answer = input("Open the provider authorization flow? [y/N]: ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("Email connection cancelled. Existing connections were preserved.")
+            return
+        try:
+            account = self.orion.email_service.connect(key)
+            print(f"[OK] {provider.display_name} connected read-only: {account.email_address}")
         except Exception as exc:
-            print(f"Could not read Gmail: {exc}")
+            print(f"Could not connect {provider.display_name}: {exc}")
+            print("Existing Calendar and Email authorizations were preserved.")
+
+    def email_disconnect(self, provider_name: str):
+        try:
+            key = self.orion.email_service.normalize_provider(provider_name)
+            provider = self.orion.email_service.providers[key]
+        except (KeyError, ValueError) as exc:
+            print(str(exc))
+            return
+        answer = input(
+            f"Remove Orion's local {provider.display_name} Mail authorization? [y/N]: "
+        ).strip().lower()
+        if answer not in {"y", "yes"}:
+            print("Email disconnect cancelled.")
+            return
+        try:
+            self.orion.email_service.disconnect(key)
+            print(f"[OK] {provider.display_name} Mail disconnected locally.")
+            print("Calendar authorization was not changed.")
+        except Exception as exc:
+            print(f"Could not disconnect {provider.display_name}: {exc}")
+
+    def email_configure(self, provider_name: str):
+        try:
+            key = self.orion.email_service.normalize_provider(provider_name)
+            provider = self.orion.email_service.providers[key]
+        except (KeyError, ValueError) as exc:
+            print(str(exc))
+            return
+        try:
+            if key == "gmail":
+                current = str(provider.adapter.credentials_path)
+                entered = input(f"Google Desktop OAuth client file [{current}]: ").strip()
+                self.orion.email_service.configure_provider(
+                    key, credentials_path=entered or current
+                )
+            else:
+                current_id = provider.adapter.client_id
+                client_id = input(f"Microsoft Application (client) ID [{current_id}]: ").strip() or current_id
+                tenant = input(f"Microsoft tenant [{provider.adapter.oauth.tenant}]: ").strip() or provider.adapter.oauth.tenant
+                self.orion.email_service.configure_provider(key, client_id=client_id, tenant=tenant)
+            print(f"[OK] {provider.display_name} Mail configuration saved.")
+            print(f"Run: email connect {key}")
+        except (OSError, ValueError) as exc:
+            print(f"Email configuration was not changed: {exc}")
+
+    def email_accounts(self):
+        print("Email Accounts")
+        print("-" * 62)
+        try:
+            accounts = self.orion.email_service.accounts(refresh=True)
+        except Exception as exc:
+            print(f"Could not read connected accounts: {exc}")
+            return
+        if not accounts:
+            print("No email accounts are connected.")
+            return
+        for account in accounts:
+            label = account.display_name or account.email_address
+            print(f"  [{account.provider}] {label} <{account.email_address}>")
+
+    def email_inbox(self, provider: str = ""):
+        print("Email Inbox")
+        print("-" * 62)
+        try:
+            self._email_rows(self.orion.email_service.inbox(provider))
+        except Exception as exc:
+            print(f"Could not read email: {exc}")
+
+    def email_unread(self, provider: str = ""):
+        print("Unread Email")
+        print("-" * 62)
+        try:
+            count = self.orion.email_service.unread_count(provider, refresh=True)
+            print(f"Unread messages: {count}")
+            if count:
+                self._email_rows(self.orion.email_service.unread(provider))
+        except Exception as exc:
+            print(f"Could not read unread email: {exc}")
 
     def email_search(self, query: str):
+        query, provider = self._email_query_provider(query)
         if not query:
-            print("Usage: email search <text>")
+            print('Usage: email search "<query>" [gmail|microsoft]')
             return
-        print(f"Gmail Search: {query}")
+        print(f"Email Search: {query}")
         print("-" * 62)
         try:
-            self._mail_rows(query)
+            self._email_rows(self.orion.email_service.search(query, provider))
         except Exception as exc:
-            print(f"Could not search Gmail: {exc}")
+            print(f"Could not search email: {exc}")
+
+    def _email_reference(self, reference: str) -> str:
+        value = reference.strip()
+        if value.isdigit() and hasattr(self, "_last_email_messages"):
+            index = int(value) - 1
+            if 0 <= index < len(self._last_email_messages):
+                return self._last_email_messages[index].reference
+        return value
+
+    @staticmethod
+    def _render_email_message(item):
+        summary = item.summary
+        sender = summary.sender.address or summary.sender.name or "Unknown sender"
+        recipients = ", ".join(address.address for address in summary.recipients) or "Not provided"
+        print(redact_email_text(summary.subject, limit=1000))
+        print(f"Provider: {summary.provider}  Account: {summary.account_id}")
+        print(f"From: {sender}")
+        print(f"To: {recipients}")
+        if summary.cc:
+            print(f"CC: {', '.join(address.address for address in summary.cc)}")
+        print(f"Date: {summary.received_at or 'Unknown'}  Importance: {summary.importance}")
+        print("-" * 62)
+        print(redact_email_text(
+            item.body_text or summary.preview or "Plain-text message body unavailable."
+        ))
+        if item.html_available:
+            print("\n[HTML was converted to safe plain text; raw HTML was not rendered.]")
+        if item.attachments:
+            print("\nAttachments (metadata only; not downloaded):")
+            for attachment in item.attachments:
+                print(
+                    f"  - {attachment.filename} ({attachment.content_type}, "
+                    f"{attachment.size_bytes} bytes)"
+                )
 
     def email_read(self, reference: str):
+        reference = self._email_reference(reference)
         if not reference:
-            print("Usage: email read <number|id>")
+            print("Usage: email read <number|provider:id>")
             return
-        message_id = reference
-        if reference.isdigit() and hasattr(self, "_last_email_messages"):
-            index = int(reference) - 1
-            if 0 <= index < len(self._last_email_messages):
-                message_id = self._last_email_messages[index].id
         try:
-            item = self.orion.connect_service.gmail.read_message(message_id)
-            print(item.subject)
-            print(f"From: {item.sender}")
-            print("-" * 62)
-            print(item.snippet or "Message body preview unavailable.")
+            self._render_email_message(self.orion.email_service.read(reference))
         except Exception as exc:
-            print(f"Could not read Gmail message: {exc}")
+            print(f"Could not read email message: {exc}")
 
-    def email_compose(self):
-        print("Compose Email")
-        to = input("To: ").strip()
-        subject = input("Subject: ").strip()
-        print("Body (finish with a single period on its own line):")
-        lines = []
-        while True:
-            line = input()
-            if line == ".":
-                break
-            lines.append(line)
-        body = "\n".join(lines).strip()
-        if not to or not subject or not body:
-            print("Email cancelled: recipient, subject, and body are required.")
-            return
-        print("-" * 62)
-        print(f"To: {to}\nSubject: {subject}\n\n{body}")
-        print("-" * 62)
-        answer = input("Send this email? [y/N]: ").strip().lower()
-        if answer not in {"y", "yes"}:
-            print("Email not sent.")
+    def email_thread(self, reference: str):
+        reference = self._email_reference(reference)
+        if not reference:
+            print("Usage: email thread <number|provider:id>")
             return
         try:
-            self.orion.connect_service.gmail.send(to, subject, body)
-            print("[OK] Email sent.")
+            thread = self.orion.email_service.thread(reference)
+            print(f"Email Thread: {thread.conversation_id}")
+            print("-" * 62)
+            for index, message in enumerate(thread.messages, start=1):
+                print(f"\nMessage {index} of {len(thread.messages)}")
+                self._render_email_message(message)
         except Exception as exc:
-            print(f"Could not send email: {exc}")
+            print(f"Could not read email thread: {exc}")
+
+    def email_summarize(self, provider: str = ""):
+        try:
+            print(self.orion.email_service.summarize(provider, unread_only=True))
+        except Exception as exc:
+            print(f"Could not summarize email: {exc}")
+
+    def email_use(self, provider: str):
+        if not provider:
+            print("Usage: email use <gmail|microsoft>")
+            return
+        try:
+            self.orion.email_service.set_default(provider)
+            print(f"[OK] Default email provider: {self.orion.email_service.default_provider}")
+        except (OSError, ValueError) as exc:
+            print(f"Could not change the default email provider: {exc}")
+
+    @staticmethod
+    def email_write_unavailable():
+        print("Email write actions are not enabled in this read-only release.")
+        print("Drafting does not authorize sending. Send, reply, forward, archive, trash,")
+        print("mark-state, and attachment download require the Phase B immutable approval workflow.")
 
     def discord_send(self, message: str):
         if not message:
@@ -1803,15 +2020,52 @@ class CommandRouter:
 
     def show_execution_status(self):
         engines = self.orion.execution_engines.status()
+        detected = {engine.engine_id: engine for engine in engines}
+        codex_ready = detected.get("codex") is not None and detected["codex"].ready_for_implementation
         print("Execution Engines")
         print("=" * 50)
         for engine in engines:
             print(f"\n{engine.name}")
             print("Status:")
-            print(engine.status.replace("_", " ").title())
-            if engine.engine_id == "chatgpt_desktop":
+            print(self._execution_status_label(engine))
+            if engine.engine_id in {"codex_desktop", "chatgpt_desktop"}:
                 print("CLI Support:")
-                print("Yes" if engine.cli_support else "No")
+                if engine.engine_id == "codex_desktop" and codex_ready:
+                    print("Separate CLI detected")
+                else:
+                    print("No")
+            if engine.executable:
+                print("Executable:")
+                print(engine.executable)
+            if engine.cli_support and engine.engine_id != "python":
+                print("PATH Visibility:")
+                print("Yes" if engine.path_visible else "No")
+            if engine.discovery_source:
+                print("Discovery Source:")
+                print(engine.discovery_source)
+            if engine.version:
+                print("Version:")
+                print(engine.version)
+            if engine.version_probe:
+                print("Version Probe:")
+                print(engine.version_probe)
+            if engine.reason and engine.status in {
+                "installed_not_executable", "detection_error"
+            }:
+                print("Diagnostic:")
+                print(engine.reason.replace("_", " ").title())
+
+    @staticmethod
+    def _execution_status_label(engine):
+        labels = {
+            "ready": "Ready",
+            "installed": "Installed",
+            "installed_not_executable": "Installed but not executable",
+            "not_installed": "Not Installed",
+            "detection_error": "Detection Error",
+            "unsupported_as_cli": "Unsupported as CLI",
+        }
+        return labels.get(engine.status, engine.status.replace("_", " ").title())
 
     @staticmethod
     def _render_no_execution_engine(engines):
@@ -1821,9 +2075,13 @@ class CommandRouter:
         }
         print("No execution engine is currently available.")
         print("\nDetected:\n")
-        for engine_id in ("chatgpt_desktop", "codex", "claude_code", "gemini_cli"):
+        for engine_id in (
+            "codex_desktop", "chatgpt_desktop", "codex", "claude_code", "gemini_cli"
+        ):
             engine = detected[engine_id]
-            marker = "✓" if engine.installed else "✗"
+            marker = "✓" if engine.ready_for_implementation or (
+                not engine.cli_support and engine.installed
+            ) else "!" if engine.installed else "✗"
             print(f"{marker} {engine.name}")
         print("\nUse:\n")
         print("  execution status")

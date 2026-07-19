@@ -12,11 +12,13 @@ stable interface.
 - `agents` → `AgentRegistry` (external YAML agent definitions)
 - `team` → `TeamOrchestrator` (bounded Architect and Engineer planning)
 - `codex_bridge` → `CodexBridge` (approval-bound local implementation runs)
-- `execution_engines` → `ExecutionEngineService` (read-only host capability detection)
+- `execution_engines` → `ExecutionEngineService` (shared CLI resolution/probing and independent desktop-app detection)
 - `task_manager` → `TaskManager` (strict project work and progress events)
 - `provider_manager` → `ProviderManager` (Ollama/OpenAI/Gemini federation and activation)
 - `vault` → `VaultService` (external credential verification and persistence)
 - `ai_routing` → `AIRoutingService` (provider-neutral routing profiles and fallback)
+- `email` → `EmailService` (normalized read-only Gmail and Microsoft Mail)
+- `connect` → `ConnectService` (provider-neutral communication health and Discord)
 
 `WorkspaceManager` owns the active Standard/Git capability snapshot and path boundary.
 `CodexBridge` owns a `WorkspaceSnapshotService` for bounded external baselines,
@@ -33,6 +35,7 @@ agents = orion.services.get("agents")
 tasks = orion.services.get("task_manager")
 codex_bridge = orion.services.get("codex_bridge")
 execution_engines = orion.services.get("execution_engines")
+email = orion.services.get("email")
 ```
 
 Existing attributes remain available for compatibility:

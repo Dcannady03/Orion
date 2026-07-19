@@ -36,7 +36,7 @@ tested, documented milestones.
 ### Planned releases
 - [x] **v0.3.5 — Weather:** current conditions, forecasts, location lookup, and briefing provider
 - [x] **v0.3.6 — Calendar:** agenda access, availability, next-event queries, and briefing provider
-- [ ] **v0.3.7 — Email:** inbox access, sending, and briefing provider
+- [x] **v0.6.0 — Email Phase A:** provider-neutral Gmail and Microsoft read-only mail
 - [ ] **v0.3.8 — Docker:** container discovery, control, and health checks
 - [ ] **v0.3.9 — Git:** repository status and approval-based operations
 - [ ] **v0.3.10 — Home Assistant:** entity discovery and device control
@@ -81,15 +81,35 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.5.9 — Canvas: COMPLETE**
+**v0.6.0 — Courier: COMPLETE**
 
-Canvas makes Git an optional enhancement rather than an AI Team execution gate.
-Standard folders receive bounded snapshot-based review and rollback, while Git
-workspaces retain repository metadata without expanding the active workspace boundary.
+Courier provides one normalized read-only Email service for Gmail and Microsoft
+Outlook / Microsoft 365, including Connect Center, Home, First Contact, diagnostics,
+and bounded local question handling.
 
-**Active milestone:** Review Gate and Workflow Engine Phase 1. Cross-platform
-diagnostics through `orion doctor` remains planned after the AI Team orchestration
-foundation.
+**Active milestone:** Email Phase B — persisted immutable approvals for sending,
+mailbox mutations, provider drafts, and attachment downloads. Cross-platform diagnostics
+through `orion doctor` remains planned.
+
+## v0.6.0 — Courier Email and Windows Discovery ✅
+
+- [x] Gmail uses Google OAuth with `gmail.readonly` only
+- [x] Outlook / Microsoft 365 uses MSAL and Graph with `Mail.Read`
+- [x] Calendar client configuration is reused without silently expanding Calendar tokens
+- [x] Mail token caches are external, owner-only, and independently disconnectable
+- [x] Connect Center and explicit status show provider, account, capability, unread count, health, and last check
+- [x] Inbox, unread, search, read, thread, and local summaries share normalized models
+- [x] Result counts and AI-facing context are bounded centrally
+- [x] Raw HTML is not rendered; attachments are metadata-only and never downloaded
+- [x] Home uses cached status and performs no mailbox network call during startup
+- [x] First Contact supports Gmail, Microsoft, both, skip, rerun, and failure preservation
+- [x] Legacy direct send is disabled until persisted one-use outbound approvals exist
+- [x] One resolver covers Codex, Claude, and Gemini extensionless/`.cmd`/`.exe`/`.ps1` forms
+- [x] `%APPDATA%\npm` and bounded `npm prefix -g` fallbacks recover npm-installed CLIs
+- [x] Version probes and bridge execution safely support Windows wrappers without `shell=True`
+- [x] Codex Desktop and ChatGPT Desktop are detected and reported independently
+- [x] Status reports executable path, discovery source, PATH visibility, probe result, and safe diagnostics
+- [x] The complete regression suite passes with 334 tests
 
 ## v0.5.9 — Standard and Git Workspace Execution ✅
 
@@ -122,7 +142,7 @@ foundation.
 
 - [x] `team implement` resolves its implementation engine exactly once
 - [x] The validated engine and executable path are handed directly to Codex Bridge
-- [x] Direct bridge callers retain one safe pre-claim engine check
+- [x] Direct bridge callers must supply a validated immutable engine snapshot
 - [x] Pass-then-fail duplicate-probe behavior is covered by regression tests
 - [x] Immutable approvals, workspace binding, and single-use claims remain unchanged
 

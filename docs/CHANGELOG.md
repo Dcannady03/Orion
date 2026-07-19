@@ -1,3 +1,17 @@
+# v0.6.0 — Courier
+
+- Added one provider-neutral `EmailService` with Gmail and Microsoft Graph adapters.
+- Added normalized accounts, folders, summaries, full messages, threads, attachment metadata, outbound requests, and connection status models without provider tokens.
+- Reused shared Google installed-app OAuth and Microsoft MSAL helpers across Calendar and Email with external owner-only token caches.
+- Added read-only connect, disconnect, status, account, inbox, unread, search, read, thread, summarize, and provider-selection commands.
+- Added bounded local email question handling, safe HTML-to-text conversion, metadata-only attachments, pagination limits, and sanitized provider failures.
+- Added Gmail and Outlook / Microsoft 365 status to Connect Center, Email to Home, and non-destructive multi-provider Email setup to First Contact.
+- Removed the legacy direct Gmail send path; write actions now stop pending Phase B immutable, one-use payload approvals.
+- Added reusable Windows CLI discovery for Codex, Claude, and Gemini extensionless, `.cmd`, `.exe`, and `.ps1` wrappers.
+- Added `%APPDATA%\npm` and bounded `npm prefix -g` fallbacks, safe wrapper probes, exact executable handoff, and execution diagnostics.
+- Separated Codex Desktop (`OpenAI.Codex`) from ChatGPT Desktop Store/application detection without treating either as a CLI engine.
+- Added OAuth, Gmail, Microsoft Graph, provider-selection, security, Connect, routing, Home, onboarding, Windows resolver, Appx, and bridge-handoff coverage; 334 tests pass.
+
 # v0.5.9 — Canvas
 
 - Added Standard and Git workspace capability modes without requiring or initializing Git.

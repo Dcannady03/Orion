@@ -32,6 +32,7 @@ class ConfigManager:
         "plugins",
         "weather",
         "calendar",
+        "email",
         "ai",
         "team",
         "vault",

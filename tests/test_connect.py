@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orion.services.connect import ConnectService, ConnectBriefingProvider, ConnectStatus, DiscordWebhookClient, GmailClient, MailSummary
+from orion.services.email import EmailAccount, EmailProvider, EmailService
 
 
 class FakeGmail:
@@ -21,6 +22,20 @@ class FakeDiscord:
     def send(self, content): self.last = content
 
 
+class FakeMailAdapter:
+    configured = True
+    connected = True
+
+    def __init__(self, key):
+        self.key = key
+        self.display_name = "Gmail" if key == "gmail" else "Outlook / Microsoft 365"
+
+    def account(self):
+        return EmailAccount(self.key, self.key, f"{self.key}@example.test")
+
+    def unread_count(self): return 1
+
+
 class ConnectTests(unittest.TestCase):
     def test_statuses_unify_gmail_and_discord(self):
         service = ConnectService(FakeGmail(), FakeDiscord())
@@ -32,6 +47,16 @@ class ConnectTests(unittest.TestCase):
         item = ConnectBriefingProvider(ConnectService(FakeGmail(), FakeDiscord())).get_briefing()[0]
         self.assertEqual(item.title, 'Connect')
         self.assertIn('3 unread emails', item.message)
+
+    def test_connect_center_reports_both_provider_neutral_mail_adapters(self):
+        email = EmailService((
+            EmailProvider("gmail", "Gmail", FakeMailAdapter("gmail"), True),
+            EmailProvider("microsoft", "Outlook / Microsoft 365", FakeMailAdapter("microsoft"), True),
+        ))
+        statuses = ConnectService(email, FakeDiscord()).statuses()
+        self.assertEqual([item.key for item in statuses], ["gmail", "microsoft", "discord"])
+        self.assertTrue(all(item.healthy for item in statuses))
+        self.assertIn("read-only", statuses[0].detail)
 
     def test_discord_post_uses_json_webhook(self):
         client = DiscordWebhookClient('https://example.test/webhook')
