@@ -13,7 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--first-contact",
         action="store_true",
-        help="run the guided first-launch experience again",
+        help="configure profile, workspace, AI providers, Vault, routing, and services",
     )
     parser.add_argument(
         "--discord",

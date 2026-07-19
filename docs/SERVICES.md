@@ -14,6 +14,9 @@ stable interface.
 - `codex_bridge` → `CodexBridge` (approval-bound local implementation runs)
 - `execution_engines` → `ExecutionEngineService` (read-only host capability detection)
 - `task_manager` → `TaskManager` (strict project work and progress events)
+- `provider_manager` → `ProviderManager` (Ollama/OpenAI/Gemini federation and activation)
+- `vault` → `VaultService` (external credential verification and persistence)
+- `ai_routing` → `AIRoutingService` (provider-neutral routing profiles and fallback)
 
 ## Usage
 

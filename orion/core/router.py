@@ -626,7 +626,7 @@ class CommandRouter:
         print("    ai connect openai          Securely connect the OpenAI API")
         print("    ai test openai             Verify the saved OpenAI connection")
         print("    ai disconnect openai       Remove OpenAI from Orion Vault")
-        print("    ai provider configure ...  Connect a cloud AI provider")
+        print("    ai provider configure ...  Verify and Vault a cloud AI provider")
         print("    ai provider use ...        Change Orion's active provider")
         print("    weather [location]         Show live weather and today's forecast")
         print("    weather tomorrow           Show tomorrow's forecast")
@@ -1182,42 +1182,7 @@ class CommandRouter:
         if key not in {"openai", "gemini"}:
             print("Usage: vault add <openai|gemini>")
             return
-        print(f"Add {key.title()} to Orion Vault")
-        print("The key will not be displayed or saved in config/default.yaml.")
-        api_key = getpass("API key: ").strip()
-        if not api_key:
-            print("Vault update cancelled.")
-            return
-        try:
-            self.orion.vault.add(key, api_key)
-            models = self.orion.provider_manager.models(key)
-        except (ConnectionError, OSError, ValueError) as exc:
-            print(f"Could not add {key.title()}: {exc}")
-            return
-        print(f"[OK] {key.title()} saved and verified.")
-        print(f"[OK] {len(models)} compatible model(s) discovered.")
-        default_model = self.orion.config_manager.get(f"providers.{key}.model", "")
-        if models:
-            print("Available models:")
-            for index, model in enumerate(models[:12], start=1):
-                marker = " [current]" if model == default_model else ""
-                print(f"  {index}. {model}{marker}")
-            choice = input(f"Choose a default model [Enter keeps {default_model}]: ").strip()
-            if choice:
-                try:
-                    selected = models[int(choice)-1] if choice.isdigit() and 1 <= int(choice) <= len(models) else choice
-                    self.orion.config_manager.set(f"providers.{key}.model", selected)
-                    self.orion.config_manager.save()
-                    print(f"[OK] Default {key.title()} model: {selected}")
-                except (IndexError, ValueError):
-                    print("Model selection skipped.")
-        make_active = input(f"Make {key.title()} Orion's active provider? [y/N]: ").strip().lower()
-        if make_active in {"y", "yes"}:
-            try:
-                active = self.orion.provider_manager.activate(key)
-                print(f"[OK] Active AI provider: {active.name()}")
-            except (ConnectionError, OSError, ValueError) as exc:
-                print(f"Saved, but could not activate provider: {exc}")
+        self._configure_cloud_provider(key, make_active_default=False)
 
     def vault_remove(self, provider: str):
         key = provider.lower().strip()
@@ -1272,23 +1237,53 @@ class CommandRouter:
         if key not in {"openai", "gemini"}:
             print("Usage: ai provider configure <openai|gemini>")
             return
+        self._configure_cloud_provider(key, make_active_default=True)
+
+    def _configure_cloud_provider(self, key: str, *, make_active_default: bool) -> None:
         print(f"Configure {key.title()}")
-        print("API keys are stored separately from config/default.yaml.")
+        print("API keys are verified first and saved only through Orion Vault.")
         api_key = getpass("API key: ").strip()
         if not api_key:
             print("Configuration cancelled.")
             return
-        default_model = "gpt-4.1-mini" if key == "openai" else "gemini-2.5-flash"
-        model = input(f"Default model [{default_model}]: ").strip() or default_model
         try:
-            self.orion.provider_manager.configure(key, api_key, model)
-            models = self.orion.provider_manager.models(key)
+            verified = self.orion.vault.verify_provider(key, api_key)
         except (ConnectionError, OSError, ValueError) as exc:
             print(f"Could not configure {key.title()}: {exc}")
+            print("Existing credentials and active provider were preserved.")
             return
-        print(f"[OK] {key.title()} connected. {len(models)} compatible model(s) discovered.")
-        make_active = input(f"Make {key.title()} Orion's active provider? [Y/n]: ").strip().lower()
-        if make_active in {"", "y", "yes"}:
+        models = list(verified.models)
+        default_model = self.orion.config_manager.get(
+            f"providers.{key}.model",
+            "gpt-4.1-mini" if key == "openai" else "gemini-2.5-flash",
+        )
+        if models:
+            print(f"Verified. {len(models)} compatible model(s) discovered.")
+            for index, model_name in enumerate(models[:12], start=1):
+                marker = " [current]" if model_name == default_model else ""
+                print(f"  {index}. {model_name}{marker}")
+        choice = input(f"Default model [Enter keeps {default_model}]: ").strip()
+        model = default_model
+        if choice:
+            model = (
+                models[int(choice) - 1]
+                if choice.isdigit() and 1 <= int(choice) <= len(models)
+                else choice
+            )
+        try:
+            self.orion.vault.commit_provider(verified, model=model)
+        except (OSError, TypeError, ValueError) as exc:
+            print(f"Could not save {key.title()} in Orion Vault: {exc}")
+            print("Existing credentials and active provider were preserved.")
+            return
+        print(f"[OK] {key.title()} connected and saved in Orion Vault.")
+        print(f"[OK] Default {key.title()} model: {model}")
+        hint = "Y/n" if make_active_default else "y/N"
+        make_active = input(f"Make {key.title()} Orion's active provider? [{hint}]: ").strip().lower()
+        activate = make_active in {"y", "yes"} or (
+            make_active_default and make_active == ""
+        )
+        if activate:
             try:
                 active = self.orion.provider_manager.activate(key)
             except (ConnectionError, OSError, ValueError) as exc:

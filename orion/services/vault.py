@@ -7,7 +7,8 @@ behind the same service later.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -29,6 +30,19 @@ class VaultHealth:
     configured: bool
     healthy: bool
     message: str
+
+
+@dataclass(frozen=True, repr=False)
+class VerifiedProviderConnection:
+    """A verified in-memory credential awaiting an explicit Vault commit."""
+
+    provider: str
+    api_key: str = field(repr=False)
+    models: tuple[str, ...]
+
+
+class ProviderVerificationError(ConnectionError):
+    """A sanitized provider verification failure safe for user-facing output."""
 
 
 class VaultService:
@@ -59,6 +73,73 @@ class VaultService:
         self.store.set(normalized, secret)
         self.config.set(f"providers.{normalized}.enabled", True)
         self.config.save()
+
+    def verify_provider(self, key: str, secret: str) -> VerifiedProviderConnection:
+        """Verify a candidate cloud credential without writing it anywhere."""
+        normalized = self._validate(key)
+        if normalized not in {"openai", "gemini"} or self.provider_manager is None:
+            raise ValueError("Provider verification supports OpenAI and Gemini.")
+        candidate = str(secret).strip()
+        if not candidate:
+            raise ValueError("API key cannot be empty.")
+        try:
+            models = self.provider_manager.verify_credentials(normalized, candidate)
+        except (ConnectionError, OSError, TimeoutError, ValueError) as exc:
+            raise ProviderVerificationError(
+                f"{normalized.title()} credentials could not be verified "
+                f"({type(exc).__name__})."
+            ) from exc
+        return VerifiedProviderConnection(normalized, candidate, tuple(models))
+
+    def commit_provider(
+        self,
+        connection: VerifiedProviderConnection,
+        *,
+        model: str | None = None,
+    ) -> tuple[str, ...]:
+        """Persist a previously verified credential and model as one transaction."""
+        if not isinstance(connection, VerifiedProviderConnection):
+            raise TypeError("A verified provider connection is required.")
+        normalized = self._validate(connection.provider)
+        if normalized not in {"openai", "gemini"}:
+            raise ValueError("Only cloud AI providers can be committed.")
+        selected_model = str(
+            model or self.config.get(f"providers.{normalized}.model", "")
+        ).strip()
+        previous_secret = self.store.get_file_value(normalized)
+        previous_config = deepcopy(getattr(self.config, "config", None))
+        try:
+            self.store.set(normalized, connection.api_key)
+            self.config.set(f"providers.{normalized}.enabled", True)
+            if selected_model:
+                self.config.set(f"providers.{normalized}.model", selected_model)
+            self.config.save()
+        except (OSError, TypeError, ValueError):
+            try:
+                if previous_secret:
+                    self.store.set(normalized, previous_secret)
+                else:
+                    self.store.delete(normalized)
+            finally:
+                if isinstance(previous_config, dict):
+                    self.config.config = previous_config
+                    try:
+                        self.config.save()
+                    except (OSError, TypeError, ValueError):
+                        pass
+            raise
+        return connection.models
+
+    def connect_provider(
+        self,
+        key: str,
+        secret: str,
+        *,
+        model: str | None = None,
+    ) -> tuple[str, ...]:
+        """Verify, then atomically save a cloud credential through Orion Vault."""
+        verified = self.verify_provider(key, secret)
+        return self.commit_provider(verified, model=model)
 
     def remove(self, key: str) -> None:
         normalized = self._validate(key)

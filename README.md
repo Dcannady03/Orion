@@ -6,12 +6,13 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.5.7.1 — Forge**
+**v0.5.8 — Prism**
 
-Forge v0.5.7.1 hands the execution engine detected by `team implement` directly to
-Codex Bridge, preventing a second probe from disagreeing after execution has already
-been announced. Runs remain immutable, workspace-bound, externally persisted, and
-stopped at `Awaiting Review` without Git or pull-request actions.
+Prism makes First Contact provider-neutral. Initial setup can now connect Ollama,
+OpenAI, Google Gemini, or multiple providers through Orion's normal provider, Vault,
+and routing services. Cloud credentials are verified before Vault storage, reruns
+preserve working configuration, and the completion summary reports active AI,
+services, workspace, routing, and available execution engines.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -139,8 +140,13 @@ See `docs/ROADMAP.md` for the complete plan.
 
 A clean installation now begins with a guided, conversational setup instead of a
 configuration error. Orion collects the user's identity, location, timezone, default
-workspace, local AI settings, and initial service choices, then creates the normal
-`config/default.yaml` and `config/profile.yaml` files atomically.
+workspace, AI providers, routing profile, and initial service choices through the same
+configuration and provider services used by normal Orion commands.
+
+First Contact supports Ollama/local AI, OpenAI, Google Gemini, multiple-provider
+routing, or skipping AI setup. Ollama is probed for installed models. Cloud credentials
+are hidden, verified before saving, and stored only in external Orion Vault. Failed or
+cancelled provider setup preserves existing credentials and the active provider.
 
 Run the experience manually at any time:
 
@@ -148,8 +154,12 @@ Run the experience manually at any time:
 python -m orion.main --first-contact
 ```
 
-When rerun, Orion preserves the previous YAML files with a
-`.before-first-contact` suffix before writing the new profile.
+When rerun, existing profile, workspace, credentials, provider selection, and service
+settings appear as defaults and remain unchanged unless the user explicitly changes
+them. Backups use the `.before-first-contact` suffix. The final summary shows the
+active model, other connected providers, routing, workspace, services, and execution
+engines. ChatGPT Desktop is reported separately because it is not a CLI execution
+engine. See `docs/FIRST_CONTACT.md` for the complete flow.
 
 ### Change the active Ollama model
 
@@ -213,7 +223,11 @@ Orion> ai provider use gemini
 Orion> ai provider models gemini
 ```
 
-API keys are not stored in `config/default.yaml`. Orion uses `OPENAI_API_KEY` or `GEMINI_API_KEY` when available, or a separately created `.orion/secrets.yaml` when the user explicitly chooses interactive configuration.
+API keys are not stored in product or user configuration. Orion uses
+`OPENAI_API_KEY` or `GEMINI_API_KEY` when available, or the external
+`~/.orion/vault/vault.yaml` when the user explicitly chooses interactive
+configuration. Candidate credentials are verified before Orion Vault replaces any
+working credential.
 
 ## Adaptive AI Routing (Sentinel)
 

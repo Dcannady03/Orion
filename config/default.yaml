@@ -1,7 +1,7 @@
 orion:
   name: Orion
-  version: 0.5.7.1
-  codename: Forge
+  version: 0.5.8
+  codename: Prism
 providers:
   default: ollama
   secrets_path: vault/vault.yaml

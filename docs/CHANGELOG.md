@@ -1,3 +1,13 @@
+# v0.5.8 — Prism
+
+- Replaced Ollama-only onboarding with Ollama, OpenAI, Gemini, multiple-provider, and skip choices.
+- Reused ConfigManager, ProviderManager, Orion Vault, AI routing profiles, and Execution Engine discovery during setup.
+- Added verify-before-commit cloud credentials so failed setup preserves working Vault entries and the active provider.
+- Made forced reruns merge existing profile, workspace, provider, credential, and service settings instead of replacing them.
+- Added dynamic Ollama model discovery, provider/model selection, routing selection, and execution-engine summaries.
+- Replaced the obsolete First Light `setup_orion.py` scaffolder with a compatibility launcher for official First Contact.
+- Added onboarding, cancellation, rerun, credential-isolation, external-Vault-path, provider-failure, command-reuse, and execution-summary coverage; 273 tests pass.
+
 # v0.5.7.1 — Forge
 
 - Fixed `team implement` performing a second execution-engine probe after its successful router preflight.

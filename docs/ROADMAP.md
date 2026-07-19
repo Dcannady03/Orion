@@ -81,15 +81,29 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.5.7.1 — Forge: COMPLETE**
+**v0.5.8 — Prism: COMPLETE**
 
-Forge now carries one validated execution-engine snapshot from command preflight into
-Codex Bridge, removing duplicate detection while preserving immutable approval and
-workspace boundaries.
+Prism makes First Contact provider-neutral through Orion's shared provider, Vault,
+routing, configuration, and execution-engine services. Setup and reruns can safely
+connect Ollama, OpenAI, Gemini, or multiple providers without replacing working
+credentials or unrelated user configuration.
 
 **Active milestone:** Review Gate and Workflow Engine Phase 1. Cross-platform
 diagnostics through `orion doctor` remains planned after the AI Team orchestration
 foundation.
+
+## v0.5.8 — Provider-Neutral First Contact ✅
+
+- [x] First Contact offers Ollama, OpenAI, Gemini, multiple providers, and skip
+- [x] Cloud credentials are verified in memory before external Vault persistence
+- [x] Failed and cancelled setup preserves working credentials and the active provider
+- [x] Ollama reachability and installed models are discovered dynamically
+- [x] Multiple-provider setup reuses Fast, Balanced, Coding, and Research routing
+- [x] Forced reruns merge profile, workspace, services, provider, and routing settings
+- [x] Completion reports providers, models, routing, services, and execution engines
+- [x] ChatGPT Desktop is identified as a desktop app rather than a CLI execution engine
+- [x] The obsolete First Light setup script delegates to the supported onboarding path
+- [x] The complete regression suite passes with 273 tests
 
 ## v0.5.7.1 — Execution Engine Handoff ✅
 

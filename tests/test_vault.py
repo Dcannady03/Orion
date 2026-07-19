@@ -3,12 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from orion.core.config import ConfigManager
 from orion.core.paths import OrionPaths
 from orion.intelligence.secrets import SecretStore
-from orion.services.vault import VaultService
+from orion.services.vault import ProviderVerificationError, VaultService
 
 
 class VaultTests(unittest.TestCase):
@@ -108,6 +108,49 @@ class VaultTests(unittest.TestCase):
             vault = VaultService(config)
             self.assertFalse(vault.migrate_legacy_store())
             self.assertEqual(vault.store.get("discord_bot"), "current-token")
+
+    def test_verified_provider_commit_saves_secret_only_in_vault(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(tmp)
+            manager = SimpleNamespace(
+                verify_credentials=Mock(return_value=["gpt-test", "gpt-alt"])
+            )
+            vault = VaultService(config, manager)
+
+            verified = vault.verify_provider("openai", "candidate-secret")
+            self.assertNotIn("candidate-secret", repr(verified))
+            self.assertFalse(vault.store.get_file_value("openai"))
+
+            models = vault.commit_provider(verified, model="gpt-alt")
+
+            self.assertEqual(models, ("gpt-test", "gpt-alt"))
+            self.assertEqual(vault.store.get_file_value("openai"), "candidate-secret")
+            self.assertTrue(config.get("providers.openai.enabled"))
+            self.assertEqual(config.get("providers.openai.model"), "gpt-alt")
+            self.assertNotIn(
+                "candidate-secret",
+                Path(config.config_path).read_text(encoding="utf-8"),
+            )
+
+    def test_failed_provider_verification_preserves_existing_secret_and_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(tmp)
+            config.set("providers.default", "openai")
+            config.set("providers.openai.enabled", True)
+            config.save()
+            manager = SimpleNamespace(
+                verify_credentials=Mock(side_effect=ConnectionError("rejected secret-value"))
+            )
+            vault = VaultService(config, manager)
+            vault.store.set("openai", "working-secret")
+
+            with self.assertRaises(ProviderVerificationError) as raised:
+                vault.verify_provider("openai", "replacement-secret")
+
+            self.assertNotIn("replacement-secret", str(raised.exception))
+            self.assertNotIn("secret-value", str(raised.exception))
+            self.assertEqual(vault.store.get_file_value("openai"), "working-secret")
+            self.assertEqual(config.get("providers.default"), "openai")
 
 
 if __name__ == "__main__":

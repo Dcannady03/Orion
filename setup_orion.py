@@ -1,56 +1,13 @@
-from pathlib import Path
+"""Legacy compatibility launcher for Orion First Contact.
 
-# ==========================================
-# ORION PROJECT SETUP
-# Version 0.0.1 - First Light
-# ==========================================
+The old First Light project scaffolder was removed because it duplicated an obsolete
+setup workflow. New and existing installations use ``python -m orion.main
+--first-contact``; this file remains only so older shortcuts delegate to that one
+supported onboarding path.
+"""
 
-project_root = Path.cwd()
+from orion.main import main
 
-folders = [
-    "docs",
-    "tests",
-    "config",
 
-    "orion",
-    "orion/core",
-    "orion/memory",
-    "orion/providers",
-    "orion/agents",
-    "orion/skills",
-    "orion/cli",
-    "orion/voice",
-    "orion/ui",
-]
-
-files = [
-    "README.md",
-    ".gitignore",
-    "requirements.txt",
-
-    "orion/__init__.py",
-    "orion/main.py",
-]
-
-print("=" * 40)
-print(" ORION PROJECT SETUP")
-print("=" * 40)
-
-# Create folders
-for folder in folders:
-    path = project_root / folder
-    path.mkdir(parents=True, exist_ok=True)
-    print(f"[+] Created folder: {folder}")
-
-# Create files
-for file in files:
-    path = project_root / file
-
-    if not path.exists():
-        path.touch()
-        print(f"[+] Created file: {file}")
-    else:
-        print(f"[ ] Exists: {file}")
-
-print("\nProject structure created successfully!")
-print("Welcome to Orion.")
+if __name__ == "__main__":
+    raise SystemExit(main(["--first-contact"]))

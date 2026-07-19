@@ -8,6 +8,27 @@ Orion is organized around a small core, a shared Service Registry, explicit serv
 
 The core initializes shared components. Consumers discover them through the registry rather than globals.
 
+## First Contact onboarding
+
+`FirstContact` runs before the complete `Orion` service graph, but it does not maintain
+an onboarding-only provider stack. It constructs the normal layered `ConfigManager`,
+`ProviderManager`, `VaultService`, `AIRoutingService`, and read-only
+`ExecutionEngineService` against the same external user-data paths used at runtime.
+Profile fields are merged into the existing profile, and configuration changes use
+`ConfigManager.set()` and `save()` rather than replacing the complete document.
+
+Cloud setup is a two-stage Vault transaction. `ProviderManager` verifies a candidate
+credential through `AIProviderFactory` using in-memory config/secret overlays. Only a
+successful verification produces a `VerifiedProviderConnection`, which `VaultService`
+may commit. Failed verification does not write the candidate key, enable the provider,
+change its model, or change `providers.default`. Normal `vault add` and
+`ai provider configure` commands use the same transaction.
+
+Ollama discovery uses the provider manager with a candidate base URL and no persistent
+change until the user confirms First Contact. Multiple-provider setup delegates routing
+profile changes to `AIRoutingService.set_profile()`. Execution-engine summaries are
+read-only and do not grant implementation permissions.
+
 ## Memory layers
 
 - **Session Memory** is temporary and process-local.
