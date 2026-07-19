@@ -8,11 +8,13 @@ Responsible for:
 """
 
 from getpass import getpass
+from pathlib import Path
 
 from orion.agents import AgentDefinition, AgentPermissions
 from orion.services.team import TeamPlanningError
 from orion.services.codex_bridge import CodexBridgeError
 from orion.services.execution_engines import ExecutionEngineUnavailable
+from orion.services.workspace_snapshot import WorkspaceRollbackError, WorkspaceSnapshotError
 
 
 class CommandRouter:
@@ -240,6 +242,12 @@ class CommandRouter:
 
         elif command_lower.startswith("team run "):
             self.team_run_status(raw_command[len("team run "):].strip())
+
+        elif command_lower == "team rollback":
+            print("Usage: team rollback <run-id>")
+
+        elif command_lower.startswith("team rollback "):
+            self.team_rollback(raw_command[len("team rollback "):].strip())
 
         elif command_lower in {"execution", "execution status"}:
             self.show_execution_status()
@@ -615,6 +623,7 @@ class CommandRouter:
         print("    team approve <task-id>     Bind approval to this plan and workspace")
         print("    team implement <id> <approval> Run one bounded local Codex execution")
         print("    team run <run-id>          Show structured results awaiting review")
+        print("    team rollback <run-id>     Safely restore one reviewed workspace run")
         print("    execution status           Detect local execution engines")
         print()
         print("  System")
@@ -1656,7 +1665,8 @@ class CommandRouter:
         print('-' * 62)
         print(
             'Commands: team plan "<goal>" | team approve <task-id> | '
-            "team implement <task-id> <approval-id> | team run <run-id>"
+            "team implement <task-id> <approval-id> | team run <run-id> | "
+            "team rollback <run-id>"
         )
 
     def show_team_roles(self):
@@ -1706,6 +1716,10 @@ class CommandRouter:
 
     def team_approve(self, task_id: str):
         try:
+            workspace_manager = getattr(self.orion, "workspace_manager", None)
+            if workspace_manager is not None:
+                capabilities = workspace_manager.refresh_capabilities()
+                self.orion.codex_bridge.bind(workspace_manager.root, capabilities)
             approval = self.orion.codex_bridge.approve(task_id)
         except (FileNotFoundError, OSError, PermissionError, ValueError) as exc:
             print(f"Codex Bridge approval failed: {exc}")
@@ -1716,7 +1730,15 @@ class CommandRouter:
         print(f"Approval ID: {approval.approval_id}")
         print(f"Plan SHA-256: {approval.plan_hash}")
         print(f"Workspace: {approval.workspace_root}")
-        print("Approval is immutable, workspace-bound, and valid for one execution only.")
+        print(f"Workspace Mode: {approval.workspace.mode.title()}")
+        if approval.workspace.is_git_repository:
+            print(f"Repository Root: {approval.workspace.git_root}")
+            if approval.workspace.branch:
+                print(f"Branch: {approval.workspace.branch}")
+        print(
+            "Approval is immutable and bound to this plan, workspace capability, "
+            "Codex engine, active-workspace scope, and one implementation."
+        )
         print(
             f"Run with: team implement {approval.team_task_id} {approval.approval_id}"
         )
@@ -1727,25 +1749,46 @@ class CommandRouter:
             print("Usage: team implement <team-task-id> <approval-id>")
             return
         team_task_id, approval_id = parts
-        engines = getattr(self.orion, "execution_engines", None)
+        engines = getattr(self.orion, "execution_engines", None) or getattr(
+            self.orion.codex_bridge, "execution_engines", None
+        )
         execution_engine = None
-        if engines is not None:
-            try:
-                execution_engine = engines.require_codex()
-            except ExecutionEngineUnavailable:
-                self._render_no_execution_engine(engines)
-                return
-        print("Starting one approval-bound local Codex execution...")
+        if engines is None:
+            print("No execution engine service is available.")
+            return
         try:
-            run = self.orion.codex_bridge.execute(
-                team_task_id,
-                approval_id,
-                execution_engine=execution_engine,
-            )
+            execution_engine = engines.require_codex()
         except ExecutionEngineUnavailable:
             self._render_no_execution_engine(engines)
             return
-        except (FileNotFoundError, OSError, PermissionError, ValueError, CodexBridgeError) as exc:
+        try:
+            workspace_manager = getattr(self.orion, "workspace_manager", None)
+            capabilities = (
+                workspace_manager.refresh_capabilities()
+                if workspace_manager is not None
+                else self.orion.codex_bridge.workspace_capabilities
+            )
+            if workspace_manager is not None:
+                self.orion.codex_bridge.bind(workspace_manager.root, capabilities)
+            context = self.orion.codex_bridge.execution_context(
+                team_task_id,
+                approval_id,
+                execution_engine,
+                capabilities,
+            )
+        except (OSError, PermissionError, TypeError, ValueError, ExecutionEngineUnavailable) as exc:
+            print(f"Codex Bridge execution failed: {exc}")
+            return
+        print("Starting one approval-bound local Codex execution...")
+        try:
+            run = self.orion.codex_bridge.execute(context)
+        except ExecutionEngineUnavailable:
+            self._render_no_execution_engine(engines)
+            return
+        except (
+            FileNotFoundError, OSError, PermissionError, ValueError,
+            WorkspaceSnapshotError, CodexBridgeError,
+        ) as exc:
             if isinstance(exc, CodexBridgeError) and exc.category == "codex_cli_unavailable" and engines is not None:
                 self._render_no_execution_engine(engines)
                 if exc.run_id:
@@ -1793,6 +1836,27 @@ class CommandRouter:
             print(f"Codex Bridge Error: {exc}")
             return
         self._render_codex_run(run, self.orion.codex_bridge.store.run_directory(run.run_id))
+
+    def team_rollback(self, run_id: str):
+        if not run_id:
+            print("Usage: team rollback <run-id>")
+            return
+        try:
+            run = self.orion.codex_bridge.run(run_id)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(f"Codex Bridge Error: {exc}")
+            return
+        print(f"Rollback workspace changes from {run.run_id}?")
+        print("This removes files created by the run and restores its saved preimages.")
+        if input("Approve rollback? [y/N]: ").strip().lower() not in {"y", "yes"}:
+            print("Team rollback cancelled.")
+            return
+        try:
+            rolled_back = self.orion.codex_bridge.rollback(run.run_id)
+        except (FileNotFoundError, OSError, PermissionError, ValueError, WorkspaceRollbackError) as exc:
+            print(f"Team rollback refused: {exc}")
+            return
+        print(f"[OK] Run {rolled_back.run_id} was rolled back without Git reset or checkout.")
 
     @staticmethod
     def _render_team_task(task):
@@ -1851,6 +1915,13 @@ class CommandRouter:
         print(f"Approval: {run.approval_id}")
         print(f"Plan SHA-256: {run.plan_hash}")
         print(f"Workspace: {run.workspace_root}")
+        print(f"Workspace Mode: {run.workspace.mode.title()}")
+        if run.workspace.is_git_repository:
+            print(f"Repository Root: {run.workspace.git_root}")
+            if run.workspace.branch:
+                print(f"Branch: {run.workspace.branch}")
+            if run.workspace.commit:
+                print(f"Commit: {run.workspace.commit[:12]}")
         print(f"Status: {run.status.replace('_', ' ').title()}")
         if run.result is not None:
             print(f"\nSummary\n  {run.result.summary}")
@@ -1875,11 +1946,28 @@ class CommandRouter:
                 print("\nReview Notes")
                 for item in run.result.review_notes:
                     print(f"  - {item}")
+        if run.changes is not None:
+            labels = (("created", "Created"), ("modified", "Modified"), ("deleted", "Deleted"))
+            print("\nWorkspace Review")
+            for kind, label in labels:
+                items = run.changes.by_kind(kind)
+                print(f"  {label}:")
+                if not items:
+                    print("    none")
+                for item in items:
+                    suffix = " (binary metadata only)" if item.binary else ""
+                    print(f"    - {item.path}{suffix}")
+            if run.changes.diff_truncated:
+                print("  Text diff was truncated at the configured safety limit.")
         if run.error:
             print(f"Error category: {run.error}")
         print(f"\nArtifacts: {artifact_directory}")
         if run.status == "awaiting_review":
             print("Stopped at Awaiting Review. No Git or pull-request action was performed.")
+            print(f"Review the bounded diff at: {artifact_directory / 'workspace.diff'}")
+            print(f"Rollback with: team rollback {run.run_id}")
+        elif run.status == "rolled_back":
+            print("Workspace changes from this run have been safely rolled back.")
 
     def show_config(self):
         """Display loaded configuration."""
@@ -1894,10 +1982,23 @@ class CommandRouter:
 
     def show_workspace(self):
         """Display active workspace information."""
+        self.orion.workspace_manager.refresh_capabilities()
         details = self.orion.workspace_manager.describe()
         print(f"Active Workspace: {details['root']}")
         print(f"Top-level directories: {details['directories']}")
         print(f"Top-level files: {details['files']}")
+        capabilities = details["capabilities"]
+        print(f"Workspace Mode: {capabilities.mode.title()}")
+        if capabilities.is_git_repository:
+            print(f"Repository Root: {capabilities.git_root}")
+            if capabilities.branch:
+                print(f"Branch: {capabilities.branch}")
+            if not capabilities.supports_git_commands:
+                print("Git metadata was detected, but Git commands are unavailable on this host.")
+        else:
+            print("Git Repository: No")
+            print("Team execution is available.")
+            print("Git-specific commands such as status, history, diff, pull, and push are unavailable.")
 
     def set_workspace(self, path: str):
         """Select a new active workspace."""
@@ -1907,13 +2008,26 @@ class CommandRouter:
 
         try:
             selected = self.orion.workspace_manager.set_workspace(path)
-        except (FileNotFoundError, NotADirectoryError) as exc:
+        except FileNotFoundError:
+            requested = Path(path).expanduser().resolve()
+            print("The directory does not exist:")
+            print(requested)
+            if input("Would you like Orion to create it? [Y/N]: ").strip().lower() not in {"y", "yes"}:
+                print("Workspace creation cancelled. The active workspace was not changed.")
+                return
+            try:
+                selected = self.orion.workspace_manager.create_workspace(requested)
+            except (FileExistsError, NotADirectoryError, OSError, PermissionError) as exc:
+                print(f"Workspace Error: {exc}")
+                return
+            print("Created the workspace. Git was not initialized.")
+        except (NotADirectoryError, PermissionError) as exc:
             print(f"Workspace Error: {exc}")
             return
 
         self.orion.project_context.bind(selected)
         self.orion.task_manager.bind(selected)
-        self.orion.codex_bridge.bind(selected)
+        self.orion.codex_bridge.bind(selected, self.orion.workspace_manager.capabilities)
         self.orion.conversation.bind(selected)
         self.orion.knowledge_index.bind(selected)
         self.orion.action_history.bind(selected)
@@ -2759,6 +2873,8 @@ class CommandRouter:
         else:
             print("No response received from AI provider.")
     def git_status(self):
+        if not self._git_command_available("Git status"):
+            return
         try:
             status = self.orion.git_service.status()
         except Exception as exc:
@@ -2775,12 +2891,16 @@ class CommandRouter:
             print(f"  {line}")
 
     def git_log(self):
+        if not self._git_command_available("Git history"):
+            return
         try:
             print(self.orion.git_service.log() or "No commits found.")
         except Exception as exc:
             print(f"Could not read Git history: {exc}")
 
     def git_diff(self, staged=False):
+        if not self._git_command_available("Git diff"):
+            return
         try:
             print(self.orion.git_service.diff(staged=staged) or "No differences.")
         except Exception as exc:
@@ -2791,6 +2911,8 @@ class CommandRouter:
         return input("Approve? [y/N]: ").strip().lower() in {"y", "yes"}
 
     def git_pull(self):
+        if not self._git_command_available("Git pull"):
+            return
         if not self._confirm_sensitive_git("fast-forward pull from origin"):
             print("Git pull cancelled.")
             return
@@ -2800,6 +2922,8 @@ class CommandRouter:
             print(f"Git pull failed: {exc}")
 
     def git_push(self):
+        if not self._git_command_available("Git push"):
+            return
         if not self._confirm_sensitive_git("push the current branch to origin"):
             print("Git push cancelled.")
             return
@@ -2807,6 +2931,19 @@ class CommandRouter:
             print(self.orion.git_service.push() or "Push completed.")
         except Exception as exc:
             print(f"Git push failed: {exc}")
+
+    def _git_command_available(self, command_name: str) -> bool:
+        capabilities = self.orion.workspace_manager.refresh_capabilities()
+        if not capabilities.is_git_repository:
+            print(
+                f"{command_name} requires Git Workspace Mode. "
+                "Team planning and execution remain available in this Standard workspace."
+            )
+            return False
+        if not capabilities.supports_git_commands:
+            print(f"{command_name} is unavailable because Git is not installed or could not inspect this repository.")
+            return False
+        return True
 
     def update_check(self, apply=False):
         try:

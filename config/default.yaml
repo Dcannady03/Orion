@@ -1,7 +1,7 @@
 orion:
   name: Orion
-  version: 0.5.8
-  codename: Prism
+  version: 0.5.9
+  codename: Canvas
 providers:
   default: ollama
   secrets_path: vault/vault.yaml
@@ -97,6 +97,10 @@ codex_bridge:
   enabled: true
   timeout_seconds: 1800
   max_output_bytes: 5000000
+  snapshot_max_files: 10000
+  snapshot_max_file_bytes: 25000000
+  snapshot_max_total_bytes: 250000000
+  diff_max_bytes: 2000000
 execution:
   default_engine: codex
 vault:

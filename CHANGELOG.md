@@ -1,3 +1,14 @@
+# v0.5.9 — Canvas
+
+- Added Standard and Git workspace capability modes without requiring or initializing Git.
+- Bound immutable Team approvals to workspace capabilities, Codex, active-workspace scope, and implementation intent.
+- Passed the router's validated engine and workspace capability through one immutable execution context.
+- Added bounded external workspace baselines, actual created/modified/deleted detection, redacted unified diffs, and binary metadata review.
+- Added conflict-safe `team rollback` using saved preimages without Git reset, checkout, staging, or commits.
+- Allowed active repository subdirectories while retaining Git root, branch, and commit metadata.
+- Added confirmed missing-directory creation and capability-aware Git-only command errors.
+- Added Standard/Git execution, snapshot, diff, rollback, limits, security, and workspace UX coverage; 292 tests pass.
+
 # v0.5.8 — Prism
 
 - Replaced Ollama-only onboarding with Ollama, OpenAI, Gemini, multiple-provider, and skip choices.

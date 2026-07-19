@@ -127,22 +127,34 @@ a tool dispatcher, filesystem access, shell execution, or Git actions.
 `~/.orion/codex/`.
 
 The approval hash covers a canonical plan snapshot containing the task identity, goal,
-ordered final plan, and structured role artifacts. Approval is also bound to the
-resolved active workspace. Execution reloads and hashes the current persisted task,
-requires the explicit approval ID, rejects replay, and writes an `Executing` run record
-before starting the local process.
+ordered final plan, and structured role artifacts. Approval is also bound to one
+`WorkspaceCapabilities` snapshot, the Codex engine, active-workspace scope, and
+implementation operation. Execution reloads and hashes the current persisted task,
+requires the explicit approval ID, rejects replay, and receives the router's validated
+engine and workspace through one immutable `ExecutionContext`.
+
+`WorkspaceManager` classifies the selected folder as Standard or Git. Git mode records
+the optional repository root, branch, and commit while keeping the active folder as the
+execution boundary, so repository subdirectories remain valid. Standard mode uses
+Codex's narrow `--skip-git-repo-check` option; Orion never creates a repository.
+
+Before claiming the approval, `WorkspaceSnapshotService` captures a bounded baseline
+outside the workspace. After execution it independently derives created, modified, and
+deleted paths, redacted unified text diffs, and binary metadata. Structured Codex paths
+must match the observed change set. Owner-only compressed preimages support rollback
+only after a full post-run conflict preflight.
 
 `LocalCodexRunner` invokes `codex exec` without a shell, sends the plan over standard
-input, supplies a strict output schema, and confines the process to the active Git
-repository root. Web search, command network, extra writable roots, project config,
-MCP, apps, hooks, remote plugins, and sub-agents are disabled. Codex's workspace-write
-sandbox protects Git metadata, while the bridge prompt independently prohibits every
-branch, commit, push, merge, tag, and pull-request action.
+input, and supplies a strict output schema. Web search, command network, extra writable
+roots, project config, MCP, apps, hooks, remote plugins, and sub-agents are disabled.
+The prompt independently prohibits ignored/sensitive paths and every branch, commit,
+push, merge, tag, and pull-request action.
 
-Valid JSONL and structured final output become immutable external artifacts and move
-the run to `Awaiting Review`. Invalid output or process failure records only a
-sanitized category. There is no reviewer, repair loop, Task Manager transition, Git
-write, or release action in this phase.
+Valid JSONL, structured output, baseline, change metadata, and bounded diff become
+external artifacts and move the run to `Awaiting Review`. `team rollback` restores
+preimages without Git only when affected paths still match the run. Invalid output or
+process failure records only a sanitized category. There is no autonomous reviewer,
+repair loop, Task Manager transition, Git write, or release action in this phase.
 
 ## Execution Engine Discovery
 

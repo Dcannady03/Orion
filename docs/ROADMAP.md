@@ -81,16 +81,29 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.5.8 — Prism: COMPLETE**
+**v0.5.9 — Canvas: COMPLETE**
 
-Prism makes First Contact provider-neutral through Orion's shared provider, Vault,
-routing, configuration, and execution-engine services. Setup and reruns can safely
-connect Ollama, OpenAI, Gemini, or multiple providers without replacing working
-credentials or unrelated user configuration.
+Canvas makes Git an optional enhancement rather than an AI Team execution gate.
+Standard folders receive bounded snapshot-based review and rollback, while Git
+workspaces retain repository metadata without expanding the active workspace boundary.
 
 **Active milestone:** Review Gate and Workflow Engine Phase 1. Cross-platform
 diagnostics through `orion doctor` remains planned after the AI Team orchestration
 foundation.
+
+## v0.5.9 — Standard and Git Workspace Execution ✅
+
+- [x] Ordinary directories support Team approval, implementation, review, and rollback
+- [x] Git repositories and active subdirectories are detected through one capability model
+- [x] Approvals bind plan, workspace capability, engine, scope, and operation
+- [x] The router passes one validated immutable execution context to Codex Bridge
+- [x] Bounded baselines independently report created, modified, and deleted files
+- [x] Text changes receive redacted unified diffs; binary changes receive metadata only
+- [x] Snapshot limits and incomplete baselines fail before Codex or approval consumption
+- [x] Rollback restores preimages only when no affected file changed again
+- [x] Missing workspaces can be created after confirmation without automatic `git init`
+- [x] Git-only commands reject Standard mode without blocking Team execution
+- [x] The complete regression suite passes with 292 tests
 
 ## v0.5.8 — Provider-Neutral First Contact ✅
 

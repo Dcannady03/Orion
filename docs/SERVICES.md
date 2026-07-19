@@ -18,6 +18,11 @@ stable interface.
 - `vault` → `VaultService` (external credential verification and persistence)
 - `ai_routing` → `AIRoutingService` (provider-neutral routing profiles and fallback)
 
+`WorkspaceManager` owns the active Standard/Git capability snapshot and path boundary.
+`CodexBridge` owns a `WorkspaceSnapshotService` for bounded external baselines,
+deterministic created/modified/deleted review, redacted diffs, and conflict-safe rollback;
+it is not a second workspace selector or Git service.
+
 ## Usage
 
 ```python

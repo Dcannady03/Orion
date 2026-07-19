@@ -6,13 +6,13 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.5.8 — Prism**
+**v0.5.9 — Canvas**
 
-Prism makes First Contact provider-neutral. Initial setup can now connect Ollama,
-OpenAI, Google Gemini, or multiple providers through Orion's normal provider, Vault,
-and routing services. Cloud credentials are verified before Vault storage, reruns
-preserve working configuration, and the completion summary reports active AI,
-services, workspace, routing, and available execution engines.
+Canvas removes Git as a prerequisite for AI Team implementation. Codex Bridge now
+supports ordinary Standard workspaces and Git-enhanced workspaces through one explicit
+capability model, immutable execution context, bounded snapshots, deterministic diffs,
+and conflict-safe rollback. Git metadata remains available when present without
+expanding execution beyond the active workspace.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -67,6 +67,7 @@ team status <task-id>        Reopen a persisted AI Team plan
 team approve <task-id>       Approve this plan hash for the active workspace
 team implement <id> <approval-id> Run one bounded local Codex execution
 team run <run-id>            Show structured results awaiting review
+team rollback <run-id>       Restore a run when affected files are unchanged
 execution status             Detect usable local execution engines
 workspace                    Inspect the active workspace
 files                        List workspace files
@@ -326,15 +327,21 @@ missing approvals, and approval replay are rejected before the process starts.
 team approve <team-task-id>
 team implement <team-task-id> <approval-id>
 team run <run-id>
+team rollback <run-id>
 ```
 
-The Codex process receives workspace-write access only to the active Git repository
-root. Git metadata, network access, web search, extra writable roots, MCP, apps,
-plugins, hooks, and sub-agents remain unavailable. Orion requires strict structured
-implementation and test results, persists the approval, event stream, schema, and
-result beneath `~/.orion/codex/`, then stops at `Awaiting Review`. It never creates a
-branch, commit, push, merge, tag, or pull request. See `docs/CODEX_BRIDGE.md` for the
-complete security and persistence contract.
+The active folder may be a Standard workspace with no Git repository or a Git workspace,
+including a repository subdirectory. Git adds repository, branch, and commit metadata;
+it never expands Codex beyond the active folder. Network access, web search, extra
+writable roots, MCP, apps, plugins, hooks, and sub-agents remain unavailable.
+
+Before Codex starts, Orion captures a bounded external baseline. Afterward it verifies
+the structured file list against actual created, modified, and deleted files, writes a
+redacted unified text diff plus binary metadata, and stops at `Awaiting Review`.
+`team rollback` restores saved preimages only when affected files have not changed
+again. No Team command initializes Git, creates a branch, commits, resets, pushes,
+merges, tags, or opens a pull request. See `docs/CODEX_BRIDGE.md` for the complete
+security and persistence contract.
 
 ## Execution Engine Discovery
 

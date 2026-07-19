@@ -87,11 +87,16 @@ points to `execution status`. No local process starts, no run or claim artifact 
 created, and the approval remains valid after the CLI is installed.
 
 Discovery and implementation use the same resolver. `team implement` resolves the
-engine once and passes that exact engine snapshot into Codex Bridge. The bridge sends
-its resolved path directly to the no-shell subprocess call; it neither probes a second
-time nor falls back to a bare `codex` command. Direct service callers that do not
-supply a preflight snapshot still perform one bridge-owned check before approval
-claiming.
+engine once and combines that exact engine snapshot with the active Standard/Git
+workspace capability in one immutable execution context. The bridge sends the resolved
+path directly to the no-shell subprocess call; it neither probes a second time nor
+falls back to a bare `codex` command. Direct service callers that do not supply a
+preflight snapshot still perform one bridge-owned check before approval claiming.
+
+Codex CLI does not require Git when invoked with `codex exec
+--skip-git-repo-check`. Orion adds that narrow option only in Standard Workspace Mode.
+Git mode omits it and retains repository metadata. Both modes use the same workspace-
+write sandbox and exact active directory.
 
 ```text
 No execution engine is currently available.

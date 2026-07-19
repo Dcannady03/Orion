@@ -36,7 +36,7 @@ BASE_COMMANDS = (
     "plugins", "workspace", "files", "ls", "remember", "recall", "memory",
     "forget", "clear memory", "agent", "agent list", "agent show", "agent create",
     "agent enable", "agent disable", "agent test", "team", "team roles", "team plan", "team status",
-    "team approve", "team implement", "team run",
+    "team approve", "team implement", "team run", "team rollback",
     "execution", "execution status",
     "task", "task list", "task create", "task show", "task approve", "task cancel",
     "task events", "task link-plan", "project init", "project status", "project info",

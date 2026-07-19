@@ -27,9 +27,23 @@ from orion.services.execution_engines import (
     ExecutionEngineUnavailable,
     resolve_codex_executable,
 )
+from orion.services.workspace import (
+    WORKSPACE_MODE_STANDARD,
+    WorkspaceCapabilities,
+)
+from orion.services.workspace_snapshot import (
+    SnapshotLimits,
+    WorkspaceBaseline,
+    WorkspaceChangeSet,
+    WorkspaceRollbackError,
+    WorkspaceSnapshotError,
+    WorkspaceSnapshotService,
+    baseline_json,
+    changes_json,
+)
 
 
-BRIDGE_SCHEMA_VERSION = 1
+BRIDGE_SCHEMA_VERSION = 2
 APPROVAL_ID_PATTERN = re.compile(r"approval-[a-z0-9-]{6,95}")
 RUN_ID_PATTERN = re.compile(r"run-[a-z0-9-]{6,95}")
 PLAN_HASH_PATTERN = re.compile(r"[a-f0-9]{64}")
@@ -37,10 +51,12 @@ PLAN_HASH_PATTERN = re.compile(r"[a-f0-9]{64}")
 RUN_STATUS_EXECUTING = "executing"
 RUN_STATUS_AWAITING_REVIEW = "awaiting_review"
 RUN_STATUS_FAILED = "failed"
+RUN_STATUS_ROLLED_BACK = "rolled_back"
 RUN_STATUSES = frozenset({
     RUN_STATUS_EXECUTING,
     RUN_STATUS_AWAITING_REVIEW,
     RUN_STATUS_FAILED,
+    RUN_STATUS_ROLLED_BACK,
 })
 TEST_STATUSES = frozenset({"passed", "failed", "not_run"})
 RUN_ERROR_CATEGORIES = frozenset({
@@ -49,12 +65,18 @@ RUN_ERROR_CATEGORIES = frozenset({
     "codex_process_failed",
     "codex_output_too_large",
     "invalid_codex_output",
+    "workspace_snapshot_failed",
+    "workspace_change_mismatch",
 })
 RUN_ARTIFACT_NAMES = frozenset({
     "approved-plan.json",
     "result-schema.json",
     "events.jsonl",
     "implementation-result.json",
+    "workspace-baseline.json",
+    "workspace-changes.json",
+    "workspace.diff",
+    "rollback.json",
 })
 PROTECTED_WORKSPACE_PARTS = frozenset({".git", ".agents", ".codex"})
 
@@ -265,6 +287,10 @@ class PlanApproval:
     team_task_id: str
     plan_hash: str
     workspace_root: str
+    workspace: WorkspaceCapabilities
+    execution_engine: str
+    approved_scope: str
+    expected_operation: str
     approved_by: str
     approved_at: str
     plan: PlanSnapshot
@@ -275,7 +301,8 @@ class PlanApproval:
             value,
             {
                 "schema_version", "approval_id", "team_task_id", "plan_hash",
-                "workspace_root", "approved_by", "approved_at", "plan",
+                "workspace_root", "workspace", "execution_engine", "approved_scope",
+                "expected_operation", "approved_by", "approved_at", "plan",
             },
             "Plan approval",
         )
@@ -286,6 +313,24 @@ class PlanApproval:
         ).expanduser()
         if not workspace.is_absolute():
             raise ValueError("Approved workspace must be an absolute path.")
+        capabilities = WorkspaceCapabilities.from_value(value["workspace"])
+        if not _same_path(workspace, capabilities.root):
+            raise ValueError("Approved workspace capability root does not match the approval.")
+        engine = _required_string(
+            value["execution_engine"], "Approved execution engine", maximum=50
+        ).lower()
+        if engine != "codex":
+            raise ValueError("Codex Bridge approvals must bind the Codex execution engine.")
+        approved_scope = _required_string(
+            value["approved_scope"], "Approved execution scope", maximum=100
+        ).lower()
+        if approved_scope != "active_workspace":
+            raise ValueError("Codex Bridge approval scope is not supported.")
+        expected_operation = _required_string(
+            value["expected_operation"], "Approved operation", maximum=100
+        ).lower()
+        if expected_operation != "implement":
+            raise ValueError("Codex Bridge approval operation is not supported.")
         approved_at, _ = _timestamp(value["approved_at"], "Plan approval approved_at")
         plan = PlanSnapshot.from_value(value["plan"])
         team_task_id = _team_task_id(value["team_task_id"])
@@ -300,6 +345,10 @@ class PlanApproval:
             team_task_id=team_task_id,
             plan_hash=plan_hash,
             workspace_root=str(workspace.resolve()),
+            workspace=capabilities,
+            execution_engine=engine,
+            approved_scope=approved_scope,
+            expected_operation=expected_operation,
             approved_by=_required_string(value["approved_by"], "Plan approval actor", maximum=100),
             approved_at=approved_at,
             plan=plan,
@@ -312,10 +361,42 @@ class PlanApproval:
             "team_task_id": self.team_task_id,
             "plan_hash": self.plan_hash,
             "workspace_root": self.workspace_root,
+            "workspace": self.workspace.to_dict(),
+            "execution_engine": self.execution_engine,
+            "approved_scope": self.approved_scope,
+            "expected_operation": self.expected_operation,
             "approved_by": self.approved_by,
             "approved_at": self.approved_at,
             "plan": self.plan.to_dict(),
         }
+
+
+@dataclass(frozen=True)
+class ExecutionContext:
+    """Immutable router-to-bridge handoff for one approved implementation."""
+
+    team_task_id: str
+    approval_id: str
+    workspace: WorkspaceCapabilities
+    execution_engine: ExecutionEngine
+    approved_scope: str = "active_workspace"
+    expected_operation: str = "implement"
+
+    def __post_init__(self) -> None:
+        _team_task_id(self.team_task_id)
+        _approval_id(self.approval_id)
+        WorkspaceCapabilities.from_value(self.workspace.to_dict())
+        engine = self.execution_engine
+        if (
+            not isinstance(engine, ExecutionEngine)
+            or engine.engine_id != "codex"
+            or not engine.ready_for_implementation
+            or not isinstance(engine.executable, str)
+            or not engine.executable.strip()
+        ):
+            raise ExecutionEngineUnavailable("No execution engine is currently available.")
+        if self.approved_scope != "active_workspace" or self.expected_operation != "implement":
+            raise ValueError("Codex execution context does not match the approved operation.")
 
 
 @dataclass(frozen=True)
@@ -430,12 +511,14 @@ class CodexRun:
     team_task_id: str
     plan_hash: str
     workspace_root: str
+    workspace: WorkspaceCapabilities
     status: str
     command: tuple[str, ...]
     artifacts: tuple[str, ...]
     started_at: str
     completed_at: str
     result: ImplementationResult | None
+    changes: WorkspaceChangeSet | None
     error: str
 
     @classmethod
@@ -444,8 +527,8 @@ class CodexRun:
             value,
             {
                 "schema_version", "run_id", "approval_id", "team_task_id",
-                "plan_hash", "workspace_root", "status", "command", "artifacts",
-                "started_at", "completed_at", "result", "error",
+                "plan_hash", "workspace_root", "workspace", "status", "command",
+                "artifacts", "started_at", "completed_at", "result", "changes", "error",
             },
             "Codex run",
         )
@@ -456,6 +539,9 @@ class CodexRun:
         ).expanduser()
         if not workspace.is_absolute():
             raise ValueError("Codex run workspace must be an absolute path.")
+        capabilities = WorkspaceCapabilities.from_value(value["workspace"])
+        if not _same_path(workspace, capabilities.root):
+            raise ValueError("Codex run workspace capability root does not match its path.")
         status_value = _required_string(value["status"], "Codex run status", maximum=32).lower()
         if status_value not in RUN_STATUSES:
             raise ValueError(f"Codex run status is not recognized: {status_value}")
@@ -467,7 +553,7 @@ class CodexRun:
         if executable_name not in {"codex", "codex.cmd", "codex.exe"}:
             raise ValueError("Codex run command must invoke the local Codex CLI.")
         artifacts = _bounded_strings(
-            value["artifacts"], "Codex run artifacts", maximum_items=4,
+            value["artifacts"], "Codex run artifacts", maximum_items=8,
             maximum_length=100,
         )
         if len(set(artifacts)) != len(artifacts) or not set(artifacts).issubset(RUN_ARTIFACT_NAMES):
@@ -483,18 +569,33 @@ class CodexRun:
         result = None
         if result_value is not None:
             result = ImplementationResult.from_value(result_value, workspace)
+        changes_value = value["changes"]
+        changes = None
+        if changes_value is not None:
+            changes = WorkspaceChangeSet.from_value(changes_value)
+            if not _same_path(changes.workspace_root, workspace):
+                raise ValueError("Codex run changes belong to a different workspace.")
         if status_value == RUN_STATUS_EXECUTING:
-            if completed_at or result is not None or error:
+            if completed_at or result is not None or changes is not None or error:
                 raise ValueError("Executing Codex runs cannot contain completion fields.")
         elif status_value == RUN_STATUS_AWAITING_REVIEW:
-            if not completed_at or result is None or error:
+            if not completed_at or result is None or changes is None or error:
                 raise ValueError("Awaiting-review Codex runs require a result and completion time.")
-            required = {"approved-plan.json", "result-schema.json", "events.jsonl", "implementation-result.json"}
+            required = {
+                "approved-plan.json", "result-schema.json", "events.jsonl",
+                "implementation-result.json", "workspace-baseline.json",
+                "workspace-changes.json", "workspace.diff",
+            }
             if set(artifacts) != required:
                 raise ValueError("Awaiting-review Codex runs require all structured artifacts.")
         elif status_value == RUN_STATUS_FAILED:
             if not completed_at or result is not None or error not in RUN_ERROR_CATEGORIES:
                 raise ValueError("Failed Codex runs require a sanitized error category.")
+        elif status_value == RUN_STATUS_ROLLED_BACK:
+            if not completed_at or changes is None or error:
+                raise ValueError("Rolled-back Codex runs require their recorded workspace changes.")
+            if "rollback.json" not in artifacts:
+                raise ValueError("Rolled-back Codex runs require a rollback artifact.")
         return cls(
             schema_version=BRIDGE_SCHEMA_VERSION,
             run_id=_run_id(value["run_id"]),
@@ -502,12 +603,14 @@ class CodexRun:
             team_task_id=_team_task_id(value["team_task_id"]),
             plan_hash=_plan_hash(value["plan_hash"]),
             workspace_root=str(workspace.resolve()),
+            workspace=capabilities,
             status=status_value,
             command=command,
             artifacts=artifacts,
             started_at=started_at,
             completed_at=completed_at,
             result=result,
+            changes=changes,
             error=error,
         )
 
@@ -519,12 +622,14 @@ class CodexRun:
             "team_task_id": self.team_task_id,
             "plan_hash": self.plan_hash,
             "workspace_root": self.workspace_root,
+            "workspace": self.workspace.to_dict(),
             "status": self.status,
             "command": list(self.command),
             "artifacts": list(self.artifacts),
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "result": None if self.result is None else self.result.to_dict(),
+            "changes": None if self.changes is None else self.changes.to_dict(),
             "error": self.error,
         }
 
@@ -637,6 +742,15 @@ class CodexBridgeStore:
             raise ValueError(f"Codex run artifact name is not supported: {name}")
         return self._write_immutable(self.root / "runs" / normalized_run / name, content)
 
+    def read_run_artifact(self, run_id: str, name: str) -> str:
+        normalized_run = _run_id(run_id)
+        if name not in RUN_ARTIFACT_NAMES:
+            raise ValueError(f"Codex run artifact name is not supported: {name}")
+        path = self.root / "runs" / normalized_run / name
+        if not path.is_file():
+            raise FileNotFoundError(f"Codex run artifact not found: {name}")
+        return path.read_text(encoding="utf-8")
+
     def approval_path(self, team_task_id: str, approval_id: str) -> Path:
         return self.root / "approvals" / _team_task_id(team_task_id) / f"{_approval_id(approval_id)}.json"
 
@@ -648,6 +762,9 @@ class CodexBridgeStore:
 
     def run_directory(self, run_id: str) -> Path:
         return self.run_path(run_id).parent
+
+    def snapshot_blob_root(self, run_id: str) -> Path:
+        return self.run_directory(run_id) / "snapshot" / "blobs"
 
     @staticmethod
     def _write_immutable(path: Path, content: str) -> Path:
@@ -778,6 +895,8 @@ class CodexBridge:
         store: CodexBridgeStore,
         workspace_root: str | Path,
         *,
+        workspace_capabilities: WorkspaceCapabilities | None = None,
+        snapshot_service: WorkspaceSnapshotService | None = None,
         runner: LocalCodexRunner | None = None,
         execution_engines=None,
         now: Callable[[], datetime] | None = None,
@@ -788,28 +907,41 @@ class CodexBridge:
         self.team_store = team_store
         self.store = store
         self.runner = runner or LocalCodexRunner()
+        self.snapshots = snapshot_service or WorkspaceSnapshotService()
         self.execution_engines = execution_engines
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._approval_id_factory = approval_id_factory or self._new_approval_id
         self._run_id_factory = run_id_factory or self._new_run_id
         self._lock = RLock()
-        self.bind(workspace_root)
+        self.bind(workspace_root, workspace_capabilities)
 
     @property
     def workspace_root(self) -> Path:
         return self._workspace_root
 
-    def bind(self, workspace_root: str | Path) -> None:
+    @property
+    def workspace_capabilities(self) -> WorkspaceCapabilities:
+        return self._workspace_capabilities
+
+    def bind(
+        self,
+        workspace_root: str | Path,
+        capabilities: WorkspaceCapabilities | None = None,
+    ) -> None:
         root = Path(workspace_root).expanduser().resolve()
         if not root.is_dir():
             raise NotADirectoryError(f"Workspace is not a directory: {root}")
+        selected = capabilities or WorkspaceCapabilities.detect(root)
+        if not _same_path(selected.root, root):
+            raise ValueError("Workspace capabilities belong to a different active workspace.")
         with self._lock:
             self._workspace_root = root
+            self._workspace_capabilities = selected
 
     def approve(self, team_task_id: str, *, actor: str = "user") -> PlanApproval:
         self._require_enabled()
         with self._lock:
-            self._require_workspace_root()
+            self._require_workspace()
             task = self.team_store.load(team_task_id)
             plan = PlanSnapshot.from_team_task(task)
             approval = PlanApproval.from_value({
@@ -818,6 +950,10 @@ class CodexBridge:
                 "team_task_id": plan.team_task_id,
                 "plan_hash": plan.hash,
                 "workspace_root": str(self._workspace_root),
+                "workspace": self._workspace_capabilities.to_dict(),
+                "execution_engine": "codex",
+                "approved_scope": "active_workspace",
+                "expected_operation": "implement",
                 "approved_by": actor,
                 "approved_at": self._timestamp(),
                 "plan": plan.to_dict(),
@@ -825,31 +961,80 @@ class CodexBridge:
             self.store.save_approval(approval)
             return approval
 
-    def execute(
+    def execution_context(
         self,
         team_task_id: str,
         approval_id: str,
+        execution_engine: ExecutionEngine,
+        workspace: WorkspaceCapabilities,
+    ) -> ExecutionContext:
+        """Create the one immutable router-to-bridge execution handoff."""
+        if not _same_path(workspace.root, self._workspace_root):
+            raise PermissionError("Execution context belongs to a different active workspace.")
+        return ExecutionContext(
+            team_task_id=_team_task_id(team_task_id),
+            approval_id=_approval_id(approval_id),
+            workspace=workspace,
+            execution_engine=execution_engine,
+        )
+
+    def execute(
+        self,
+        team_task_id: str | ExecutionContext,
+        approval_id: str | None = None,
         *,
         execution_engine: ExecutionEngine | None = None,
     ) -> CodexRun:
         self._require_enabled()
         with self._lock:
-            self._require_workspace_root()
-            task = self.team_store.load(team_task_id)
+            self._require_workspace()
+            if isinstance(team_task_id, ExecutionContext):
+                if approval_id is not None or execution_engine is not None:
+                    raise TypeError("Execution context cannot be combined with separate execution arguments.")
+                context = team_task_id
+            else:
+                if approval_id is None:
+                    raise TypeError("Approval ID is required for Codex execution.")
+                executable = self._resolve_codex_executable(execution_engine)
+                fallback_engine = execution_engine or ExecutionEngine(
+                    engine_id="codex",
+                    name="Codex CLI",
+                    status="installed",
+                    installed=True,
+                    cli_support=True,
+                    implementation_supported=True,
+                    executable=str(executable),
+                )
+                context = self.execution_context(
+                    team_task_id,
+                    approval_id,
+                    fallback_engine,
+                    self._workspace_capabilities,
+                )
+            self._validate_context(context)
+            task = self.team_store.load(context.team_task_id)
             plan = PlanSnapshot.from_team_task(task)
-            approval = self.store.load_approval(plan.team_task_id, approval_id)
+            approval = self.store.load_approval(plan.team_task_id, context.approval_id)
             if not _same_path(approval.workspace_root, self._workspace_root):
                 raise PermissionError("Plan approval belongs to a different active workspace.")
             if approval.plan_hash != plan.hash or approval.plan.to_dict() != plan.to_dict():
                 raise PermissionError("Persisted AI Team plan changed after approval; approve this version again.")
             if self.store.approval_used(plan.team_task_id, approval.approval_id):
                 raise PermissionError("Plan approval has already been consumed by a Codex run.")
-            codex_executable = self._resolve_codex_executable(execution_engine)
+            self._validate_approval_context(approval, context)
+            codex_executable = Path(context.execution_engine.executable).expanduser()
 
             timeout_seconds = self._timeout_seconds()
             max_output_bytes = self._max_output_bytes()
+            snapshot_limits = SnapshotLimits.from_config(self.config)
 
             run_id = _run_id(self._run_id_factory())
+            baseline = self.snapshots.capture(
+                context.workspace,
+                self.store.snapshot_blob_root(run_id),
+                snapshot_limits,
+                created_at=self._timestamp(),
+            )
             try:
                 self.store.claim_approval(
                     plan.team_task_id,
@@ -863,7 +1048,7 @@ class CodexBridge:
                 ) from exc
             run_directory = self.store.run_directory(run_id)
             schema_path = run_directory / "result-schema.json"
-            command = self._command(codex_executable, schema_path)
+            command = self._command(codex_executable, schema_path, context.workspace)
             run = CodexRun.from_value({
                 "schema_version": BRIDGE_SCHEMA_VERSION,
                 "run_id": run_id,
@@ -871,12 +1056,16 @@ class CodexBridge:
                 "team_task_id": plan.team_task_id,
                 "plan_hash": plan.hash,
                 "workspace_root": str(self._workspace_root),
+                "workspace": context.workspace.to_dict(),
                 "status": RUN_STATUS_EXECUTING,
                 "command": list(command),
-                "artifacts": ["approved-plan.json", "result-schema.json"],
+                "artifacts": [
+                    "approved-plan.json", "result-schema.json", "workspace-baseline.json",
+                ],
                 "started_at": self._timestamp(),
                 "completed_at": "",
                 "result": None,
+                "changes": None,
                 "error": "",
             })
             self.store.write_run_artifact(
@@ -889,6 +1078,11 @@ class CodexBridge:
                 "result-schema.json",
                 json.dumps(self.RESULT_SCHEMA, indent=2, ensure_ascii=False) + "\n",
             )
+            self.store.write_run_artifact(
+                run_id,
+                "workspace-baseline.json",
+                baseline_json(baseline),
+            )
             self.store.save_run(run)
 
             try:
@@ -899,21 +1093,21 @@ class CodexBridge:
                     timeout=timeout_seconds,
                 )
             except FileNotFoundError as exc:
-                self._fail(run, "codex_cli_unavailable")
+                self._fail(run, "codex_cli_unavailable", baseline, snapshot_limits)
                 raise CodexBridgeError(
                     "Local Codex CLI was not found. Install or repair Codex, then approve a new run.",
                     run_id=run.run_id,
                     category="codex_cli_unavailable",
                 ) from exc
             except (OSError, PermissionError) as exc:
-                self._fail(run, "codex_cli_unavailable")
+                self._fail(run, "codex_cli_unavailable", baseline, snapshot_limits)
                 raise CodexBridgeError(
                     "Local Codex CLI could not be started. Repair its installation, then approve a new run.",
                     run_id=run.run_id,
                     category="codex_cli_unavailable",
                 ) from exc
             except subprocess.TimeoutExpired as exc:
-                self._fail(run, "codex_timeout")
+                self._fail(run, "codex_timeout", baseline, snapshot_limits)
                 raise CodexBridgeError(
                     "Codex execution reached Orion's timeout and stopped.",
                     run_id=run.run_id,
@@ -921,7 +1115,7 @@ class CodexBridge:
                 ) from exc
 
             if not isinstance(process, CodexProcessResult):
-                self._fail(run, "invalid_codex_output")
+                self._fail(run, "invalid_codex_output", baseline, snapshot_limits)
                 raise CodexBridgeError(
                     "Codex runner returned an invalid process result.",
                     run_id=run.run_id,
@@ -929,14 +1123,14 @@ class CodexBridge:
                 )
             output_size = len(process.stdout.encode("utf-8")) + len(process.stderr.encode("utf-8"))
             if output_size > max_output_bytes:
-                self._fail(run, "codex_output_too_large")
+                self._fail(run, "codex_output_too_large", baseline, snapshot_limits)
                 raise CodexBridgeError(
                     "Codex output exceeded Orion's configured capture limit.",
                     run_id=run.run_id,
                     category="codex_output_too_large",
                 )
             if process.returncode != 0:
-                self._fail(run, "codex_process_failed")
+                self._fail(run, "codex_process_failed", baseline, snapshot_limits)
                 raise CodexBridgeError(
                     "Codex execution failed; raw process errors were not persisted.",
                     run_id=run.run_id,
@@ -952,28 +1146,55 @@ class CodexBridge:
                 self.store.write_run_artifact(run_id, "events.jsonl", events_text)
                 result_value = _strict_json_loads(final_message)
                 result = ImplementationResult.from_value(result_value, self._workspace_root)
-                self.store.write_run_artifact(
-                    run_id,
-                    "implementation-result.json",
-                    json.dumps(result.to_dict(), indent=2, ensure_ascii=False) + "\n",
-                )
             except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-                self._fail(run, "invalid_codex_output", include_events=(self.store.run_directory(run_id) / "events.jsonl").is_file())
+                self._fail(
+                    run,
+                    "invalid_codex_output",
+                    baseline,
+                    snapshot_limits,
+                    include_events=(self.store.run_directory(run_id) / "events.jsonl").is_file(),
+                )
                 raise CodexBridgeError(
                     "Codex did not return a valid structured implementation result.",
                     run_id=run.run_id,
                     category="invalid_codex_output",
                 ) from exc
 
+            try:
+                changes, _ = self._capture_changes(run, baseline, snapshot_limits)
+                self._validate_reported_changes(result, changes, approval.plan)
+            except WorkspaceSnapshotError as exc:
+                self._fail(run, "workspace_snapshot_failed", baseline, snapshot_limits, include_events=True)
+                raise CodexBridgeError(
+                    "Orion could not safely capture the completed workspace state.",
+                    run_id=run.run_id,
+                    category="workspace_snapshot_failed",
+                ) from exc
+            except ValueError as exc:
+                self._fail(run, "workspace_change_mismatch", baseline, snapshot_limits, include_events=True)
+                raise CodexBridgeError(
+                    "Codex reported file changes that did not match the bounded workspace review.",
+                    run_id=run.run_id,
+                    category="workspace_change_mismatch",
+                ) from exc
+
+            self.store.write_run_artifact(
+                run_id,
+                "implementation-result.json",
+                json.dumps(result.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            )
+
             completed = replace(
                 run,
                 status=RUN_STATUS_AWAITING_REVIEW,
                 artifacts=(
                     "approved-plan.json", "result-schema.json", "events.jsonl",
-                    "implementation-result.json",
+                    "implementation-result.json", "workspace-baseline.json",
+                    "workspace-changes.json", "workspace.diff",
                 ),
                 completed_at=self._timestamp(),
                 result=result,
+                changes=changes,
             )
             CodexRun.from_value(completed.to_dict())
             self.store.save_run(completed)
@@ -985,21 +1206,146 @@ class CodexBridge:
     def recent(self, limit: int = 10) -> tuple[CodexRun, ...]:
         return self.store.recent_runs(limit)
 
-    def _fail(self, run: CodexRun, category: str, *, include_events: bool = False) -> CodexRun:
-        artifacts = ["approved-plan.json", "result-schema.json"]
+    def rollback(self, run_id: str) -> CodexRun:
+        """Restore one run after verifying no affected path changed again."""
+        with self._lock:
+            self._require_workspace()
+            run = self.store.load_run(run_id)
+            if run.status not in {RUN_STATUS_AWAITING_REVIEW, RUN_STATUS_FAILED}:
+                raise ValueError("Only a completed, unrolled Codex run can be rolled back.")
+            if not _same_path(run.workspace_root, self._workspace_root):
+                raise PermissionError("Codex run belongs to a different active workspace.")
+            if run.changes is None:
+                raise ValueError("Codex run does not contain a safe workspace change record.")
+            baseline = WorkspaceBaseline.from_value(
+                _strict_json_loads(self.store.read_run_artifact(run.run_id, "workspace-baseline.json"))
+            )
+            self.snapshots.rollback(
+                baseline,
+                run.changes,
+                self.store.snapshot_blob_root(run.run_id),
+            )
+            self.store.write_run_artifact(
+                run.run_id,
+                "rollback.json",
+                json.dumps({
+                    "schema_version": BRIDGE_SCHEMA_VERSION,
+                    "run_id": run.run_id,
+                    "workspace_root": run.workspace_root,
+                    "rolled_back_at": self._timestamp(),
+                    "change_count": len(run.changes.changes),
+                }, indent=2) + "\n",
+            )
+            rolled_back = replace(
+                run,
+                status=RUN_STATUS_ROLLED_BACK,
+                artifacts=tuple((*run.artifacts, "rollback.json")),
+                error="",
+            )
+            CodexRun.from_value(rolled_back.to_dict())
+            self.store.save_run(rolled_back)
+            return rolled_back
+
+    def _capture_changes(
+        self,
+        run: CodexRun,
+        baseline: WorkspaceBaseline,
+        limits: SnapshotLimits,
+    ) -> tuple[WorkspaceChangeSet, str]:
+        changes_path = self.store.run_directory(run.run_id) / "workspace-changes.json"
+        diff_path = self.store.run_directory(run.run_id) / "workspace.diff"
+        if changes_path.is_file() and diff_path.is_file():
+            changes = WorkspaceChangeSet.from_value(
+                _strict_json_loads(changes_path.read_text(encoding="utf-8"))
+            )
+            return changes, diff_path.read_text(encoding="utf-8")
+        changes, diff = self.snapshots.compare(
+            baseline,
+            self.store.snapshot_blob_root(run.run_id),
+            limits,
+        )
+        self.store.write_run_artifact(run.run_id, "workspace-changes.json", changes_json(changes))
+        self.store.write_run_artifact(run.run_id, "workspace.diff", diff)
+        return changes, diff
+
+    def _fail(
+        self,
+        run: CodexRun,
+        category: str,
+        baseline: WorkspaceBaseline,
+        limits: SnapshotLimits,
+        *,
+        include_events: bool = False,
+    ) -> CodexRun:
+        artifacts = ["approved-plan.json", "result-schema.json", "workspace-baseline.json"]
         if include_events:
             artifacts.append("events.jsonl")
+        changes = None
+        try:
+            changes, _ = self._capture_changes(run, baseline, limits)
+            artifacts.extend(("workspace-changes.json", "workspace.diff"))
+        except (OSError, ValueError, WorkspaceSnapshotError, WorkspaceRollbackError):
+            # Preserve the primary execution failure. A missing post-run change
+            # record is visible in the artifact list without obscuring the cause.
+            pass
         failed = replace(
             run,
             status=RUN_STATUS_FAILED,
             artifacts=tuple(artifacts),
             completed_at=self._timestamp(),
             result=None,
+            changes=changes,
             error=category,
         )
         CodexRun.from_value(failed.to_dict())
         self.store.save_run(failed)
         return failed
+
+    def _validate_context(self, context: ExecutionContext) -> None:
+        if not isinstance(context, ExecutionContext):
+            raise TypeError("A validated Codex execution context is required.")
+        if not _same_path(context.workspace.root, self._workspace_root):
+            raise PermissionError("Execution context belongs to a different active workspace.")
+        if context.workspace.to_dict() != self._workspace_capabilities.to_dict():
+            raise PermissionError("Active workspace capabilities changed; approve the plan again.")
+
+    @staticmethod
+    def _validate_approval_context(
+        approval: PlanApproval,
+        context: ExecutionContext,
+    ) -> None:
+        if approval.team_task_id != context.team_task_id or approval.approval_id != context.approval_id:
+            raise PermissionError("Execution context does not match the immutable approval.")
+        if approval.workspace.to_dict() != context.workspace.to_dict():
+            raise PermissionError("Workspace capabilities changed after approval; approve the plan again.")
+        if (
+            approval.execution_engine != context.execution_engine.engine_id
+            or approval.approved_scope != context.approved_scope
+            or approval.expected_operation != context.expected_operation
+        ):
+            raise PermissionError("Execution context does not match the approved engine, scope, or operation.")
+
+    @staticmethod
+    def _validate_reported_changes(
+        result: ImplementationResult,
+        changes: WorkspaceChangeSet,
+        plan: PlanSnapshot,
+    ) -> None:
+        reported = {item.path.casefold() for item in result.files_changed}
+        observed = {item.path.casefold() for item in changes.changes}
+        if reported != observed:
+            raise ValueError("Structured file list does not match observed workspace changes.")
+        artifact_text = json.dumps(
+            [_artifact_to_dict(item) for item in plan.artifacts],
+            ensure_ascii=False,
+        )
+        plan_text = "\n".join((plan.goal, *plan.final_plan, artifact_text)).casefold()
+        for item in changes.by_kind("deleted"):
+            path = item.path.casefold()
+            name = Path(item.path).name.casefold()
+            deletion_named = bool(re.search(r"\b(delete|deletes|deleted|remove|removes|removed)\b", plan_text))
+            if not deletion_named or (path not in plan_text and name not in plan_text):
+                raise ValueError(f"Deleted file was not explicitly named by the approved plan: {item.path}")
 
     def _resolve_codex_executable(
         self,
@@ -1043,10 +1389,20 @@ class CodexBridge:
             )
         return executable
 
-    def _command(self, codex_executable: Path, schema_path: Path) -> tuple[str, ...]:
+    def _command(
+        self,
+        codex_executable: Path,
+        schema_path: Path,
+        workspace: WorkspaceCapabilities,
+    ) -> tuple[str, ...]:
         workspace_key = json.dumps(str(self._workspace_root))
-        return (
-            str(codex_executable), "exec", "--json", "--ephemeral",
+        command = [
+            str(codex_executable), "exec",
+        ]
+        if workspace.mode == WORKSPACE_MODE_STANDARD:
+            command.append("--skip-git-repo-check")
+        command.extend((
+            "--json", "--ephemeral",
             "--sandbox", "workspace-write",
             "--ask-for-approval", "never",
             "--ignore-user-config", "--strict-config",
@@ -1064,7 +1420,8 @@ class CodexBridge:
             "--cd", str(self._workspace_root),
             "--output-schema", str(schema_path),
             "-",
-        )
+        ))
+        return tuple(command)
 
     @staticmethod
     def _prompt(approval: PlanApproval) -> str:
@@ -1076,6 +1433,7 @@ class CodexBridge:
 Approval ID: {approval.approval_id}
 Approved plan SHA-256: {approval.plan_hash}
 Goal: {approval.plan.goal}
+Workspace mode: {approval.workspace.mode.title()}
 
 Approved implementation plan:
 {steps}
@@ -1083,6 +1441,8 @@ Approved implementation plan:
 Hard boundaries:
 - Work only inside the current active workspace.
 - Make the smallest changes needed to implement the approved plan.
+- Do not modify ignored runtime, dependency, credential, or secret files.
+- Delete a file only when that exact deletion is explicitly named in the approved plan.
 - Do not create or switch branches, modify Git metadata, commit, push, merge, tag, or open pull requests.
 - Do not access the network or request broader permissions.
 - Do not invoke web search, MCP servers, apps, plugins, hooks, or sub-agents.
@@ -1124,7 +1484,7 @@ Hard boundaries:
         if not bool(self.config.get("codex_bridge.enabled", True)):
             raise ValueError("Codex Bridge is disabled in configuration.")
 
-    def _require_workspace_root(self) -> None:
+    def _require_workspace(self) -> None:
         if not self._workspace_root.is_dir():
             raise NotADirectoryError(f"Active workspace is not available: {self._workspace_root}")
         try:
@@ -1133,8 +1493,6 @@ Hard boundaries:
             pass
         else:
             raise ValueError("Codex Bridge artifacts must be stored outside the active workspace.")
-        if not (self._workspace_root / ".git").exists():
-            raise ValueError("Codex Bridge requires the active workspace to be a Git repository root.")
 
     def _timeout_seconds(self) -> int:
         value = self.config.get("codex_bridge.timeout_seconds", 1_800)
