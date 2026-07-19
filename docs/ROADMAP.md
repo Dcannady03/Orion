@@ -81,15 +81,32 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.6.1 — Gatekeeper: COMPLETE**
+**v0.7.0 — Conductor: COMPLETE**
 
-Gatekeeper provides interactive immutable AI Team approval, one bounded Codex
-implementation, strict Windows workspace-write compatibility, persisted diagnostics,
-and a mandatory stop at Awaiting Review.
+Conductor adds persistent AI Team role assignments, provider/model and execution-engine
+validation, routing-policy planning fallbacks, role metadata in immutable artifacts,
+and a complete living user/documentation process. Gatekeeper's approval, workspace,
+execution, review, and rollback protections remain intact.
 
 **Active milestone:** Email Phase B — persisted immutable approvals for sending,
 mailbox mutations, provider drafts, and attachment downloads. Cross-platform diagnostics
 through `orion doctor` remains planned.
+
+## v0.7.0 — Conductor Role-Based AI Team Routing ✅
+
+- [x] Five persistent assignments cover Architect, Engineering Reviewer,
+      Implementation Engine, Tester, and Documentation Reviewer
+- [x] `team roles` and role show/set/reset commands report assignment, availability,
+      capability, fallback, and source
+- [x] Planning assignments validate configured providers, available models, and enabled agents
+- [x] Dynamic planning roles reuse Fast, Balanced, Coding, and Research routing fallbacks
+- [x] Implementation and Tester validate the installed Orion execution adapter and fail closed
+- [x] Requested and actual assignments, fallback, tokens, cost, and duration persist in artifacts
+- [x] Role assignments remain in external user configuration and never include Vault secrets
+- [x] Existing task documents and approval hashes remain backward compatible
+- [x] The living User Guide covers setup, commands, real workflows, best practices, and safety
+- [x] An evergreen Definition of Done requires synchronized code, tests, help, docs, and verification
+- [x] The complete regression suite passes with 362 tests
 
 ## v0.6.1 — Gatekeeper Interactive Approval and Codex Compatibility ✅
 

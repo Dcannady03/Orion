@@ -9,8 +9,16 @@ import stat
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Callable
 from uuid import uuid4
+
+from orion.services.team_roles import (
+    ResolvedTeamRole,
+    TeamRoleRegistry,
+    TeamRoleSnapshot,
+    role_snapshots,
+)
 
 
 TEAM_STATUS_PLANNING = "planning"
@@ -118,22 +126,104 @@ class RoleOutput:
 
 
 @dataclass(frozen=True)
+class RoleArtifactMetadata:
+    requested_assignment: str
+    actual_assignment: str
+    fallback_reason: str
+    input_tokens: int
+    output_tokens: int
+    estimated_cost_usd: float | None
+    duration_seconds: float
+
+    @classmethod
+    def from_value(cls, value: Any) -> "RoleArtifactMetadata":
+        value = _exact_mapping(
+            value,
+            {
+                "requested_assignment", "actual_assignment", "fallback_reason",
+                "input_tokens", "output_tokens", "estimated_cost_usd",
+                "duration_seconds",
+            },
+            "Team artifact role metadata",
+        )
+        input_tokens = RoleUsage._token_count(
+            value["input_tokens"], "Team artifact input_tokens"
+        )
+        output_tokens = RoleUsage._token_count(
+            value["output_tokens"], "Team artifact output_tokens"
+        )
+        cost = value["estimated_cost_usd"]
+        if cost is not None:
+            if isinstance(cost, bool) or not isinstance(cost, (int, float)):
+                raise ValueError("Team artifact estimated cost must be a number or null.")
+            cost = float(cost)
+            if cost < 0 or not math.isfinite(cost):
+                raise ValueError("Team artifact estimated cost must be finite and non-negative.")
+        duration = value["duration_seconds"]
+        if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+            raise ValueError("Team artifact execution duration must be a number.")
+        duration = float(duration)
+        if duration < 0 or not math.isfinite(duration):
+            raise ValueError("Team artifact execution duration must be finite and non-negative.")
+        fallback_reason = value["fallback_reason"]
+        if not isinstance(fallback_reason, str) or len(fallback_reason) > 500:
+            raise ValueError("Team artifact fallback reason must be a bounded string.")
+        return cls(
+            requested_assignment=_required_string(
+                value["requested_assignment"], "Team artifact requested assignment"
+            ),
+            actual_assignment=_required_string(
+                value["actual_assignment"], "Team artifact actual assignment"
+            ),
+            fallback_reason=fallback_reason,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=cost,
+            duration_seconds=duration,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class TeamArtifact:
     role: str
     kind: str
     output: RoleOutput
     created_at: str
+    role_metadata: RoleArtifactMetadata | None = None
 
     @classmethod
     def from_value(cls, value: Any) -> "TeamArtifact":
-        value = _exact_mapping(value, {"role", "kind", "output", "created_at"}, "Team artifact")
+        fields = set(value) if isinstance(value, dict) else set()
+        legacy_fields = {"role", "kind", "output", "created_at"}
+        current_fields = legacy_fields | {"role_metadata"}
+        if fields == legacy_fields:
+            value = _exact_mapping(value, legacy_fields, "Team artifact")
+            metadata = None
+        else:
+            value = _exact_mapping(value, current_fields, "Team artifact")
+            metadata = RoleArtifactMetadata.from_value(value["role_metadata"])
         created_at, _ = _timestamp(value["created_at"], "Team artifact created_at")
         return cls(
             role=_required_string(value["role"], "Team artifact role"),
             kind=_required_string(value["kind"], "Team artifact kind"),
             output=RoleOutput.from_value(value["output"]),
             created_at=created_at,
+            role_metadata=metadata,
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        value = {
+            "role": self.role,
+            "kind": self.kind,
+            "output": self.output.to_dict(),
+            "created_at": self.created_at,
+        }
+        if self.role_metadata is not None:
+            value["role_metadata"] = self.role_metadata.to_dict()
+        return value
 
 
 @dataclass(frozen=True)
@@ -217,6 +307,7 @@ class TeamTask:
     artifacts: list[TeamArtifact] = field(default_factory=list)
     messages: list[TeamMessage] = field(default_factory=list)
     usage: list[RoleUsage] = field(default_factory=list)
+    role_assignments: list[TeamRoleSnapshot] = field(default_factory=list)
     final_plan: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
@@ -233,22 +324,42 @@ class TeamTask:
         return round(sum(item.estimated_cost_usd or 0.0 for item in self.usage), 8)
 
     def artifact(self, role: str) -> TeamArtifact | None:
-        return next((item for item in self.artifacts if item.role == role), None)
+        aliases = {
+            "engineer": "engineer_reviewer",
+            "engineer_reviewer": "engineer",
+        }
+        return next(
+            (
+                item for item in self.artifacts
+                if item.role == role or item.role == aliases.get(role)
+            ),
+            None,
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        value = asdict(self)
-        for artifact in value["artifacts"]:
-            artifact["output"]["recommendations"] = list(artifact["output"]["recommendations"])
-            artifact["output"]["risks"] = list(artifact["output"]["risks"])
-        return value
+        return {
+            "task_id": self.task_id,
+            "goal": self.goal,
+            "status": self.status,
+            "artifacts": [item.to_dict() for item in self.artifacts],
+            "messages": [asdict(item) for item in self.messages],
+            "usage": [asdict(item) for item in self.usage],
+            "role_assignments": [item.to_dict() for item in self.role_assignments],
+            "final_plan": list(self.final_plan),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "error": self.error,
+        }
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "TeamTask":
+        if isinstance(value, dict) and "role_assignments" not in value:
+            value = {**value, "role_assignments": []}
         value = _exact_mapping(
             value,
             {
                 "task_id", "goal", "status", "artifacts", "messages", "usage",
-                "final_plan", "created_at", "updated_at", "error",
+                "role_assignments", "final_plan", "created_at", "updated_at", "error",
             },
             "Team task",
         )
@@ -263,12 +374,17 @@ class TeamTask:
         updated_at, updated = _timestamp(value["updated_at"], "Team task updated_at")
         if updated < created:
             raise ValueError("Team task updated_at cannot precede created_at.")
-        for field_name in ("artifacts", "messages", "usage"):
+        for field_name in ("artifacts", "messages", "usage", "role_assignments"):
             if not isinstance(value[field_name], list):
                 raise ValueError(f"Team task {field_name} must be a JSON array.")
         artifacts = [TeamArtifact.from_value(item) for item in value["artifacts"]]
         messages = [TeamMessage.from_value(item) for item in value["messages"]]
         usage = [RoleUsage.from_value(item) for item in value["usage"]]
+        assignments = [
+            TeamRoleSnapshot.from_value(item) for item in value["role_assignments"]
+        ]
+        if len(assignments) > 5 or len({item.role for item in assignments}) != len(assignments):
+            raise ValueError("Team task role assignments are invalid or duplicated.")
         final_plan = _string_list(value["final_plan"], "Team task final_plan")
         error = _optional_string(value["error"], "Team task error")
         if status == TEAM_STATUS_AWAITING_APPROVAL and not final_plan:
@@ -282,6 +398,7 @@ class TeamTask:
             artifacts=artifacts,
             messages=messages,
             usage=usage,
+            role_assignments=assignments,
             final_plan=final_plan,
             created_at=created_at,
             updated_at=updated_at,
@@ -352,21 +469,10 @@ class TeamTaskStore:
         return self.root / f"{value}.json"
 
 
-@dataclass(frozen=True)
-class TeamRole:
-    name: str
-    provider: str
-    model: str
-    active: bool
-    agent_id: str = "legacy-config"
-    agent_name: str = "Legacy role configuration"
-
-
 class TeamOrchestrator:
     """Run exactly two planning roles, consolidate their work, then stop."""
 
-    ROLE_NAMES = ("architect", "engineer", "reviewer")
-    ACTIVE_ROLES = ("architect", "engineer")
+    ACTIVE_ROLES = ("architect", "engineer_reviewer")
     MAX_ROLE_RESPONSE_CHARS = 50_000
     ARCHITECT_SYSTEM_PROMPT = """You are Orion's Architect role.
 Create a deliberately small, implementation-ready plan for the supplied goal.
@@ -374,7 +480,7 @@ Planning only: do not modify code, run tools, create branches, commits, or pull 
 Return exactly one JSON object and no Markdown with these keys:
 summary (string), recommendations (non-empty array of ordered plan steps),
 risks (array of concise risks), next_action (string)."""
-    ENGINEER_SYSTEM_PROMPT = """You are Orion's Engineer Review role.
+    ENGINEER_SYSTEM_PROMPT = """You are Orion's Engineering Reviewer role.
 Critique the Architect artifact and return the revised final implementation steps.
 Put the consolidated ordered steps in recommendations, not merely review comments.
 Planning only: do not modify code, run tools, create branches, commits, or pull requests.
@@ -388,6 +494,7 @@ risks (array of concise risks), next_action (string)."""
         store: TeamTaskStore,
         provider_factory,
         agent_registry=None,
+        role_registry: TeamRoleRegistry | None = None,
         *,
         now: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
@@ -396,6 +503,10 @@ risks (array of concise risks), next_action (string)."""
         self.store = store
         self.provider_factory = provider_factory
         self.agents = agent_registry
+        self.role_registry = role_registry or TeamRoleRegistry(
+            config_manager,
+            agent_registry=agent_registry,
+        )
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._id_factory = id_factory or self._new_task_id
 
@@ -408,11 +519,21 @@ risks (array of concise risks), next_action (string)."""
         if len(normalized) > 4000:
             raise ValueError("AI Team goal must be 4,000 characters or fewer.")
 
+        # Validate both active planning assignments before task persistence or a
+        # provider call. Other workflow roles are snapshotted for transparent
+        # display and are validated when their phase begins.
+        candidates = {
+            role: self.role_registry.planning_candidates(role, normalized)
+            for role in self.ACTIVE_ROLES
+        }
+        assignment_snapshots = role_snapshots(self.role_registry.roles(normalized))
+
         timestamp = self._timestamp()
         task = TeamTask(
             task_id=self._id_factory(),
             goal=normalized,
             status=TEAM_STATUS_PLANNING,
+            role_assignments=assignment_snapshots,
             created_at=timestamp,
             updated_at=timestamp,
         )
@@ -426,33 +547,53 @@ risks (array of concise risks), next_action (string)."""
                 "Produce a provider-neutral plan with clear boundaries, tests, configuration, "
                 "persistence, and documentation considerations."
             )
-            architect, architect_usage = self._run_role(
-                "architect", architect_prompt, self.ARCHITECT_SYSTEM_PROMPT
+            architect, architect_usage, architect_metadata = self._run_role(
+                "architect",
+                architect_prompt,
+                self.ARCHITECT_SYSTEM_PROMPT,
+                candidates["architect"],
             )
             architect_time = self._timestamp()
-            task.artifacts.append(TeamArtifact("architect", "implementation_plan", architect, architect_time))
+            task.artifacts.append(TeamArtifact(
+                "architect",
+                "implementation_plan",
+                architect,
+                architect_time,
+                architect_metadata,
+            ))
             task.usage.append(architect_usage)
             task.messages.append(TeamMessage(
-                "architect", "engineer", json.dumps(architect.to_dict(), ensure_ascii=False), architect_time
+                "architect", "engineer_reviewer",
+                json.dumps(architect.to_dict(), ensure_ascii=False), architect_time
             ))
             task.updated_at = architect_time
             self.store.save(task)
 
-            active_role = "engineer"
+            active_role = "engineer_reviewer"
             engineer_prompt = (
                 f"Goal:\n{normalized}\n\n"
                 "Architect artifact:\n"
                 f"{json.dumps(architect.to_dict(), indent=2, ensure_ascii=False)}\n\n"
                 "Return a consolidated final plan that addresses gaps and keeps the MVP bounded."
             )
-            engineer, engineer_usage = self._run_role(
-                "engineer", engineer_prompt, self.ENGINEER_SYSTEM_PROMPT
+            engineer, engineer_usage, engineer_metadata = self._run_role(
+                "engineer_reviewer",
+                engineer_prompt,
+                self.ENGINEER_SYSTEM_PROMPT,
+                candidates["engineer_reviewer"],
             )
             engineer_time = self._timestamp()
-            task.artifacts.append(TeamArtifact("engineer", "engineering_review", engineer, engineer_time))
+            task.artifacts.append(TeamArtifact(
+                "engineer_reviewer",
+                "engineering_review",
+                engineer,
+                engineer_time,
+                engineer_metadata,
+            ))
             task.usage.append(engineer_usage)
             task.messages.append(TeamMessage(
-                "engineer", "coordinator", json.dumps(engineer.to_dict(), ensure_ascii=False), engineer_time
+                "engineer_reviewer", "coordinator",
+                json.dumps(engineer.to_dict(), ensure_ascii=False), engineer_time
             ))
             task.final_plan = list(engineer.recommendations)
             task.status = TEAM_STATUS_AWAITING_APPROVAL
@@ -463,7 +604,8 @@ risks (array of concise risks), next_action (string)."""
             failed_time = self._timestamp()
             category = type(exc).__name__
             task.status = TEAM_STATUS_FAILED
-            task.error = f"{active_role.title()} role failed ({category})."
+            display_name = self.role_registry.status(active_role).display_name
+            task.error = f"{display_name} role failed ({category})."
             task.messages.append(TeamMessage(active_role, "coordinator", task.error, failed_time))
             task.updated_at = failed_time
             self.store.save(task)
@@ -477,88 +619,79 @@ risks (array of concise risks), next_action (string)."""
     def recent(self, limit: int = 10) -> list[TeamTask]:
         return self.store.recent(limit)
 
-    def roles(self) -> tuple[TeamRole, ...]:
-        roles = []
-        for name in self.ROLE_NAMES:
-            provider, model, agent = self._role_runtime(name)
-            roles.append(TeamRole(
-                name,
-                provider,
-                model,
-                name in self.ACTIVE_ROLES,
-                agent.agent_id if agent is not None else "legacy-config",
-                agent.name if agent is not None else "Legacy role configuration",
-            ))
-        return tuple(roles)
+    def roles(self) -> tuple[ResolvedTeamRole, ...]:
+        return self.role_registry.roles()
 
-    def _run_role(self, role: str, prompt: str, system_prompt: str) -> tuple[RoleOutput, RoleUsage]:
-        provider_key, model, agent = self._role_runtime(role)
-        provider = self.provider_factory.create(provider_key)
-        configured_model = (
-            agent.model
-            if agent is not None
-            else str(self.config.get(
-                f"team.roles.{role}.model", "configured-default"
-            )).strip()
-        )
-        if configured_model != "configured-default":
-            if not hasattr(provider, "select_model"):
-                raise ValueError(f"{provider_key} does not support role-specific model selection.")
-            provider.select_model(configured_model)
-            model = configured_model
+    def _run_role(
+        self,
+        role: str,
+        prompt: str,
+        system_prompt: str,
+        candidates: tuple[ResolvedTeamRole, ...],
+    ) -> tuple[RoleOutput, RoleUsage, RoleArtifactMetadata]:
+        agent = self.role_registry.agent(role)
         if agent is not None:
             system_prompt = self._agent_system_prompt(system_prompt, agent)
-        raw = provider.chat(prompt, system_prompt=system_prompt)
+        started = perf_counter()
+        failures: list[str] = []
+        selected: ResolvedTeamRole | None = None
+        provider = None
+        raw = ""
+        for candidate in candidates:
+            try:
+                provider = self.provider_factory.create(candidate.provider)
+                current_model = str(getattr(provider, "model", ""))
+                if current_model != candidate.model:
+                    if not hasattr(provider, "select_model"):
+                        raise ValueError(
+                            f"{candidate.provider} does not support role-specific model selection."
+                        )
+                    provider.select_model(candidate.model)
+                raw = provider.chat(prompt, system_prompt=system_prompt)
+                selected = candidate
+                break
+            except (ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
+                failures.append(f"{candidate.actual_assignment} ({type(exc).__name__})")
+        if selected is None or provider is None:
+            display_name = self.role_registry.status(role).display_name
+            categories = ", ".join(failures) or "no available provider"
+            raise TeamPlanningError(f"{display_name} provider routing failed: {categories}.")
         if len(str(raw)) > self.MAX_ROLE_RESPONSE_CHARS:
             raise TeamPlanningError("AI Team role response exceeded the 50,000-character limit.")
         output = self._parse_output(raw)
         input_tokens = self._estimate_tokens(system_prompt + "\n" + prompt)
         output_tokens = self._estimate_tokens(raw)
+        actual_model = str(getattr(provider, "model", selected.model))
+        actual_assignment = f"{selected.provider}:{actual_model}"
+        cost = self._estimate_cost(selected.provider, input_tokens, output_tokens)
+        fallback_reason = selected.fallback_reason
+        if failures:
+            fallback_reason = (
+                f"{'; '.join(failures)} failed; selected {actual_assignment} through "
+                f"{self.role_registry.routing_profile()} routing."
+            )
         usage = RoleUsage(
             role=role,
-            provider=provider_key,
-            model=str(getattr(provider, "model", model)),
+            provider=selected.provider,
+            model=actual_model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            estimated_cost_usd=self._estimate_cost(provider_key, input_tokens, output_tokens),
+            estimated_cost_usd=cost,
         )
-        return output, usage
+        metadata = RoleArtifactMetadata(
+            requested_assignment=selected.requested_assignment,
+            actual_assignment=actual_assignment,
+            fallback_reason=fallback_reason,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=cost,
+            duration_seconds=round(perf_counter() - started, 6),
+        )
+        return output, usage, metadata
 
     def _resolved_role(self, role: str) -> tuple[str, str]:
-        provider, model, _ = self._role_runtime(role)
-        return provider, model
-
-    def _role_runtime(self, role: str):
-        if self.agents is not None:
-            agent_id = str(
-                self.config.get(f"team.roles.{role}.agent", role)
-            ).strip()
-            agent = self.agents.load(agent_id)
-            if not agent.enabled:
-                raise ValueError(
-                    f"AI Team role {role} is assigned to disabled agent: {agent.agent_id}"
-                )
-            provider, model = self.agents.resolve(agent)
-            return provider, model, agent
-        configured_provider = str(
-            self.config.get(f"team.roles.{role}.provider", "configured-default")
-        ).strip().lower()
-        provider = (
-            str(self.config.get("providers.default", "ollama")).strip().lower()
-            if configured_provider == "configured-default"
-            else configured_provider
-        )
-        if provider not in {"ollama", "openai", "gemini"}:
-            raise ValueError(f"Unsupported AI Team provider for {role}: {configured_provider}")
-        configured_model = str(
-            self.config.get(f"team.roles.{role}.model", "configured-default")
-        ).strip()
-        model = (
-            str(self.config.get(f"providers.{provider}.model", "configured-default"))
-            if configured_model == "configured-default"
-            else configured_model
-        )
-        return provider, model, None
+        resolved = self.role_registry.planning_candidates(role, "AI Team role status")[0]
+        return resolved.provider, resolved.model
 
     @staticmethod
     def _agent_system_prompt(role_prompt: str, agent) -> str:

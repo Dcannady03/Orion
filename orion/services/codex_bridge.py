@@ -22,6 +22,7 @@ from orion.services.team import (
     TeamTask,
     TeamTaskStore,
 )
+from orion.services.team_roles import TeamRoleSnapshot
 from orion.services.execution_engines import (
     ExecutionEngine,
     ExecutionEngineUnavailable,
@@ -279,12 +280,7 @@ def _owner_only(path: Path) -> None:
 
 
 def _artifact_to_dict(artifact: TeamArtifact) -> dict[str, Any]:
-    return {
-        "role": artifact.role,
-        "kind": artifact.kind,
-        "output": artifact.output.to_dict(),
-        "created_at": artifact.created_at,
-    }
+    return artifact.to_dict()
 
 
 @dataclass(frozen=True)
@@ -296,6 +292,7 @@ class PlanSnapshot:
     goal: str
     final_plan: tuple[str, ...]
     artifacts: tuple[TeamArtifact, ...]
+    role_assignments: tuple[TeamRoleSnapshot, ...]
 
     @classmethod
     def from_team_task(cls, task: TeamTask) -> "PlanSnapshot":
@@ -308,13 +305,21 @@ class PlanSnapshot:
             "goal": validated.goal,
             "final_plan": list(validated.final_plan),
             "artifacts": [_artifact_to_dict(item) for item in validated.artifacts],
+            "role_assignments": [
+                item.to_dict() for item in validated.role_assignments
+            ],
         })
 
     @classmethod
     def from_value(cls, value: Any) -> "PlanSnapshot":
+        if isinstance(value, dict) and "role_assignments" not in value:
+            value = {**value, "role_assignments": []}
         value = _exact_mapping(
             value,
-            {"schema_version", "team_task_id", "goal", "final_plan", "artifacts"},
+            {
+                "schema_version", "team_task_id", "goal", "final_plan", "artifacts",
+                "role_assignments",
+            },
             "Approved plan snapshot",
         )
         if value["schema_version"] != BRIDGE_SCHEMA_VERSION:
@@ -325,6 +330,17 @@ class PlanSnapshot:
         if len(artifacts_value) > 20:
             raise ValueError("Approved plan cannot contain more than 20 artifacts.")
         artifacts = tuple(TeamArtifact.from_value(item) for item in artifacts_value)
+        role_assignments_value = value["role_assignments"]
+        if not isinstance(role_assignments_value, list):
+            raise ValueError("Approved plan role assignments must be a JSON array.")
+        role_assignments = tuple(
+            TeamRoleSnapshot.from_value(item) for item in role_assignments_value
+        )
+        if (
+            len(role_assignments) > 5
+            or len({item.role for item in role_assignments}) != len(role_assignments)
+        ):
+            raise ValueError("Approved plan role assignments are invalid or duplicated.")
         final_plan = _bounded_strings(
             value["final_plan"],
             "Approved final plan",
@@ -338,6 +354,7 @@ class PlanSnapshot:
             goal=_required_string(value["goal"], "Approved plan goal", maximum=4_000),
             final_plan=final_plan,
             artifacts=artifacts,
+            role_assignments=role_assignments,
         )
 
     @property
@@ -345,13 +362,18 @@ class PlanSnapshot:
         return hashlib.sha256(_canonical_json(self.to_dict()).encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        value = {
             "schema_version": self.schema_version,
             "team_task_id": self.team_task_id,
             "goal": self.goal,
             "final_plan": list(self.final_plan),
             "artifacts": [_artifact_to_dict(item) for item in self.artifacts],
         }
+        if self.role_assignments:
+            value["role_assignments"] = [
+                item.to_dict() for item in self.role_assignments
+            ]
+        return value
 
 
 @dataclass(frozen=True)

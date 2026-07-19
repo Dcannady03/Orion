@@ -252,7 +252,7 @@ class AgentRegistryTests(unittest.TestCase):
             self.assertIn("Require bounded regression coverage", engineer_provider.calls[0][1])
             roles = {role.name: role for role in team.roles()}
             self.assertEqual(roles["architect"].agent_id, "security-reviewer")
-            self.assertEqual(roles["engineer"].agent_name, "Test Engineer")
+            self.assertEqual(roles["engineer_reviewer"].agent_name, "Test Engineer")
 
             registry.set_enabled("security-reviewer", False)
             with self.assertRaises(ValueError):

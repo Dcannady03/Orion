@@ -122,14 +122,24 @@ or insufficient evidence, the original deterministic order is used.
 
 ## AI Team Phase 1
 
+`TeamRoleRegistry` is registered as `team_roles` and resolves five persistent workflow
+assignments: Architect, Engineering Reviewer, Implementation Engine, Tester, and
+Documentation Reviewer. Model roles validate the provider and model through
+`ProviderManager`; dynamic planning assignments reuse `AIRoutingService` fallbacks.
+Execution roles validate the installed CLI and Orion adapter through
+`ExecutionEngineService` and fail closed when unavailable. User overrides are written
+by `ConfigManager` to external local configuration, not to project or Vault data.
+
 `TeamOrchestrator` is a bounded planning service registered as `team`. It makes one
 Architect provider call, validates the returned JSON schema, passes that structured
-artifact to one Engineer Review call, and uses the Engineer recommendations as the
-consolidated final plan. There are no retries, implementation tools, code mutations,
-or pull-request actions in this phase.
+artifact to one Engineering Reviewer call, and uses the reviewer recommendations as
+the consolidated final plan. There are no unbounded retries, implementation tools,
+code mutations, or pull-request actions in the planning phase.
 
-Each `TeamTask` contains artifacts, role-to-role messages, usage estimates, the final
-plan, and an approval status. `TeamTaskStore` writes one JSON document per task beneath
+Each `TeamTask` contains artifacts, role-to-role messages, usage estimates, assignment
+snapshots, the final plan, and an approval status. Produced role artifacts also retain
+requested and actual assignment, fallback reason, token/cost data, and duration.
+`TeamTaskStore` writes one JSON document per task beneath
 the external user-data path `~/.orion/team/tasks/`, using atomic replacement and
 owner-only file permissions where supported. Save and load both enforce the exact task
 and nested-record schemas, including identity, status, timezone-aware timestamps,

@@ -36,6 +36,9 @@ class CompanionConsoleTests(unittest.TestCase):
         execution_values = [item.text for item in completer.get_completions(execution_document, None)]
         self.assertIn("execution status", execution_values)
         self.assertIn("team roles", team_values)
+        self.assertIn("team role show", team_values)
+        self.assertIn("team role set", team_values)
+        self.assertIn("team role reset", team_values)
         agent_document = SimpleNamespace(text_before_cursor="agent ")
         agent_values = [item.text for item in completer.get_completions(agent_document, None)]
         self.assertIn("agent create", agent_values)

@@ -22,3 +22,7 @@ Orion exists to strengthen the user's knowledge and capability, not hide the wor
 
 ## VII. Build for Decades
 Prefer clear interfaces, tests, documentation, and safe migrations over shortcuts that make future growth fragile.
+
+Every change follows the evergreen `DEFINITION_OF_DONE.md`: implementation, tests,
+help, the living User Guide, feature documentation, changelog, and manual verification
+advance together rather than as separate afterthoughts.

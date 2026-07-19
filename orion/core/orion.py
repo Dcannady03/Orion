@@ -37,6 +37,7 @@ from orion.services.provider_manager import ProviderManager
 from orion.services.ai_routing import AIRoutingService
 from orion.services.ai_performance import AIPerformanceStore
 from orion.services.team import TeamOrchestrator, TeamTaskStore
+from orion.services.team_roles import TeamRoleRegistry
 from orion.services.vault import VaultService
 from orion.services.connect import ConnectService, ConnectBriefingProvider, DiscordWebhookClient
 from orion.services.email import EmailBriefingProvider, build_email_service
@@ -302,6 +303,20 @@ class Orion:
             ),
         )
         self.agents.ensure_defaults(built_in_agents(self.config_manager))
+        self.execution_engines = self.services.register(
+            "execution_engines",
+            ExecutionEngineService(self.config_manager, self.application_catalog),
+        )
+        self.team_roles = self.services.register(
+            "team_roles",
+            TeamRoleRegistry(
+                self.config_manager,
+                self.provider_manager,
+                self.ai_routing,
+                self.execution_engines,
+                self.agents,
+            ),
+        )
         self.team = self.services.register(
             "team",
             TeamOrchestrator(
@@ -309,11 +324,8 @@ class Orion:
                 TeamTaskStore(self.paths.team_tasks),
                 team_provider_factory,
                 self.agents,
+                self.team_roles,
             ),
-        )
-        self.execution_engines = self.services.register(
-            "execution_engines",
-            ExecutionEngineService(self.config_manager, self.application_catalog),
         )
         self.codex_bridge = self.services.register(
             "codex_bridge",

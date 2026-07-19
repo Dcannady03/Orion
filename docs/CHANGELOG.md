@@ -1,3 +1,24 @@
+# v0.7.0 — Conductor
+
+- Added persistent AI Team assignments for Architect, Engineering Reviewer,
+  Implementation Engine, Tester, and Documentation Reviewer.
+- Added `team roles` and `team role show`, `set`, and `reset` commands with provider,
+  model, engine, capability, availability, fallback, and assignment-source reporting.
+- Reused provider discovery, model validation, agent enablement, AI routing profiles,
+  execution-engine detection, and external user configuration for role routing.
+- Added fail-closed implementation/tester engine validation and clearly reported
+  planning-model fallback through Orion's existing routing policy.
+- Added immutable role-assignment snapshots and per-artifact actual assignment,
+  fallback, token, cost, and duration metadata without persisting credentials.
+- Updated AI Team, architecture, configuration, command, and user-guide documentation.
+- Expanded the living User Guide with current First Contact, Gmail and Microsoft Mail
+  setup, Calendar, Discord, Network Watch, Task Manager, Agent Registry, execution,
+  update, safety, troubleshooting, and command-reference guidance.
+- Added a five-minute Quick Start, representative real-world workflows, best practices,
+  an explicit documentation baseline, and an evergreen Definition of Done.
+- Added role-routing, persistence, validation, fallback, security, artifact, command,
+  and completion coverage; 362 tests pass.
+
 # v0.6.1 — Gatekeeper
 
 - Added cached `codex exec --help` capability detection so command construction follows the resolved CLI's supported options instead of a hardcoded version.

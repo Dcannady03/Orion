@@ -1,4 +1,4 @@
-# Orion AI Team — Phase 1
+# Orion AI Team
 
 Phase 1 proves that Orion can coordinate specialized AI roles and pass structured work
 between them. The planning workflow itself remains planning-only.
@@ -6,7 +6,7 @@ between them. The planning workflow itself remains planning-only.
 ## Workflow
 
 ```text
-Goal -> Architect JSON -> Engineer Review JSON -> Final Plan -> Y/N/D Approval
+Goal -> Architect JSON -> Engineering Reviewer JSON -> Final Plan -> Y/N/D Approval
 ```
 
 The orchestrator makes exactly two provider calls. It does not expose tools to either
@@ -35,6 +35,9 @@ at `Awaiting Review`; approval replay is rejected in either workflow.
 ```text
 team
 team roles
+team role show <role>
+team role set <role> <provider:model|engine>
+team role reset <role>
 team plan "Add OpenAI image generation"
 team plan --manual "Add OpenAI image generation"
 team status <task-id>
@@ -50,39 +53,60 @@ callers. Command routers are noninteractive unless the Orion console explicitly 
 interactive Team approval, so tests and embedded callers cannot accidentally block on
 standard input.
 
-## Role configuration
+## Role routing
 
-Each workflow role is assigned to a configurable agent. The built-in files are seeded
-under `~/.orion/agents/` and retain the legacy role provider/model choices the first
-time they are created.
+Orion separates a workflow role from the model or engine assigned to perform it.
+Assignments are persisted in external user configuration, normally
+`~/.orion/config.yaml`, never in a project or Vault file. `team roles` reports
+the requested and actual assignment, availability, capability, fallback policy, and
+whether the value is a default or a user override.
 
 ```yaml
 team:
-  enabled: true
-  roles:
-    architect:
-      agent: architect
-      provider: configured-default
-      model: configured-default
-    engineer:
-      agent: engineer
-      provider: configured-default
-      model: configured-default
-    reviewer:
-      agent: reviewer
-      provider: configured-default
-      model: configured-default
+  assignments:
+    architect: active-planning-model
+    engineer_reviewer: active-planning-model
+    implementation: codex
+    tester: codex
+    documentation: active-planning-model
 ```
 
-The `agent` field selects the worker. Provider and model fields remain as first-run
-compatibility defaults; after an external agent file exists, that file is authoritative.
-Use `team roles` to see each role-to-agent assignment and resolved runtime.
+The five roles are:
 
-The Reviewer assignment is reserved for a later implementation phase and is not
-called by `team plan`. Phase 1 accepts Orion's existing runtime providers (`ollama`,
-`openai`, and `gemini`). Engineer specialization comes from its dedicated role prompt;
-direct Codex execution is handled only by the separate approval-gated bridge described
-in `CODEX_BRIDGE.md`.
+- **Architect** — planning model; creates the first structured plan.
+- **Engineering Reviewer** — validation role using a planning model; critiques and
+  consolidates the plan.
+- **Implementation Engine** — execution engine; Codex is the default and currently
+  supported implementation adapter.
+- **Tester** — validation role using an execution engine; Codex is the default.
+- **Documentation Reviewer** — validation role using a planning model and reserved
+  for the corresponding workflow phase.
+
+Use a provider/model pair for model-backed roles and an engine ID for execution roles:
+
+```text
+team role set architect openai:gpt-5
+team role set engineer_reviewer gemini:gemini-2.5-pro
+team role set implementation codex
+team role show architect
+team role reset architect
+```
+
+The exact model must exist and be available through the configured provider. Disabled
+or unconfigured providers and disabled assigned agents are rejected. Execution roles
+require an installed CLI with an Orion implementation adapter; implementation fails
+closed when that engine is unavailable.
+
+`active-planning-model` follows the active provider and existing Fast, Balanced,
+Coding, or Research routing policy. If that dynamic assignment cannot be used, Orion
+may choose an available planning fallback from the same routing policy and reports the
+reason. Explicit `provider:model` assignments do not silently change to another model.
+Execution roles never use planning fallbacks.
+
+Agent definitions under `~/.orion/agents/` remain the configurable workers behind
+planning roles. Their instructions specialize the role, while Orion continues to own
+every prompt, provider call, handoff, artifact, approval, and user-facing result.
+Providers never communicate directly with the user.
 
 When no supported CLI is runnable, `team implement` shows the Execution Engine report
 instead of a low-level “Codex not found” error. That preflight occurs before the
@@ -113,10 +137,12 @@ Each task is stored as an individual JSON file under:
 ~/.orion/team/tasks/<task-id>.json
 ```
 
-The file contains the goal, status, artifacts, messages, final plan, timestamps, and
-usage estimates. Files are written atomically with owner-only permissions where the
-platform supports them. They are outside the application directory and survive Orion
-updates.
+The file contains the goal, status, artifacts, messages, final plan, timestamps, usage
+estimates, and an immutable snapshot of all five requested/resolved role assignments.
+Each produced role artifact records the requested and actual provider/model, fallback
+reason, token usage, estimated cost, and execution duration. Files are written
+atomically with owner-only permissions where the platform supports them. They are
+outside the application directory and survive Orion updates.
 
 Persisted tasks are validated before saving and after loading. Orion rejects missing
 or mismatched task identity, unknown status values, malformed or timezone-free

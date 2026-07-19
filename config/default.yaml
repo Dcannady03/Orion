@@ -1,7 +1,7 @@
 orion:
   name: Orion
-  version: 0.6.1
-  codename: Courier
+  version: 0.7.0
+  codename: Conductor
 providers:
   default: ollama
   secrets_path: vault/vault.yaml
@@ -88,6 +88,12 @@ ai:
     minimum_health_samples: 3
 team:
   enabled: true
+  assignments:
+    architect: active-planning-model
+    engineer_reviewer: active-planning-model
+    implementation: codex
+    tester: codex
+    documentation: active-planning-model
   roles:
     architect:
       agent: architect

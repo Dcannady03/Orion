@@ -256,6 +256,24 @@ class CommandRouter:
         elif command_lower == "team roles":
             self.show_team_roles()
 
+        elif command_lower == "team role show":
+            print("Usage: team role show <role>")
+
+        elif command_lower.startswith("team role show "):
+            self.show_team_role(raw_command[len("team role show "):].strip())
+
+        elif command_lower == "team role set":
+            print("Usage: team role set <role> <provider:model|engine>")
+
+        elif command_lower.startswith("team role set "):
+            self.set_team_role(raw_command[len("team role set "):].strip())
+
+        elif command_lower == "team role reset":
+            print("Usage: team role reset <role>")
+
+        elif command_lower.startswith("team role reset "):
+            self.reset_team_role(raw_command[len("team role reset "):].strip())
+
         elif command_lower == "team plan":
             print('Usage: team plan [--manual] "<goal>"')
 
@@ -665,7 +683,10 @@ class CommandRouter:
         print("  AI Team & Codex Bridge")
         print('    team plan "<goal>"         Plan, then offer interactive approval')
         print('    team plan --manual "<goal>" Plan without an approval prompt')
-        print("    team roles                 Show role provider/model assignments")
+        print("    team roles                 Show all model and engine assignments")
+        print("    team role show <role>      Inspect one role assignment")
+        print("    team role set <role> <provider:model|engine> Persist an assignment")
+        print("    team role reset <role>     Restore the dynamic default")
         print("    team status <task-id>      Reopen a persisted team plan")
         print("    team approve <task-id>     Bind approval to this plan and workspace")
         print("    team implement <id> <approval> Run one bounded local Codex execution")
@@ -1879,8 +1900,8 @@ class CommandRouter:
         tasks = self.orion.team.recent(5)
         print("AI Team")
         print("-" * 62)
-        print("Planning: Architect -> Engineer Review -> explicit Y/N/D approval.")
-        print("Codex Bridge: one approved workspace-confined run -> Awaiting Review.")
+        print("Planning: Architect -> Engineering Reviewer -> explicit Y/N/D approval.")
+        print("Implementation Engine + Tester: one approved bounded run -> Awaiting Review.")
         print("Commits, pushes, merges, tags, and pull requests remain disabled.")
         if tasks:
             print("Recent tasks")
@@ -1891,6 +1912,7 @@ class CommandRouter:
         print('-' * 62)
         print(
             'Commands: team plan "<goal>" | team plan --manual "<goal>" | '
+            'team roles | team role show/set/reset | '
             'team approve <task-id> | '
             "team implement <task-id> <approval-id> | team run <run-id> | "
             "team rollback <run-id>"
@@ -1898,19 +1920,106 @@ class CommandRouter:
 
     def show_team_roles(self):
         print("AI Team Roles")
-        print("-" * 62)
+        print("-" * 96)
         try:
             roles = self.orion.team.roles()
-        except ValueError as exc:
+        except (ConnectionError, FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
             print(f"AI Team role configuration is invalid: {exc}")
             return
+        print(
+            f"{'Role':<23} {'Assignment':<30} {'Availability':<13} "
+            f"{'Source':<15} Capability"
+        )
         for role in roles:
-            state = "active in Phase 1" if role.active else "reserved for a later phase"
+            availability = "Ready" if role.available else "Unavailable"
             print(
-                f"  {role.name.title():<11} {role.agent_id} ({role.agent_name}) -> "
-                f"{role.provider}:{role.model} ({state})"
+                f"{role.display_name:<23} {role.actual_assignment:<30} "
+                f"{availability:<13} {role.source:<15} {role.capability}"
             )
-        print("Roles define workflow jobs; agents provide configurable workers.")
+            print(f"  Type: {role.category} | Requested: {role.requested_assignment}")
+            print(f"  Fallback: {role.fallback}")
+            if role.fallback_reason:
+                print(f"  Fallback reason: {role.fallback_reason}")
+            if role.availability_reason:
+                print(f"  Availability detail: {role.availability_reason}")
+            if role.agent_id:
+                print(f"  Agent: {role.agent_id} ({role.agent_name})")
+        print("Orion owns every prompt, handoff, artifact, approval, and user-facing result.")
+
+    def show_team_role(self, role_name: str):
+        registry = self._team_role_registry()
+        if registry is None:
+            print("AI Team role registry is not available.")
+            return None
+        try:
+            role = registry.show(role_name)
+        except (ConnectionError, FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+            print(f"AI Team role configuration is invalid: {exc}")
+            return None
+        print(f"AI Team Role: {role.display_name}")
+        print("-" * 72)
+        print(f"Role ID: {role.role}")
+        print(f"Type: {role.category}")
+        print(f"Requested Assignment: {role.requested_assignment}")
+        print(f"Actual Assignment: {role.actual_assignment}")
+        print(f"Availability: {'Ready' if role.available else 'Unavailable'}")
+        if role.availability_reason:
+            print(f"Availability Detail: {role.availability_reason}")
+        print(f"Capability: {role.capability}")
+        print(f"Fallback: {role.fallback}")
+        if role.fallback_reason:
+            print(f"Fallback Reason: {role.fallback_reason}")
+        print(f"Source: {role.source}")
+        if role.agent_id:
+            print(f"Agent: {role.agent_id} ({role.agent_name})")
+        return role
+
+    def set_team_role(self, payload: str):
+        parts = payload.split(maxsplit=1)
+        if len(parts) != 2:
+            print("Usage: team role set <role> <provider:model|engine>")
+            return None
+        registry = self._team_role_registry()
+        if registry is None:
+            print("AI Team role registry is not available.")
+            return None
+        try:
+            role = registry.set(parts[0], parts[1])
+        except (ConnectionError, FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+            print(f"AI Team role assignment was not saved: {exc}")
+            return None
+        print(
+            f"[OK] {role.display_name} -> {role.actual_assignment} "
+            "(user-configured)"
+        )
+        return role
+
+    def reset_team_role(self, role_name: str):
+        if not role_name.strip():
+            print("Usage: team role reset <role>")
+            return None
+        registry = self._team_role_registry()
+        if registry is None:
+            print("AI Team role registry is not available.")
+            return None
+        try:
+            role = registry.reset(role_name)
+        except (ConnectionError, FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+            print(f"AI Team role assignment was not reset: {exc}")
+            return None
+        print(
+            f"[OK] {role.display_name} reset to {role.requested_assignment} "
+            f"({role.actual_assignment})"
+        )
+        return role
+
+    def _team_role_registry(self):
+        registry = getattr(self.orion, "team_roles", None)
+        if registry is not None:
+            return registry
+        team = getattr(self.orion, "team", None)
+        attributes = getattr(team, "__dict__", {})
+        return attributes.get("role_registry") if isinstance(attributes, dict) else None
 
     def team_plan(self, payload: str):
         goal = payload.strip()
@@ -1929,7 +2038,7 @@ class CommandRouter:
         if not goal:
             print('Usage: team plan [--manual] "<goal>"')
             return
-        print("AI Team is preparing a bounded two-role plan...")
+        print("AI Team is preparing an Architect and Engineering Reviewer plan...")
         try:
             task = self.orion.team.plan(goal)
         except (OSError, TeamPlanningError, ValueError) as exc:
@@ -2016,8 +2125,16 @@ class CommandRouter:
             print("No execution engine service is available.")
             return None
         try:
-            execution_engine = engines.require_codex()
-        except ExecutionEngineUnavailable:
+            role_registry = self._team_role_registry()
+            if role_registry is None:
+                execution_engine = engines.require_codex()
+            else:
+                execution_engine = role_registry.engine("implementation")
+                role_registry.engine("tester")
+                if execution_engine is None:
+                    execution_engine = engines.require_codex()
+        except (ConnectionError, OSError, RuntimeError, ValueError, ExecutionEngineUnavailable) as exc:
+            print(f"AI Team execution role validation failed: {exc}")
             self._render_no_execution_engine(engines)
             return None
         try:
@@ -2139,7 +2256,7 @@ class CommandRouter:
             print(f"  {index}. {item}")
         print("Risks:")
         risks = []
-        for role in ("architect", "engineer"):
+        for role in ("architect", "engineer_reviewer"):
             artifact = task.artifact(role)
             if artifact is not None:
                 for risk in artifact.output.risks:
@@ -2211,7 +2328,9 @@ class CommandRouter:
         for engine_id in (
             "codex_desktop", "chatgpt_desktop", "codex", "claude_code", "gemini_cli"
         ):
-            engine = detected[engine_id]
+            engine = detected.get(engine_id)
+            if engine is None:
+                continue
             marker = "✓" if engine.ready_for_implementation or (
                 not engine.cli_support and engine.installed
             ) else "!" if engine.installed else "✗"
@@ -2255,8 +2374,23 @@ class CommandRouter:
         print("-" * 62)
         print(f"Task: {task.task_id}")
         print(f"Goal: {task.goal}")
-        labels = {"architect": "Architect", "engineer": "Engineer Review"}
-        for role in ("architect", "engineer"):
+        role_assignments = getattr(task, "role_assignments", None)
+        if isinstance(role_assignments, (list, tuple)) and role_assignments:
+            print("\nWorkflow Role Assignments")
+            for assignment in role_assignments:
+                availability = "Ready" if assignment.available else "Unavailable"
+                print(
+                    f"  {assignment.display_name:<23} {assignment.actual_assignment} "
+                    f"[{availability}; {assignment.source}]"
+                )
+                if assignment.fallback_reason:
+                    print(f"    Fallback: {assignment.fallback_reason}")
+
+        labels = {
+            "architect": "Architect",
+            "engineer_reviewer": "Engineering Reviewer",
+        }
+        for role in ("architect", "engineer_reviewer"):
             artifact = task.artifact(role)
             if artifact is None:
                 continue
@@ -2268,6 +2402,15 @@ class CommandRouter:
                 print("  Risks:")
                 for risk in artifact.output.risks:
                     print(f"    - {risk}")
+            metadata = getattr(artifact, "role_metadata", None)
+            if metadata is not None:
+                print(
+                    f"  Assignment: {metadata.requested_assignment} -> "
+                    f"{metadata.actual_assignment}"
+                )
+                if metadata.fallback_reason:
+                    print(f"  Fallback: {metadata.fallback_reason}")
+                print(f"  Duration: {metadata.duration_seconds:.3f}s")
 
         if task.final_plan:
             print("\nFinal Plan")
@@ -2276,6 +2419,14 @@ class CommandRouter:
 
         if task.usage:
             print("\nUsage (estimated tokens)")
+            usage_labels = {
+                "architect": "Architect",
+                "engineer": "Engineering Reviewer",
+                "engineer_reviewer": "Engineering Reviewer",
+                "implementation": "Implementation Engine",
+                "tester": "Tester",
+                "documentation": "Documentation Reviewer",
+            }
             for usage in task.usage:
                 cost = (
                     "not configured"
@@ -2283,7 +2434,8 @@ class CommandRouter:
                     else f"${usage.estimated_cost_usd:.6f}"
                 )
                 print(
-                    f"  {usage.role.title():<10} {usage.provider}:{usage.model} | "
+                    f"  {usage_labels.get(usage.role, usage.role.title()):<23} "
+                    f"{usage.provider}:{usage.model} | "
                     f"{usage.input_tokens} in + {usage.output_tokens} out | Cost: {cost}"
                 )
             total_cost = task.estimated_cost_usd

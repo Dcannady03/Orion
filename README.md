@@ -6,17 +6,17 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.6.1 — Gatekeeper**
+**v0.7.0 — Conductor**
 
-Gatekeeper completes Orion's first interactive, approval-gated AI Team implementation
-flow. A finished plan can be reviewed through an explicit Y/N/D prompt, bound to its
-immutable SHA-256 and active workspace, and handed once to a local Codex CLI run that
-stops at Awaiting Review.
+Conductor adds persistent role-based routing for Architect, Engineering Reviewer,
+Implementation Engine, Tester, and Documentation Reviewer. Planning models and
+execution engines are independently configurable, validated before use, and reported
+with their actual assignment, fallback, usage, cost, and duration metadata.
 
-The Codex Bridge now adapts to the installed CLI's supported arguments, preserves the
-exact workspace-write sandbox, and explicitly selects Codex's elevated native sandbox
-on Windows while keeping network, user configuration, extra writable roots, and Git
-release actions unavailable.
+AI Team assignments live in update-safe external user configuration. Dynamic planning
+roles reuse Orion's provider routing policy, implementation remains fail-closed when
+its engine is unavailable, and Gatekeeper's immutable approval, workspace sandbox,
+Awaiting Review, and rollback boundaries remain unchanged.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -37,6 +37,9 @@ Weather failures are isolated, so a network outage never prevents Orion from sta
 python -m pip install -r requirements.txt
 python -m orion.main
 ```
+
+See `docs/USER_GUIDE.md` for the living command guide and `docs/CONFIGURATION.md`
+for external user settings, including AI Team role assignments.
 
 ## Core abilities
 
@@ -68,6 +71,9 @@ agent test <name>            Run one bounded structured-output test
 team plan "<goal>"           Plan, then offer explicit Y/N/D approval
 team plan --manual "<goal>"  Plan without an interactive approval prompt
 team roles                   Show AI Team role assignments
+team role show <role>        Inspect one model or engine assignment
+team role set <role> <assignment> Persist a provider:model or engine
+team role reset <role>       Restore the role's dynamic default
 team status <task-id>        Reopen a persisted AI Team plan
 team approve <task-id>       Approve this plan hash for the active workspace
 team implement <id> <approval-id> Run one bounded local Codex execution
@@ -122,11 +128,15 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 
 ## Testing
 
+Every feature follows [Orion's Definition of Done](docs/DEFINITION_OF_DONE.md), which
+requires code, focused and full tests, help, the living User Guide, feature-specific
+documentation, changelog updates, manual verification, and a final safety audit.
+
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **323 passing tests**.
+The current codebase contains **362 passing tests**.
 
 ## Roadmap
 
@@ -300,20 +310,31 @@ modify files, run commands, or perform Git operations. See
 
 ## AI Team Phase 1
 
-Orion can coordinate two specialized planning roles without modifying code or
-starting an open-ended agent loop. The Architect creates a strict JSON plan, the
-Engineer reviews that artifact and returns consolidated implementation steps, and
-Orion persists the task under `~/.orion/team/tasks/` before stopping for approval.
+Orion can coordinate specialized roles without starting an open-ended agent loop.
+The Architect creates a strict JSON plan, the Engineering Reviewer returns consolidated
+implementation steps, and Orion persists the task under `~/.orion/team/tasks/` before
+stopping for approval.
 Both role output and persisted task files use strict schemas: missing, malformed, or
 unknown fields are rejected instead of being silently accepted.
 
 ```text
 team
 team roles
+team role show architect
+team role set architect openai:gpt-5
+team role reset architect
 team plan "Add OpenAI image generation"
 team plan --manual "Plan without prompting"
 team status <task-id>
 ```
+
+The persistent role registry distinguishes planning models (Architect), validation
+roles (Engineering Reviewer, Tester, and Documentation Reviewer), and execution engines
+(Implementation Engine). Planning roles accept `ollama:model`, `openai:model`, or
+`gemini:model`; the implementation and tester defaults are `codex`. Dynamic planning
+defaults follow Orion's active provider and existing routing policy, with any actual
+fallback reported in the task artifact. Unavailable implementation engines fail closed.
+Assignments are stored in external user configuration, never Vault or project files.
 
 The planning phase makes exactly two AI calls and cannot implement code or execute
 tools. In Orion's interactive console, the completed plan then offers `Y`, `N`, or

@@ -84,7 +84,7 @@ class TeamOrchestratorTests(unittest.TestCase):
                 "Architecture ready",
                 ["Add a provider-neutral service", "Add persistence tests"],
                 ["Keep provider details isolated"],
-                "Send plan to Engineer Review",
+                "Send plan to Engineering Reviewer",
             ),
         )
         engineer = FakeProvider(
@@ -132,6 +132,13 @@ class TeamOrchestratorTests(unittest.TestCase):
             self.assertEqual(len(task.artifacts), 2)
             self.assertEqual(len(task.messages), 3)
             self.assertEqual(len(task.usage), 2)
+            self.assertEqual(len(task.role_assignments), 5)
+            self.assertEqual(task.artifacts[1].role, "engineer_reviewer")
+            self.assertIsNotNone(task.artifacts[0].role_metadata)
+            self.assertEqual(
+                task.artifacts[0].role_metadata.actual_assignment,
+                "openai:gpt-test",
+            )
             self.assertGreater(task.total_tokens, 0)
             self.assertIsNotNone(task.estimated_cost_usd)
             self.assertTrue((Path(tmp) / "user" / "team" / "tasks" / "team-test-001.json").exists())
@@ -268,14 +275,17 @@ class TeamOrchestratorTests(unittest.TestCase):
             (team.store.root / "bad-task.json").write_text('{"messages": [1]}', encoding="utf-8")
             self.assertEqual(team.recent(), [])
 
-    def test_roles_report_resolved_provider_and_reserved_reviewer(self):
+    def test_roles_report_all_workflow_assignments(self):
         with tempfile.TemporaryDirectory() as tmp:
             team, _, _, _ = self.build(tmp)
             roles = {role.name: role for role in team.roles()}
             self.assertEqual(roles["architect"].provider, "openai")
-            self.assertEqual(roles["reviewer"].provider, "ollama")
-            self.assertTrue(roles["engineer"].active)
-            self.assertFalse(roles["reviewer"].active)
+            self.assertEqual(roles["engineer_reviewer"].provider, "gemini")
+            self.assertEqual(roles["documentation"].provider, "ollama")
+            self.assertEqual(roles["implementation"].engine_id, "codex")
+            self.assertEqual(roles["tester"].engine_id, "codex")
+            self.assertTrue(roles["engineer_reviewer"].active)
+            self.assertFalse(roles["documentation"].active)
 
 
 class TeamRouterTests(unittest.TestCase):
