@@ -1,4 +1,26 @@
-# Unreleased — Automatic Validation
+# Unreleased — Automatic Validation and Documentation Review
+
+- Activated the configured Documentation Reviewer as an automatic read-only stage
+  after every Automatic Tester outcome and before human review.
+- Added deterministic documentation-requirement classification, applicable-document
+  inventory, command/help/configuration/changelog coverage, and reusable Markdown
+  structure/local-link checks before one bounded planning-model assessment.
+- Added `team docs <run-id>`, `team docs last`, and `team docs show <run-id>` without
+  rerunning implementation, validation, or consuming another approval.
+- Persisted strict, redacted, immutable documentation attempts and bounded logs beside
+  each Codex run, with requested/resolved model, fallback, usage, cost, findings, and
+  independent Passed, Warnings, Failed, Not Required, Unavailable, Error, or Not Run
+  status.
+- Extended `team run` with separate Implementation, Automatic Validation,
+  Documentation Review, and overall Awaiting Review sections.
+- Kept review prompts bounded to sanitized plans, summaries, file metadata, validation
+  summaries, command/config changes, project rules, and applicable documentation;
+  source bodies, raw diffs, credentials, Vault/OAuth data, environment variables, and
+  unrelated workspaces remain excluded.
+- Documentation Review never edits or repairs files, invokes Codex/Tester commands,
+  alters approvals, performs Git actions, accepts work, or rolls changes back.
+- Added lifecycle, classification, coverage, routing, artifact, command, safety,
+  backward-compatibility, and real CLI scenario coverage; 414 tests pass.
 
 - Added a real bounded Tester stage after successful AI Team implementation and before
   human review, while keeping implementation success and validation success separate.

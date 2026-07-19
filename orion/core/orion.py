@@ -336,6 +336,7 @@ class Orion:
                 self.workspace_manager.root,
                 workspace_capabilities=self.workspace_manager.capabilities,
                 team_roles=self.team_roles,
+                provider_factory=team_provider_factory,
             ),
         )
 

@@ -23,6 +23,11 @@ post-implementation stage. Orion deterministically selects relevant local checks
 stores redacted immutable validation history, and still leaves every Keep Changes or
 Roll Back decision to the user.
 
+The unreleased Documentation Review milestone activates the configured Documentation
+Reviewer after every Tester outcome. It classifies whether documentation is required,
+checks applicable guides/help/configuration/changelog coverage, makes one bounded
+planning-model review when needed, and stores immutable findings without editing files.
+
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
 
@@ -82,9 +87,12 @@ team role reset <role>       Restore the role's dynamic default
 team status <task-id>        Reopen a persisted AI Team plan
 team approve <task-id>       Approve this plan hash for the active workspace
 team implement <id> <approval-id> Run one bounded local Codex execution
-team run <run-id>            Show implementation and validation results
-team test <run-id>           Rerun validation without reimplementation
+team run <run-id>            Show implementation, validation, and docs review
+team test <run-id>           Rerun validation, then documentation review
 team test last               Validate the newest eligible workspace run
+team docs <run-id>           Rerun Documentation Review only
+team docs last               Review the newest eligible workspace run
+team docs show <run-id>      Show the latest documentation findings
 team rollback <run-id>       Restore a run when affected files are unchanged
 execution status             Detect usable local execution engines
 workspace                    Inspect the active workspace
@@ -360,6 +368,14 @@ Orion also verifies expected created/deleted files, exact snapshot state, and pr
 workspace metadata. Validation never edits implementation files, commits, accepts, or
 rolls back a run.
 
+After validation—whether Passed, Warnings, Failed, Unavailable, or Error—the configured
+Documentation Reviewer runs as a separate planning-model role. Orion supplies only a
+bounded sanitized plan, implementation/file summaries, validation summary, known
+command/configuration changes, project rules, and applicable documentation. The stage
+reports Passed, Warnings, Failed, Not Required, Unavailable, or Error and always leaves
+the final decision to human review. It cannot edit documentation or source, run tools,
+consume approvals, access Vault/OAuth data, or perform Git actions.
+
 ## Codex Bridge Phase 1
 
 Codex Bridge turns one persisted AI Team plan into one bounded local implementation
@@ -377,6 +393,9 @@ team implement <team-task-id> <approval-id>
 team run <run-id>
 team test <run-id>
 team test last
+team docs <run-id>
+team docs last
+team docs show <run-id>
 team rollback <run-id>
 ```
 
@@ -392,11 +411,13 @@ extra writable roots, MCP, apps, plugins, hooks, and sub-agents remain unavailab
 
 Before Codex starts, Orion captures a bounded external baseline. Afterward it verifies
 the structured file list against actual created, modified, and deleted files, writes a
-redacted unified text diff plus binary metadata, invokes the configured Tester, and
-stops at `Awaiting Review` with a Passed, Warnings, Failed, Unavailable, or Error
-validation result. A validation failure is evidence for human review, not permission
-to repair or roll back automatically. `team test` creates another immutable validation
-attempt without rerunning implementation or consuming approval.
+redacted unified text diff plus binary metadata, invokes the configured Tester and
+Documentation Reviewer, and stops at `Awaiting Review` with independent implementation,
+validation, and documentation statuses. A validation or documentation failure is
+evidence for human review, not permission to repair or roll back automatically.
+`team test` creates another immutable validation attempt followed by Documentation
+Review; `team docs` reruns only Documentation Review. Neither reruns implementation or
+consumes approval.
 `team rollback` restores saved preimages only when affected files have not changed
 again. No Team command initializes Git, creates a branch, commits, resets, pushes,
 merges, tags, or opens a pull request. See `docs/CODEX_BRIDGE.md` for the complete

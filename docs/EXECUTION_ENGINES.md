@@ -107,6 +107,12 @@ version, and probe result. `team implement` passes that object from the router t
 Bridge. The bridge does not call `which()`, run another probe, or fall back to a bare
 `codex` command. Direct bridge callers must supply an equally validated snapshot.
 
+The Tester is also assigned an execution engine and remains fail-closed when that
+engine is unavailable. The Documentation Reviewer is different: it is a planning-model
+role resolved through provider routing, receives no execution engine or tools, and runs
+after the Tester. `team docs` therefore does not launch Codex, Python tests, or any
+other execution engine.
+
 Codex Bridge separately caches a bounded `codex exec --help` capability probe. This is
 not executable rediscovery: it verifies which optional and required arguments the
 already-resolved CLI supports. Required sandbox, configuration-isolation, workspace,
@@ -156,7 +162,8 @@ uses Orion's deterministic, allowlisted local checks rather than granting the en
 second writable implementation turn. If the Tester assignment or engine is unavailable,
 validation fails closed as `Validation Unavailable`; Orion neither substitutes another
 engine nor rolls back the completed implementation. `team test <run-id>` and
-`team test last` repeat validation only and never consume another plan approval.
+`team test last` repeat validation and then invoke a fresh read-only Documentation
+Review attempt. They never consume another plan approval or rerun implementation.
 
 Tester subprocesses inherit no provider credentials or OAuth/Vault locations, have
 network access blocked, use an Orion-controlled temporary home, and cannot start nested

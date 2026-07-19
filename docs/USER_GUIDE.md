@@ -5,6 +5,7 @@
 **Project:** Orion — Personal AI Operating System
 
 **Documentation baseline:** v0.7.0 — Conductor plus unreleased Automatic Validation
+and Documentation Review
 
 Orion is a local-first personal intelligence operating system. It coordinates local
 and cloud AI providers, project knowledge, communication services, applications, and
@@ -793,6 +794,8 @@ Implementation Engine (Codex by default)
   ↓
 Automatic Tester (bounded and read-only)
   ↓
+Documentation Reviewer (bounded and read-only)
+  ↓
 Awaiting Review
   ↓
 Keep changes or roll back
@@ -825,7 +828,9 @@ dynamic fallback is reported. Explicit provider/model assignments are validated 
 not silently change. Implementation requires an installed Orion adapter and stops
 before approval consumption when unavailable. An unavailable Tester launches no check
 and records `Validation Unavailable` after implementation. Assignments live in external
-user configuration, never the project or Vault.
+user configuration, never the project or Vault. The Documentation Reviewer uses the
+same planning-model routing contract as Architect; requested/actual model, fallback,
+usage, cost, and duration are recorded with each attempt.
 
 Examples:
 
@@ -870,14 +875,19 @@ team implement <team-task-id> <approval-id>
 team run <run-id>
 team test <run-id>
 team test last
+team docs <run-id>
+team docs last
+team docs show <run-id>
 team rollback <run-id>
 ```
 
-`team run` displays the structured implementation result, actual workspace changes,
-automatic validation summary, safe diagnostics, validation history count, and saved
-artifact directory. `team test <run-id>` validates that completed implementation again;
-`team test last` selects the newest eligible run in the active workspace. Neither
-command reruns implementation or consumes another approval.
+`team run` displays separate implementation, Automatic Validation, Documentation
+Review, and overall human-review sections plus saved artifacts. `team test <run-id>`
+validates the completed implementation again and then runs Documentation Review;
+`team test last` selects the newest eligible run in the active workspace. `team docs`
+reruns only Documentation Review, `team docs last` selects the newest eligible run, and
+`team docs show` displays the latest concise findings. None reruns implementation or
+consumes another approval.
 
 There is no `team accept` command: if you approve the result, leave the reviewed
 changes in place and continue your normal development workflow. Codex Bridge itself
@@ -921,11 +931,54 @@ Validation never accepts or rolls back changes automatically, including for warn
 failures, unavailable engines, and errors. The user always chooses whether to keep the
 implementation or run `team rollback <run-id>`.
 
+### Automatic Documentation Review
+
+After every validation outcome—Passed, Warnings, Failed, Unavailable, or Error—Orion
+runs the configured Documentation Reviewer before human review. A deterministic
+classifier first records whether documentation is required and why. Commands,
+configuration, providers/services/plugins, setup, safety/approval/credential behavior,
+public contracts, artifact formats, troubleshooting, release behavior, architecture,
+visible output, platforms, and features normally require coverage. Test-only and
+explicit internal changes with no observable behavior may be `Not Required`.
+
+Orion selects applicable documents rather than demanding every guide for every change.
+It audits new commands against completion, interactive help, the User Guide, feature
+guides, and changelog; configuration keys against defaults and Configuration; and
+architecture/safety changes against their subsystem documents. Markdown structure and
+local-link checks are reused from Automatic Validation.
+
+When documentation is required, the routed planning model receives only a bounded,
+sanitized approved plan, implementation summary, changed-file metadata/safe summaries,
+validation summary, known command/configuration changes, project rules, headings, and
+applicable documentation excerpts. It never receives raw diffs, source bodies,
+credentials, environment variables, Vault/OAuth/mail data, or unrelated workspace
+content. The role has no file, shell, Codex, Tester, Git, approval, role, repair,
+acceptance, or rollback tools.
+
+Documentation statuses are:
+
+- `Documentation Passed` — required coverage is complete and accurate;
+- `Documentation Warnings` — non-blocking or review-worthy findings remain;
+- `Documentation Failed` — material command, setup, configuration, safety,
+  architecture, or user/developer contract coverage is missing or inaccurate;
+- `Documentation Not Required` — no meaningful documentation contract changed;
+- `Documentation Unavailable` — the configured provider/model cannot run;
+- `Documentation Error` — the bounded review stopped safely; and
+- `Documentation Not Run` — a compatible older run has no attempt.
+
+Findings include severity, category, document/section, implementation evidence,
+recommended correction, confidence, and whether the issue blocks Passed. They never
+edit or repair files automatically. Reruns append immutable attempts under external
+user data and preserve every prior attempt.
+
 Representative output:
 
 ```text
-Implementation Result
+AI Team Run
 Status: Awaiting Review
+
+Implementation
+Status: Complete
 
 Files Changed
   Created:  2
@@ -945,8 +998,16 @@ Validation Summary
   Failed:   0
   Skipped:  1
 
-Review Status
-Awaiting Review — Validation Warnings
+Documentation Review
+Status: Documentation Warnings
+Documents inspected: 8
+Warnings: 1
+Errors: 0
+WARN  docs/USER_GUIDE.md
+      New `team docs` syntax is missing from one example.
+
+Overall Review Status
+Awaiting Review — Validation Warnings — Documentation Warnings
 ```
 
 ### Execution-engine diagnostics
@@ -1202,6 +1263,24 @@ and workspace diff. `Validation Error` means a timeout, bounded-output limit, sa
 guard, or other sanitized validator failure stopped the attempt. None of these states
 automatically changes or rolls back implementation files.
 
+### Documentation Review is unavailable, failed, or found issues
+
+```text
+team roles
+team role show documentation
+ai providers
+team docs show <run-id>
+team docs <run-id>
+```
+
+`Documentation Unavailable` means the assigned provider/model is disabled,
+unconfigured, or otherwise unavailable. Restore that planning provider and rerun the
+review. `Documentation Failed` means material coverage is missing or inaccurate;
+`Documentation Warnings` means a human should inspect non-blocking findings; and
+`Documentation Error` means bounded classification, artifacts, provider output, or
+workspace integrity stopped safely. None edits files, reruns implementation/testing,
+consumes approval, accepts work, or rolls back changes.
+
 ### Workspace is read-only or mismatched
 
 ```text
@@ -1300,9 +1379,12 @@ Developer mode can expose safe diagnostics. It does not bypass approval or polic
 | `team status <task-id>` | Reopen a persisted plan |
 | `team approve <task-id>` | Create an immutable manual approval |
 | `team implement <task-id> <approval-id>` | Run one bounded implementation |
-| `team run <run-id>` | Show implementation and automatic validation results |
-| `team test <run-id>` | Add one immutable validation attempt without implementation |
-| `team test last` | Validate the newest eligible run in the active workspace |
+| `team run <run-id>` | Show implementation, validation, Documentation Review, and overall status |
+| `team test <run-id>` | Add validation then Documentation Review without implementation |
+| `team test last` | Validate and review the newest eligible run in the active workspace |
+| `team docs <run-id>` | Add one immutable Documentation Review without implementation/testing |
+| `team docs last` | Review the newest eligible run in the active workspace |
+| `team docs show <run-id>` | Show the latest concise documentation findings |
 | `team rollback <run-id>` | Safely restore one reviewed run |
 | `execution status` | Diagnose execution engines and desktop apps |
 

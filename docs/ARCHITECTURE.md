@@ -198,11 +198,32 @@ and a child write guard. A second snapshot comparison detects any Tester mutatio
 Each strict `ValidationAttempt` is immutable under the external run directory while
 `run.json` keeps the latest attempt and bounded history paths. Existing schema-v2 run
 records tolerate missing validation fields. Implementation and validation status remain
-separate. Every outcome moves the completed run to human review. `team rollback`
-restores
-preimages without Git only when affected paths still match the run. Invalid output or
-process failure records only a sanitized category. There is no autonomous reviewer,
-repair loop, Task Manager transition, Git write, or release action in this phase.
+separate.
+
+`DocumentationReviewService`, also owned by `CodexBridge`, receives each completed
+validation outcome. It first classifies documentation need from plan/change metadata,
+builds an applicable bounded inventory, reuses Markdown checks, and audits command,
+help, configuration, changelog, architecture, and safety coverage. Required work then
+uses `TeamRoleRegistry.planning_candidates("documentation", ...)` and the existing
+provider factory for one strict structured-output call. Only sanitized plans,
+implementation/file summaries, validation summaries, command/config changes, project
+rules, and bounded documentation excerpts enter the prompt; raw diffs, source bodies,
+credentials, environment variables, Vault/OAuth/mail data, and unrelated workspaces do
+not.
+
+Each strict `DocumentationAttempt` is immutable under
+`documentation/documentation-NNNN.{json,log}`. `run.json` independently retains its
+latest summary and history, and tolerant schema-v2 loading treats older records as
+Documentation Not Run. Snapshot comparisons before and after the provider call enforce
+the read-only boundary. The reviewer has no file, shell, execution-engine, Git,
+approval, role, repair, acceptance, or rollback tools.
+
+Implementation, validation, and documentation statuses remain independent. Every
+outcome moves the completed run to human review. `team rollback` restores preimages
+without Git only when affected paths still match the run. Invalid output or provider
+failure records only a sanitized category. There is no repair loop, Documentation
+Writer, Task Manager transition, Git write, automatic acceptance, or release action in
+this phase.
 
 ## Execution Engine Discovery
 

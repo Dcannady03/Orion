@@ -88,9 +88,21 @@ validation, routing-policy planning fallbacks, role metadata in immutable artifa
 and a complete living user/documentation process. Gatekeeper's approval, workspace,
 execution, review, and rollback protections remain intact.
 
-**Active milestone:** AI Team Automatic Validation (unreleased). Email Phase B and
-cross-platform diagnostics through `orion doctor` remain planned after this bounded
-Tester milestone.
+**Active milestone:** AI Team Documentation Reviewer (unreleased), following the
+completed-but-unreleased Automatic Validation milestone. Email Phase B and
+cross-platform diagnostics through `orion doctor` remain planned after the bounded
+review workflow.
+
+## Unreleased — AI Team Documentation Reviewer
+
+- [x] Documentation Review runs after Passed, Warnings, Failed, Unavailable, or Error validation
+- [x] Deterministic classification records documentation requirement reasons and evidence
+- [x] Applicable inventory covers command/help/config/changelog/architecture/safety documentation
+- [x] The configured model receives only bounded sanitized documentation context and no tools
+- [x] Passed, Warnings, Failed, Not Required, Unavailable, Error, and Not Run remain independent
+- [x] `team docs <run-id>`, `team docs last`, and `team docs show <run-id>` preserve immutable history
+- [x] Reviewer findings never edit, repair, accept, commit, or roll back work
+- [x] Existing approval, validation, workspace, snapshot, rollback, and Vault boundaries remain intact
 
 ## Unreleased — AI Team Automatic Validation
 

@@ -91,6 +91,11 @@ team:
   validation:
     command_timeout_seconds: 120
     max_output_bytes: 250000
+  documentation_review:
+    enabled: true
+    max_documents: 24
+    max_findings: 30
+    max_diff_summary_chars: 24000
   assignments:
     architect: active-planning-model
     engineer_reviewer: active-planning-model

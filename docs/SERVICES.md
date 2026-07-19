@@ -24,8 +24,10 @@ stable interface.
 `CodexBridge` owns a `WorkspaceSnapshotService` for bounded external baselines,
 deterministic created/modified/deleted review, redacted diffs, and conflict-safe rollback;
 it also owns `AutomaticValidationService` for deterministic, read-only Tester attempts
-and immutable validation history. Neither service is a second workspace selector or Git
-service.
+and immutable validation history, plus `DocumentationReviewService` for deterministic
+coverage classification and one bounded planning-model documentation assessment.
+Neither reviewer is a second workspace selector, execution engine, repair service, or
+Git service.
 
 ## Usage
 

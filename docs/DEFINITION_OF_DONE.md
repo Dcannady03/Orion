@@ -19,6 +19,8 @@ record or review.
 - [ ] README and configuration reference are updated when the public setup, command
       surface, or configuration contract changes.
 - [ ] Root and documentation changelogs are updated without obsolete duplicate entries.
+- [ ] Automatic Documentation Review is Passed, Not Required with recorded reasons, or
+      its Warnings/Failures are explicitly resolved or accepted during human review.
 - [ ] Version and release notes are updated only when the repository's release process
       assigns the feature to a release.
 - [ ] Manual end-to-end verification is completed for the intended platform and the

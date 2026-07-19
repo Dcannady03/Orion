@@ -680,6 +680,17 @@ class AutomaticValidationService:
             "directories": directories,
         }
 
+    def markdown_checks(
+        self,
+        workspace: str | Path,
+        paths: Iterable[str],
+    ) -> tuple[ValidationCheck, ...]:
+        """Reuse Orion's deterministic Markdown structure and local-link checks."""
+        root = Path(workspace).expanduser().resolve()
+        inspected: set[str] = set()
+        normalized = [_relative_path(root, item) for item in paths]
+        return tuple(self._markdown(root, normalized, inspected))
+
     def validate(self, request: ValidationRequest) -> ValidationAttempt:
         started_wall = self._timestamp()
         started = time.monotonic()

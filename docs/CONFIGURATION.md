@@ -57,6 +57,29 @@ These settings are not permissions. The Tester remains network-disabled, read-on
 toward implementation files, unable to launch nested commands or Git, and confined to
 an Orion-controlled temporary directory for writes.
 
+The model-backed Documentation Reviewer runs after every Tester outcome when enabled:
+
+```yaml
+team:
+  documentation_review:
+    enabled: true                  # run automatically after validation
+    max_documents: 24             # allowed range 5–100
+    max_findings: 30              # allowed range 1–100
+    max_diff_summary_chars: 24000 # bounded sanitized context; 4,000–200,000
+```
+
+The exact configuration keys are `team.documentation_review.enabled`,
+`team.documentation_review.max_documents`,
+`team.documentation_review.max_findings`, and
+`team.documentation_review.max_diff_summary_chars`. Disabling the stage leaves new
+runs at `Documentation Not Run`; it does not change the persistent
+`team.assignments.documentation` role assignment.
+
+These bounds limit inventory, structured findings, and the sanitized context sent to
+the configured planning model. They never grant file, shell, Git, Codex, approval,
+Vault, OAuth, or repair access. `team docs` uses the same settings and fails clearly
+when Documentation Review is disabled.
+
 Use Orion commands instead of editing YAML directly:
 
 ```text

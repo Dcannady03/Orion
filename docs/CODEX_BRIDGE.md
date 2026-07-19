@@ -5,7 +5,8 @@ bounded local Codex CLI execution. It may modify files and run tests inside the
 active workspace, but it always stops at `Awaiting Review`.
 
 It cannot create or switch branches, modify Git metadata, commit, push, merge, tag,
-open a pull request, start a reviewer, or continue automatically.
+open a pull request, or continue beyond the bounded Tester and Documentation Reviewer
+stages into automatic acceptance or repair.
 
 ## Workflow
 
@@ -27,7 +28,10 @@ Structured implementation artifacts
 Automatic Tester (bounded, read-only)
         |
         v
-Awaiting Review + validation result
+Documentation Reviewer (bounded, read-only)
+        |
+        v
+Awaiting Review + independent validation/documentation results
 ```
 
 The interactive console offers approval immediately after rendering the final plan.
@@ -48,6 +52,9 @@ team plan --manual "<goal>"
 team run <run-id>
 team test <run-id>
 team test last
+team docs <run-id>
+team docs last
+team docs show <run-id>
 team rollback <run-id>
 execution status
 ```
@@ -256,9 +263,41 @@ directory. Raw stdout, stderr, environments, prompts, and file contents are neve
 persisted. Validation may report failure, but it never repairs, accepts, commits, or
 rolls back implementation changes.
 
-`team test <run-id>` and `team test last` rerun only this validation stage. A rerun does
-not consume another approval or start Codex implementation. Each attempt receives a
-new immutable artifact pair, so older results remain available for audit history.
+`team test <run-id>` and `team test last` rerun this validation stage and then the
+automatic Documentation Reviewer. A rerun does not consume another approval or start
+Codex implementation. Each validation attempt receives a new immutable artifact pair,
+so older results remain available for audit history.
+
+## Documentation Review boundary
+
+After every validation outcome, Orion deterministically classifies whether the actual
+change requires documentation and selects an applicable inventory. New commands,
+configuration, providers/services/plugins, setup, safety, public contracts, artifact
+formats, troubleshooting, releases, architecture, visible output, platforms, and
+features normally require coverage. Test-only and explicit internal/no-observable-
+behavior work may be `Documentation Not Required`.
+
+The deterministic pass reuses Markdown structure/local-link checks and compares added
+commands with completion, interactive help, and the User Guide. It also audits added or
+changed default configuration keys, changelog changes, and applicable architecture and
+safety documents. A configured planning model then receives only bounded sanitized
+plan/implementation summaries, file metadata and safe summaries, validation counts,
+known command/configuration changes, project rules, headings, and bounded excerpts from
+applicable documentation. It never receives raw diffs, source bodies, credentials,
+environment variables, Vault/OAuth/mail data, or unrelated workspace content.
+
+The Documentation Reviewer returns strict findings with severity, category, affected
+document/section, implementation evidence, correction recommendation, confidence, and
+whether the finding blocks Documentation Passed. Orion derives Passed, Warnings,
+Failed, Not Required, Unavailable, or Error independently from validation. A
+validation failure does not become a documentation failure unless documentation is
+itself inaccurate.
+
+`team docs <run-id>` creates another immutable documentation attempt;
+`team docs last` selects the newest complete run bound to the active workspace; and
+`team docs show <run-id>` displays the latest bounded findings. These commands never
+rerun implementation or validation and never consume approval. The reviewer has no
+file, shell, Codex, Tester, Git, approval, role, repair, acceptance, or rollback tools.
 
 ## External persistence
 
@@ -288,6 +327,11 @@ All bridge state lives outside application and workspace files:
         validation-0001.log
         validation-0002.json  # present only after a rerun
         validation-0002.log
+      documentation/
+        documentation-0001.json
+        documentation-0001.log
+        documentation-0002.json  # present only after a rerun
+        documentation-0002.log
       snapshot/
         blobs/
       rollback.json  # present only after an approved rollback
@@ -299,10 +343,11 @@ the same approval concurrently. `run.json` uses atomic replacement while moving 
 `Executing` to `Awaiting Review` or `Failed`. Owner-only file permissions are requested
 where the platform supports them.
 
-`run.json` retains the newest strict validation envelope and a bounded list of immutable
-attempt paths. Existing schema-v2 runs without validation fields remain readable and
-display `Validation Not Run`. Validation logs contain only one bounded, redacted line
-per check; they are not raw process logs.
+`run.json` retains the newest strict validation and documentation envelopes plus
+bounded immutable history paths. Existing schema-v2 runs without either field remain
+readable and display `Validation Not Run` or `Documentation Not Run`. Validation and
+documentation logs contain only bounded, redacted check/finding summaries; they are
+not raw provider or process logs.
 
 The JSONL artifact contains parsed, validated events reserialized by Orion; raw process
 stdout and stderr are never written. The run document and final result use strict
@@ -335,6 +380,11 @@ team:
   validation:
     command_timeout_seconds: 120
     max_output_bytes: 250000
+  documentation_review:
+    enabled: true
+    max_documents: 24
+    max_findings: 30
+    max_diff_summary_chars: 24000
 ```
 
 Timeout is bounded to 1–7,200 seconds. Captured process output is bounded to
@@ -344,9 +394,11 @@ prohibited in the implementation prompt.
 
 Each automatic validation command is separately bounded to 1–900 seconds. Validation
 output capture is bounded to 1,000–5,000,000 bytes and discarded rather than persisted.
+Documentation Review inspects 5–100 documents, retains 1–100 findings, and bounds its
+sanitized documentation/diff-summary context to 4,000–200,000 characters.
 
 ## Phase boundary
 
-Codex Bridge still has no streaming UI, Workflow Engine transition, autonomous
-reviewer, repair loop, branch creation, commit, push, merge, tag, or pull-request
-integration. Deterministic review and rollback stop at the human approval boundary.
+Codex Bridge still has no streaming UI, repair loop, Documentation Writer, automatic
+acceptance, branch creation, commit, push, merge, tag, or pull-request integration.
+Tester and Documentation Reviewer evidence plus rollback stop at the human boundary.

@@ -28,6 +28,11 @@ from orion.services.team_validation import (
     ValidationAttempt,
     ValidationRequest,
 )
+from orion.services.team_documentation import (
+    DocumentationAttempt,
+    DocumentationRequest,
+    DocumentationReviewService,
+)
 from orion.services.execution_engines import (
     ExecutionEngine,
     ExecutionEngineUnavailable,
@@ -711,6 +716,8 @@ class CodexRun:
     changes: WorkspaceChangeSet | None
     validation: ValidationAttempt | None
     validation_history: tuple[str, ...]
+    documentation: DocumentationAttempt | None
+    documentation_history: tuple[str, ...]
     error: str
     diagnostics: CodexRunDiagnostics
 
@@ -726,6 +733,10 @@ class CodexRun:
                 # Automatic validation was added without invalidating existing v2
                 # implementation and rollback records.
                 additions.update({"validation": None, "validation_history": []})
+            if "documentation" not in value:
+                # Existing schema-v2 runs remain readable; a missing review is
+                # displayed as Documentation Not Run.
+                additions.update({"documentation": None, "documentation_history": []})
             value = {**value, **additions}
         value = _exact_mapping(
             value,
@@ -734,6 +745,7 @@ class CodexRun:
                 "plan_hash", "workspace_root", "workspace", "status", "command",
                 "artifacts", "started_at", "completed_at", "result", "changes", "error",
                 "diagnostics", "validation", "validation_history",
+                "documentation", "documentation_history",
             },
             "Codex run",
         )
@@ -814,8 +826,44 @@ class CodexRun:
             or validation_history[-1] != f"validation/{validation.attempt_id}.json"
         ):
             raise ValueError("Latest validation attempt does not match validation history.")
+        documentation_value = value["documentation"]
+        documentation = (
+            None
+            if documentation_value is None
+            else DocumentationAttempt.from_value(documentation_value)
+        )
+        if documentation is not None:
+            if documentation.run_id != _run_id(value["run_id"]):
+                raise ValueError("Documentation attempt belongs to a different Codex run.")
+            if documentation.team_task_id != _team_task_id(value["team_task_id"]):
+                raise ValueError("Documentation attempt belongs to a different AI Team task.")
+            if documentation.approval_id != _approval_id(value["approval_id"]):
+                raise ValueError("Documentation attempt belongs to a different approval.")
+            if not _same_path(documentation.workspace_root, workspace):
+                raise ValueError("Documentation attempt belongs to a different workspace.")
+        documentation_history = _bounded_strings(
+            value["documentation_history"],
+            "Codex documentation history",
+            maximum_items=100,
+            maximum_length=120,
+        )
+        if len(set(documentation_history)) != len(documentation_history) or any(
+            not re.fullmatch(r"documentation/documentation-[0-9]{4}\.json", item)
+            for item in documentation_history
+        ):
+            raise ValueError("Codex documentation history paths are invalid or duplicated.")
+        if documentation is None and documentation_history:
+            raise ValueError("Codex documentation history requires a latest attempt.")
+        if documentation is not None and (
+            not documentation_history
+            or documentation_history[-1] != f"documentation/{documentation.attempt_id}.json"
+        ):
+            raise ValueError("Latest documentation attempt does not match documentation history.")
         if status_value == RUN_STATUS_EXECUTING:
-            if completed_at or result is not None or changes is not None or validation is not None or error:
+            if (
+                completed_at or result is not None or changes is not None
+                or validation is not None or documentation is not None or error
+            ):
                 raise ValueError("Executing Codex runs cannot contain completion fields.")
             if diagnostics.exit_code is not None or diagnostics.timed_out:
                 raise ValueError("Executing Codex runs cannot contain completion diagnostics.")
@@ -832,7 +880,10 @@ class CodexRun:
             if set(artifacts) != required:
                 raise ValueError("Awaiting-review Codex runs require all structured artifacts.")
         elif status_value == RUN_STATUS_FAILED:
-            if not completed_at or result is not None or validation is not None or error not in RUN_ERROR_CATEGORIES:
+            if (
+                not completed_at or result is not None or validation is not None
+                or documentation is not None or error not in RUN_ERROR_CATEGORIES
+            ):
                 raise ValueError("Failed Codex runs require a sanitized error category.")
         elif status_value == RUN_STATUS_ROLLED_BACK:
             if not completed_at or changes is None or error:
@@ -856,6 +907,8 @@ class CodexRun:
             changes=changes,
             validation=validation,
             validation_history=validation_history,
+            documentation=documentation,
+            documentation_history=documentation_history,
             error=error,
             diagnostics=diagnostics,
         )
@@ -878,6 +931,8 @@ class CodexRun:
             "changes": None if self.changes is None else self.changes.to_dict(),
             "validation": None if self.validation is None else self.validation.to_dict(),
             "validation_history": list(self.validation_history),
+            "documentation": None if self.documentation is None else self.documentation.to_dict(),
+            "documentation_history": list(self.documentation_history),
             "error": self.error,
             "diagnostics": self.diagnostics.to_dict(),
         }
@@ -935,6 +990,12 @@ class CodexBridgeStore:
                 run.validation is None or attempt.to_dict() != run.validation.to_dict()
             ):
                 raise ValueError("Latest validation history artifact does not match run.json.")
+        for artifact_path in run.documentation_history:
+            attempt = self.load_documentation_attempt(run.run_id, artifact_path)
+            if artifact_path == run.documentation_history[-1] and (
+                run.documentation is None or attempt.to_dict() != run.documentation.to_dict()
+            ):
+                raise ValueError("Latest documentation history artifact does not match run.json.")
         return run
 
     def claim_approval(
@@ -1068,6 +1129,64 @@ class CodexBridgeStore:
         for relative in attempt.artifact_paths:
             if not (self.run_directory(normalized_run) / relative).is_file():
                 raise ValueError("Validation attempt is missing one of its immutable artifacts.")
+        return attempt
+
+    def next_documentation_attempt(self, run_id: str) -> tuple[str, tuple[str, str]]:
+        directory = self.run_directory(run_id) / "documentation"
+        existing = tuple(directory.glob("documentation-*.json")) if directory.is_dir() else ()
+        numbers = [
+            int(match.group(1))
+            for path in existing
+            if (match := re.fullmatch(r"documentation-([0-9]{4})\.json", path.name))
+        ]
+        number = (max(numbers) if numbers else 0) + 1
+        if number > 100:
+            raise ValueError("A Codex run cannot contain more than 100 documentation attempts.")
+        attempt_id = f"documentation-{number:04d}"
+        paths = (
+            f"documentation/{attempt_id}.json",
+            f"documentation/{attempt_id}.log",
+        )
+        return attempt_id, paths
+
+    def write_documentation_attempt(
+        self,
+        attempt: DocumentationAttempt,
+        log: str,
+    ) -> tuple[Path, Path]:
+        validated = DocumentationAttempt.from_value(attempt.to_dict())
+        expected_id, paths = self.next_documentation_attempt(validated.run_id)
+        if validated.attempt_id != expected_id or validated.artifact_paths != paths:
+            raise ValueError("Documentation attempt does not match the next immutable history slot.")
+        directory = self.run_directory(validated.run_id)
+        json_path = self._write_immutable(
+            directory / paths[0],
+            json.dumps(validated.to_dict(), indent=2, ensure_ascii=False) + "\n",
+        )
+        log_path = self._write_immutable(directory / paths[1], str(log))
+        return json_path, log_path
+
+    def load_documentation_attempt(
+        self,
+        run_id: str,
+        artifact_path: str,
+    ) -> DocumentationAttempt:
+        normalized_run = _run_id(run_id)
+        if not re.fullmatch(
+            r"documentation/documentation-[0-9]{4}\.json",
+            str(artifact_path),
+        ):
+            raise ValueError("Documentation artifact path is invalid.")
+        value = self._read_json(
+            self.run_directory(normalized_run) / artifact_path,
+            "Documentation attempt",
+        )
+        attempt = DocumentationAttempt.from_value(value)
+        if attempt.run_id != normalized_run:
+            raise ValueError("Documentation attempt identity does not match its run path.")
+        for relative in attempt.artifact_paths:
+            if not (self.run_directory(normalized_run) / relative).is_file():
+                raise ValueError("Documentation attempt is missing an immutable artifact.")
         return attempt
 
     @staticmethod
@@ -1349,6 +1468,8 @@ class CodexBridge:
         execution_engines=None,
         team_roles=None,
         validation_service: AutomaticValidationService | None = None,
+        provider_factory=None,
+        documentation_service: DocumentationReviewService | None = None,
         default_execution_engine: ExecutionEngine | None = None,
         now: Callable[[], datetime] | None = None,
         approval_id_factory: Callable[[], str] | None = None,
@@ -1375,6 +1496,16 @@ class CodexBridge:
             snapshot_service=self.snapshots,
             now=self._now,
         )
+        self.documentation_service = documentation_service
+        if self.documentation_service is None and provider_factory is not None:
+            self.documentation_service = DocumentationReviewService(
+                config_manager,
+                team_roles,
+                provider_factory,
+                snapshot_service=self.snapshots,
+                validation_service=self.validation_service,
+                now=self._now,
+            )
         self._default_execution_engine = default_execution_engine
         self._approval_id_factory = approval_id_factory or self._new_approval_id
         self._run_id_factory = run_id_factory or self._new_run_id
@@ -1774,6 +1905,19 @@ class CodexBridge:
     def recent(self, limit: int = 10) -> tuple[CodexRun, ...]:
         return self.store.recent_runs(limit)
 
+    def documentation_status(self, run_id: str) -> CodexRun:
+        """Load one complete run for bounded documentation display only."""
+        with self._lock:
+            self._require_workspace()
+            run = self.store.load_run(run_id)
+            if run.status not in {RUN_STATUS_AWAITING_REVIEW, RUN_STATUS_ROLLED_BACK}:
+                raise ValueError("Only complete implementation runs have documentation status.")
+            if run.result is None or run.changes is None:
+                raise ValueError("Implementation run is incomplete.")
+            if not _same_path(run.workspace_root, self._workspace_root):
+                raise PermissionError("Documentation run belongs to a different active workspace.")
+            return run
+
     def validate(self, run_id: str) -> CodexRun:
         """Run one bounded Tester attempt without consuming another approval."""
         with self._lock:
@@ -1849,6 +1993,106 @@ class CodexBridge:
             )
             CodexRun.from_value(updated.to_dict())
             self.store.save_run(updated)
+            if self.documentation_service is None or not bool(
+                self.config.get("team.documentation_review.enabled", True)
+            ):
+                return updated
+            return self.document(updated.run_id)
+
+    def document(self, run_id: str) -> CodexRun:
+        """Run one read-only Documentation Reviewer attempt without implementation or testing."""
+        with self._lock:
+            self._require_workspace()
+            if self.documentation_service is None:
+                raise RuntimeError("Documentation Review is unavailable in this Orion runtime.")
+            if not bool(self.config.get("team.documentation_review.enabled", True)):
+                raise RuntimeError("Documentation Review is disabled in configuration.")
+            run = self.store.load_run(run_id)
+            if run.status == RUN_STATUS_ROLLED_BACK:
+                raise ValueError("Rolled-back runs cannot be reviewed again.")
+            if run.status != RUN_STATUS_AWAITING_REVIEW or run.result is None or run.changes is None:
+                raise ValueError("Only complete implementation runs awaiting review can be documented.")
+            if not _same_path(run.workspace_root, self._workspace_root):
+                raise PermissionError("Documentation run belongs to a different active workspace.")
+            required = {
+                "approved-plan.json", "implementation-result.json",
+                "workspace-baseline.json", "workspace-changes.json",
+            }
+            missing = sorted(
+                name for name in required
+                if not (self.store.run_directory(run.run_id) / name).is_file()
+            )
+            if missing:
+                raise ValueError(
+                    f"Documentation Review requires missing implementation artifacts: {missing}"
+                )
+
+            approval = PlanApproval.from_value(_strict_json_loads(
+                self.store.read_run_artifact(run.run_id, "approved-plan.json")
+            ))
+            if approval.plan_hash != run.plan_hash or approval.team_task_id != run.team_task_id:
+                raise ValueError(
+                    "Documentation approval artifact does not match the implementation run."
+                )
+            baseline = WorkspaceBaseline.from_value(_strict_json_loads(
+                self.store.read_run_artifact(run.run_id, "workspace-baseline.json")
+            ))
+            if not _same_path(baseline.workspace.root, self._workspace_root):
+                raise PermissionError(
+                    "Documentation baseline belongs to a different active workspace."
+                )
+
+            attempt_id, artifact_paths = self.store.next_documentation_attempt(run.run_id)
+            protected_path = (
+                self.store.run_directory(run.run_id) / "validation-protected-baseline.json"
+            )
+            protected_baseline = None
+            if protected_path.is_file():
+                protected_baseline = _strict_json_loads(
+                    protected_path.read_text(encoding="utf-8")
+                )
+            validation_reference = (
+                run.validation_history[-1] if run.validation_history else ""
+            )
+            request = DocumentationRequest(
+                attempt_id=attempt_id,
+                run_id=run.run_id,
+                team_task_id=run.team_task_id,
+                approval_id=run.approval_id,
+                workspace=run.workspace,
+                active_workspace=str(self._workspace_root),
+                changes=run.changes,
+                implementation_result=run.result.to_dict(),
+                plan_goal=approval.plan.goal,
+                plan_steps=approval.plan.final_plan,
+                validation=run.validation,
+                validation_reference=validation_reference,
+                baseline=baseline,
+                blob_root=self.store.snapshot_blob_root(run.run_id),
+                protected_baseline=protected_baseline,
+                artifact_paths=artifact_paths,
+            )
+            try:
+                attempt = self.documentation_service.review(request)
+            except (ConnectionError, OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
+                attempt = self.documentation_service.error(
+                    request,
+                    "documentation_review_error",
+                    f"Documentation Review stopped safely ({type(exc).__name__}).",
+                )
+            self.store.write_documentation_attempt(
+                attempt,
+                self.documentation_service.documentation_log(attempt),
+            )
+            updated = replace(
+                run,
+                documentation=attempt,
+                documentation_history=tuple(
+                    (*run.documentation_history, artifact_paths[0])
+                ),
+            )
+            CodexRun.from_value(updated.to_dict())
+            self.store.save_run(updated)
             return updated
 
     def latest_validatable_run(self) -> CodexRun:
@@ -1857,6 +2101,19 @@ class CodexBridge:
                 if _same_path(run.workspace_root, self._workspace_root):
                     return run
         raise FileNotFoundError("No complete AI Team implementation run is available in this workspace.")
+
+    def latest_documentable_run(self) -> CodexRun:
+        for run in self.store.recent_runs(100):
+            if (
+                run.status == RUN_STATUS_AWAITING_REVIEW
+                and run.result is not None
+                and run.changes is not None
+                and _same_path(run.workspace_root, self._workspace_root)
+            ):
+                return run
+        raise FileNotFoundError(
+            "No complete AI Team implementation run is available in this workspace."
+        )
 
     def _tester_resolution(self) -> tuple[TeamRoleSnapshot, ExecutionEngine | None]:
         if self.team_roles is None:
