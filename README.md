@@ -6,12 +6,12 @@ cohesive command-line companion.
 
 ## Current release
 
-**v0.5.7 — Forge**
+**v0.5.7.1 — Forge**
 
-Forge turns one reviewed AI Team plan into one immutable, approval-bound local Codex
-implementation run. Execution stays inside the active workspace, persists strict
-results under external user data, and always stops at `Awaiting Review` without Git
-or pull-request actions.
+Forge v0.5.7.1 hands the execution engine detected by `team implement` directly to
+Codex Bridge, preventing a second probe from disagreeing after execution has already
+been announced. Runs remain immutable, workspace-bound, externally persisted, and
+stopped at `Awaiting Review` without Git or pull-request actions.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -119,7 +119,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **255 passing tests**.
+The current codebase contains **256 passing tests**.
 
 ## Roadmap
 

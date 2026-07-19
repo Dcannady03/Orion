@@ -20,6 +20,8 @@ from orion.services.codex_bridge import (
     PlanSnapshot,
 )
 from orion.services.execution_engines import (
+    ENGINE_STATUS_INSTALLED,
+    ExecutionEngine,
     ExecutionEngineService,
     ExecutionEngineUnavailable,
 )
@@ -291,6 +293,49 @@ class CodexBridgeTests(unittest.TestCase):
             self.assertEqual(runner.calls[0]["command"][0], status_executable)
             self.assertEqual(run.command[0], status_executable)
             self.assertNotEqual(runner.calls[0]["command"][0], "codex")
+
+    def test_router_hands_one_resolved_engine_to_bridge_without_reprobing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner()
+            engines = Mock()
+            resolved = ExecutionEngine(
+                engine_id="codex",
+                name="Codex CLI",
+                status=ENGINE_STATUS_INSTALLED,
+                installed=True,
+                cli_support=True,
+                implementation_supported=True,
+                executable=str((Path(tmp) / "tools" / "codex.cmd").resolve()),
+            )
+            engines.require_codex.side_effect = (
+                resolved,
+                ExecutionEngineUnavailable("second probe disagreed"),
+            )
+            bridge, _, _ = self.build(
+                tmp,
+                runner=runner,
+                execution_engines=engines,
+            )
+            router = CommandRouter(SimpleNamespace(
+                execution_engines=engines,
+                codex_bridge=bridge,
+            ))
+            approval = bridge.approve("team-test-001")
+
+            with patch("builtins.print") as output:
+                router.handle(
+                    f"team implement team-test-001 {approval.approval_id}"
+                )
+
+            rendered = "\n".join(
+                str(call.args[0]) for call in output.call_args_list if call.args
+            )
+            self.assertEqual(engines.require_codex.call_count, 1)
+            self.assertEqual(len(runner.calls), 1)
+            self.assertEqual(runner.calls[0]["command"][0], resolved.executable)
+            self.assertIn("Starting one approval-bound local Codex execution", rendered)
+            self.assertIn("Status: Awaiting Review", rendered)
+            self.assertNotIn("No execution engine is currently available", rendered)
 
     def test_unapproved_tampered_or_workspace_mismatched_plan_never_runs(self):
         with tempfile.TemporaryDirectory() as tmp:

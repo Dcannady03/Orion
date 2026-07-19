@@ -23,6 +23,7 @@ from orion.services.team import (
     TeamTaskStore,
 )
 from orion.services.execution_engines import (
+    ExecutionEngine,
     ExecutionEngineUnavailable,
     resolve_codex_executable,
 )
@@ -824,7 +825,13 @@ class CodexBridge:
             self.store.save_approval(approval)
             return approval
 
-    def execute(self, team_task_id: str, approval_id: str) -> CodexRun:
+    def execute(
+        self,
+        team_task_id: str,
+        approval_id: str,
+        *,
+        execution_engine: ExecutionEngine | None = None,
+    ) -> CodexRun:
         self._require_enabled()
         with self._lock:
             self._require_workspace_root()
@@ -837,7 +844,7 @@ class CodexBridge:
                 raise PermissionError("Persisted AI Team plan changed after approval; approve this version again.")
             if self.store.approval_used(plan.team_task_id, approval.approval_id):
                 raise PermissionError("Plan approval has already been consumed by a Codex run.")
-            codex_executable = self._resolve_codex_executable()
+            codex_executable = self._resolve_codex_executable(execution_engine)
 
             timeout_seconds = self._timeout_seconds()
             max_output_bytes = self._max_output_bytes()
@@ -994,8 +1001,26 @@ class CodexBridge:
         self.store.save_run(failed)
         return failed
 
-    def _resolve_codex_executable(self) -> Path:
-        if self.execution_engines is not None:
+    def _resolve_codex_executable(
+        self,
+        execution_engine: ExecutionEngine | None = None,
+    ) -> Path:
+        if execution_engine is not None:
+            if (
+                not isinstance(execution_engine, ExecutionEngine)
+                or execution_engine.engine_id != "codex"
+                or not execution_engine.ready_for_implementation
+            ):
+                raise ExecutionEngineUnavailable(
+                    "No execution engine is currently available."
+                )
+            value = execution_engine.executable
+            if not isinstance(value, (str, os.PathLike)) or not str(value).strip():
+                raise ExecutionEngineUnavailable(
+                    "No execution engine is currently available."
+                )
+            executable = Path(value).expanduser()
+        elif self.execution_engines is not None:
             engine = self.execution_engines.require_codex()
             value = engine.executable
             if not isinstance(value, (str, os.PathLike)) or not str(value).strip():
@@ -1009,7 +1034,10 @@ class CodexBridge:
                 raise ExecutionEngineUnavailable(
                     "No execution engine is currently available."
                 )
-        if executable.name.lower() not in {"codex", "codex.cmd", "codex.exe"}:
+        if (
+            executable is None
+            or executable.name.lower() not in {"codex", "codex.cmd", "codex.exe"}
+        ):
             raise ExecutionEngineUnavailable(
                 "No execution engine is currently available."
             )

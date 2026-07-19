@@ -1,3 +1,10 @@
+# v0.5.7.1 — Forge
+
+- Fixed `team implement` performing a second execution-engine probe after its successful router preflight.
+- Passed the router's validated engine snapshot and exact executable path directly into Codex Bridge.
+- Preserved one safe pre-claim probe for direct bridge callers and all immutable approval safeguards.
+- Added pass-then-fail probe regression coverage; 256 tests pass.
+
 # v0.5.7 — Forge
 
 - Added immutable SHA-256 approvals bound to exact persisted AI Team plans and active workspaces.

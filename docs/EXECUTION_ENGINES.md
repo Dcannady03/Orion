@@ -86,9 +86,12 @@ plan approval. When Codex is unavailable, Orion reports the detected engines and
 points to `execution status`. No local process starts, no run or claim artifact is
 created, and the approval remains valid after the CLI is installed.
 
-Discovery and implementation use the same resolver. Codex Bridge passes the exact
-resolved path directly to the no-shell subprocess call; it never discards that path
-and falls back to a bare `codex` command.
+Discovery and implementation use the same resolver. `team implement` resolves the
+engine once and passes that exact engine snapshot into Codex Bridge. The bridge sends
+its resolved path directly to the no-shell subprocess call; it neither probes a second
+time nor falls back to a bare `codex` command. Direct service callers that do not
+supply a preflight snapshot still perform one bridge-owned check before approval
+claiming.
 
 ```text
 No execution engine is currently available.

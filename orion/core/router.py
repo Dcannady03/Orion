@@ -1733,15 +1733,20 @@ class CommandRouter:
             return
         team_task_id, approval_id = parts
         engines = getattr(self.orion, "execution_engines", None)
+        execution_engine = None
         if engines is not None:
             try:
-                engines.require_codex()
+                execution_engine = engines.require_codex()
             except ExecutionEngineUnavailable:
                 self._render_no_execution_engine(engines)
                 return
         print("Starting one approval-bound local Codex execution...")
         try:
-            run = self.orion.codex_bridge.execute(team_task_id, approval_id)
+            run = self.orion.codex_bridge.execute(
+                team_task_id,
+                approval_id,
+                execution_engine=execution_engine,
+            )
         except ExecutionEngineUnavailable:
             self._render_no_execution_engine(engines)
             return

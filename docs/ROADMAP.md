@@ -81,14 +81,23 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.5.7 — Forge: COMPLETE**
+**v0.5.7.1 — Forge: COMPLETE**
 
-Forge executes one immutable, workspace-bound AI Team plan through the local Codex
-CLI, persists strict implementation results, and stops at `Awaiting Review`.
+Forge now carries one validated execution-engine snapshot from command preflight into
+Codex Bridge, removing duplicate detection while preserving immutable approval and
+workspace boundaries.
 
 **Active milestone:** Review Gate and Workflow Engine Phase 1. Cross-platform
 diagnostics through `orion doctor` remains planned after the AI Team orchestration
 foundation.
+
+## v0.5.7.1 — Execution Engine Handoff ✅
+
+- [x] `team implement` resolves its implementation engine exactly once
+- [x] The validated engine and executable path are handed directly to Codex Bridge
+- [x] Direct bridge callers retain one safe pre-claim engine check
+- [x] Pass-then-fail duplicate-probe behavior is covered by regression tests
+- [x] Immutable approvals, workspace binding, and single-use claims remain unchanged
 
 ## v0.5.7 — Codex Bridge Phase 1 ✅
 
