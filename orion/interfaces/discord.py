@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
@@ -114,6 +116,73 @@ class DiscordRuntimeDiagnostics:
     last_ignore_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class DiscordImageIntent:
+    prompt: str
+    dedicated: bool = False
+
+
+class DiscordImageIntentDetector:
+    """Recognize only explicit generation language without an AI classification call."""
+
+    GENERATE = re.compile(
+        r"^(?:please\s+)?(?:create|generate|make|render)\s+(?:me\s+)?"
+        r"(?:an?\s+)?(?:image|picture|artwork|illustration|drawing)\s*"
+        r"(?:of\s+)?(?P<prompt>.*)$",
+        re.IGNORECASE,
+    )
+    DRAW = re.compile(r"^(?:please\s+)?draw\s+(?:me\s+)?(?P<prompt>.*)$", re.IGNORECASE)
+
+    @classmethod
+    def detect(cls, text: str) -> DiscordImageIntent | None:
+        value = str(text).strip()
+        if value.casefold().startswith("!image"):
+            boundary = value[6:7]
+            if boundary and not boundary.isspace():
+                return None
+            return DiscordImageIntent(value[6:].strip(), True)
+        for pattern in (cls.GENERATE, cls.DRAW):
+            matched = pattern.fullmatch(value)
+            if matched:
+                return DiscordImageIntent(matched.group("prompt").strip(), False)
+        return None
+
+
+@dataclass(frozen=True)
+class DiscordImagePolicy:
+    enabled: bool = False
+    allowed_user_ids: frozenset[int] = frozenset()
+    cooldown_seconds: float = 30.0
+    max_prompt_chars: int = 1_000
+    max_upload_bytes: int = 8_388_608
+    max_concurrent_channels: int = 2
+
+    @classmethod
+    def from_values(
+        cls,
+        enabled: bool = False,
+        allowed_user_ids: Iterable[object] = (),
+        cooldown_seconds: object = 30,
+        max_prompt_chars: object = 1_000,
+        max_upload_bytes: object = 8_388_608,
+        max_concurrent_channels: object = 2,
+    ) -> "DiscordImagePolicy":
+        try:
+            cooldown = max(0.0, min(float(cooldown_seconds), 86_400.0))
+            prompt_limit = max(1, min(int(max_prompt_chars), 4_000))
+            upload_limit = max(1, min(int(max_upload_bytes), 100_000_000))
+            concurrent = max(1, min(int(max_concurrent_channels), 16))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Discord image-generation limits are invalid.") from exc
+        return cls(
+            bool(enabled), DiscordAccessPolicy._parse_ids(allowed_user_ids), cooldown,
+            prompt_limit, upload_limit, concurrent,
+        )
+
+    def permits(self, user_id: int) -> bool:
+        return int(user_id) in self.allowed_user_ids
+
+
 class DiscordMessageHandler:
     """Provider-independent message handling, kept testable without discord.py."""
 
@@ -169,6 +238,9 @@ class DiscordBotInterface:
         allowed_channel_ids: Iterable[object] = (),
         allowed_role_ids: Iterable[object] = (),
         allow_channel_members: bool = False,
+        image_service=None,
+        image_policy: DiscordImagePolicy | None = None,
+        monotonic=None,
     ):
         self.orion = orion
         self.token = token.strip()
@@ -179,6 +251,12 @@ class DiscordBotInterface:
             allow_channel_members,
         )
         self._last_route: str | None = None
+        self.image_service = image_service
+        self.image_policy = image_policy or DiscordImagePolicy()
+        self._monotonic = monotonic or time.monotonic
+        self._image_lock = threading.Lock()
+        self._image_channels: set[int] = set()
+        self._image_cooldowns: dict[tuple[int, int], float] = {}
 
         def route(prompt: str) -> str:
             result = orion.request_router.route(prompt)
@@ -189,6 +267,104 @@ class DiscordBotInterface:
         self.thread: threading.Thread | None = None
         self.error: str = ""
         self.diagnostics = DiscordRuntimeDiagnostics()
+
+    @staticmethod
+    def _image_error_label(category: str) -> str:
+        return {
+            "credential_missing": "Provider Unavailable",
+            "client_missing": "Provider Unavailable",
+            "provider_unavailable": "Provider Unavailable",
+            "rate_limited": "Rate Limited",
+            "timed_out": "Timed Out",
+            "invalid_response": "Invalid Response",
+            "response_too_large": "Invalid Response",
+            "content_rejected": "Request Rejected",
+            "disabled": "Disabled",
+        }.get(category, "Generation Failed")
+
+    async def handle_image_request(self, message, text: str, discord_module) -> bool:
+        """Generate and attach one image after normal Discord inbound checks pass."""
+        intent = DiscordImageIntentDetector.detect(text)
+        if intent is None:
+            return False
+        async def reply(content: str, **kwargs) -> None:
+            await message.reply(content, mention_author=False, **kwargs)
+            self.diagnostics.replies_sent += 1
+        policy = self.image_policy
+        user_id = int(message.author.id)
+        channel_id = int(getattr(message.channel, "id", 0) or 0)
+        guild_id = int(getattr(getattr(message, "guild", None), "id", 0) or 0)
+        if message.guild is None:
+            await reply("Image generation is not enabled in direct messages.")
+            return True
+        if not policy.enabled or self.image_service is None:
+            await reply("Discord image generation is disabled.")
+            return True
+        if not policy.permits(user_id):
+            await reply("This Discord account is not approved for image generation.")
+            return True
+        if not intent.prompt:
+            await reply("Usage: !image <prompt>")
+            return True
+        if len(intent.prompt) > policy.max_prompt_chars:
+            await reply(f"Image prompt exceeds the {policy.max_prompt_chars}-character Discord limit.")
+            return True
+        key = (user_id, channel_id)
+        now = self._monotonic()
+        with self._image_lock:
+            previous = self._image_cooldowns.get(key, -1e30)
+            if now - previous < policy.cooldown_seconds:
+                remaining = max(1, int(policy.cooldown_seconds - (now - previous)))
+                cooldown_message = f"Image generation cooldown is active. Try again in {remaining} seconds."
+            elif channel_id in self._image_channels or len(self._image_channels) >= policy.max_concurrent_channels:
+                cooldown_message = "An image generation is already active for this channel or the global Discord limit is busy."
+            else:
+                cooldown_message = ""
+                self._image_cooldowns[key] = now
+                self._image_channels.add(channel_id)
+        if cooldown_message:
+            await reply(cooldown_message)
+            return True
+        try:
+            await reply("Generating an image...")
+            result = await asyncio.to_thread(
+                self.image_service.generate,
+                intent.prompt,
+                source_interface="discord",
+                discord_user_id=str(user_id),
+                discord_guild_id=str(guild_id),
+                discord_channel_id=str(channel_id),
+            )
+            if result.status != "succeeded" or not result.artifacts:
+                label = self._image_error_label(result.safe_error_category)
+                await reply(f"Image generation could not be completed: {label}.")
+                return True
+            artifact = result.artifacts[0]
+            if artifact.byte_size > policy.max_upload_bytes:
+                self.image_service.record_delivery(
+                    result.image_id, succeeded=False, byte_size=artifact.byte_size,
+                    category="upload_too_large",
+                )
+                await reply(f"Image {result.image_id} was generated, but it exceeds the Discord upload limit.")
+                return True
+            path = self.image_service.store.artifact_path(artifact)
+            attachment = discord_module.File(str(path), filename=artifact.filename)
+            caption = (
+                "Generated by Orion\n"
+                f"Provider: {result.resolved_provider.title()}\n"
+                f"Image ID: {result.image_id}"
+            )
+            await reply(caption, file=attachment)
+            self.image_service.record_delivery(
+                result.image_id, succeeded=True, byte_size=artifact.byte_size,
+            )
+            return True
+        except Exception:
+            await reply("Image generation could not be completed: Generation Failed.")
+            return True
+        finally:
+            with self._image_lock:
+                self._image_channels.discard(channel_id)
 
     def start(self) -> None:
         if not self.token:
@@ -293,13 +469,20 @@ class DiscordBotInterface:
             if client.user:
                 text = text.replace(f"<@{client.user.id}>", "").replace(f"<@!{client.user.id}>", "")
             text = interface.handler.normalize(text)
-            d.last_request = text
+            image_intent = DiscordImageIntentDetector.detect(text)
+            d.last_request = "[image generation request]" if image_intent else text
             print(
                 f"[Discord] Request from {message.author.id} in channel "
-                f"{getattr(message.channel, 'id', 'DM')}: {text}"
+                f"{getattr(message.channel, 'id', 'DM')}: "
+                f"{'[image generation request]' if image_intent else text}"
             )
 
             async with message.channel.typing():
+                if image_intent is not None:
+                    handled = await interface.handle_image_request(message, text, discord)
+                    if handled:
+                        d.last_route = "image"
+                        return
                 try:
                     answer = await asyncio.to_thread(
                         interface.handler.handle,

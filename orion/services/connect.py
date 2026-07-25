@@ -86,6 +86,7 @@ class ConnectService:
         vault=None,
         config_manager=None,
         discord_bot_runtime=None,
+        image_service=None,
     ):
         self.email_service = gmail if isinstance(gmail, EmailService) else None
         self.gmail = None if self.email_service is not None else gmail
@@ -93,6 +94,7 @@ class ConnectService:
         self.vault = vault
         self.config_manager = config_manager
         self.discord_bot_runtime = discord_bot_runtime
+        self.image_service = image_service
 
     def _discord_bot_status(self) -> ConnectStatus | None:
         """Return Discord bot status when the gateway integration is configured.
@@ -173,6 +175,24 @@ class ConnectService:
                     statuses.append(ConnectStatus("discord", "Discord", True, False, str(exc)))
             else:
                 statuses.append(ConnectStatus("discord", "Discord", False, False, "Not configured"))
+        if self.config_manager is not None:
+            image_enabled = bool(
+                self.config_manager.get("connect.discord_bot.image_generation.enabled", False)
+            )
+            if not image_enabled:
+                statuses.append(ConnectStatus(
+                    "discord_image", "Image Generation", False, False, "Disabled",
+                ))
+            elif self.image_service is None:
+                statuses.append(ConnectStatus(
+                    "discord_image", "Image Generation", True, False, "Image Center unavailable",
+                ))
+            else:
+                image_status = self.image_service.get_status()
+                statuses.append(ConnectStatus(
+                    "discord_image", "Image Generation", True, image_status.available,
+                    image_status.message,
+                ))
         return statuses
 
     def unread_count(self) -> int:

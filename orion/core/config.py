@@ -37,6 +37,7 @@ class ConfigManager:
         "team",
         "vault",
         "connect",
+        "image",
     }
 
     def __init__(

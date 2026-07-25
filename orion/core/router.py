@@ -12,6 +12,7 @@ from pathlib import Path
 import shlex
 
 from orion.agents import AgentDefinition, AgentPermissions
+from orion.agents.cli import AgentCommandHandler
 from orion.services.team import TeamPlanningError
 from orion.services.codex_bridge import CodexBridgeError, PlanSnapshot
 from orion.services.execution_engines import ExecutionEngineUnavailable
@@ -142,6 +143,39 @@ class CommandRouter:
         elif command_lower.startswith("discord send "):
             self.discord_send(raw_command[len("discord send "):].strip())
 
+        elif command_lower in {"image", "image status"}:
+            self.image_status(show_commands=True)
+
+        elif command_lower == "image providers":
+            self.image_providers()
+
+        elif command_lower == "image provider use":
+            print("Usage: image provider use <provider>")
+
+        elif command_lower.startswith("image provider use "):
+            self.image_provider_use(raw_command[len("image provider use "):].strip())
+
+        elif command_lower == "image generate":
+            print('Usage: image generate "<prompt>"')
+
+        elif command_lower.startswith("image generate "):
+            self.image_generate(raw_command[len("image generate "):].strip())
+
+        elif command_lower == "image history":
+            self.image_history()
+
+        elif command_lower == "image show":
+            print("Usage: image show <image-id>")
+
+        elif command_lower.startswith("image show "):
+            self.image_show(raw_command[len("image show "):].strip())
+
+        elif command_lower == "image save":
+            print("Usage: image save <image-id> <workspace-relative-path>")
+
+        elif command_lower.startswith("image save "):
+            self.image_save(raw_command[len("image save "):].strip())
+
         elif command_lower in {"change ollama model", "ollama model", "ollama models", "ai models"}:
             self.change_ollama_model()
 
@@ -220,6 +254,14 @@ class CommandRouter:
         elif command_lower in {"benchmark models", "ai benchmark"}:
             self.benchmark_ai_models()
 
+        elif (
+            getattr(getattr(self.orion, "agents", None), "is_production_agent_manager", False)
+            and (command_lower == "agent" or command_lower.startswith("agent "))
+        ):
+            AgentCommandHandler(self.orion.agents).handle(
+                raw_command[len("agent"):].strip()
+            )
+
         elif command_lower in {"agent", "agent list"}:
             self.show_agents()
 
@@ -274,6 +316,20 @@ class CommandRouter:
         elif command_lower.startswith("team role reset "):
             self.reset_team_role(raw_command[len("team role reset "):].strip())
 
+        elif command_lower == "team create":
+            print('Usage: team create "<goal>"')
+
+        elif command_lower.startswith("team create "):
+            self.team_create(raw_command[len("team create "):].strip())
+
+        elif command_lower == "team agents add":
+            print("Usage: team agents add <agent>")
+
+        elif command_lower.startswith("team agents add "):
+            self.team_agents_add(
+                raw_command[len("team agents add "):].strip()
+            )
+
         elif command_lower == "team plan":
             print('Usage: team plan [--manual] "<goal>"')
 
@@ -299,10 +355,10 @@ class CommandRouter:
             self.team_implement(raw_command[len("team implement "):].strip())
 
         elif command_lower == "team run":
-            print("Usage: team run <run-id>")
+            self.team_agent_run("")
 
         elif command_lower.startswith("team run "):
-            self.team_run_status(raw_command[len("team run "):].strip())
+            self.team_run(raw_command[len("team run "):].strip())
 
         elif command_lower == "team test":
             print("Usage: team test <run-id|last>")
@@ -698,14 +754,22 @@ class CommandRouter:
         print("    ai health                  Show routing health by provider")
         print()
         print("  Agent Registry (planning only)")
-        print("    agent list                 Show external agent definitions")
-        print("    agent show <name>          Inspect instructions and permissions")
-        print("    agent create               Create a least-privilege agent")
-        print("    agent enable|disable <name> Change whether an agent may be assigned")
+        print("    agent list [--scope ...]   List permanent and workspace agents")
+        print("    agent show <name>          Inspect role, routing, and permissions")
+        print("    agent templates            List copyable starter templates")
+        print("    agent create               Guided reusable-agent creation")
+        print("    agent edit|delete <name>   Update or remove an agent")
+        print("    agent enable|disable <name> Change whether an agent may be selected")
+        print("    agent validate <name>      Validate a stored agent definition")
+        print("    agent promote <name>       Move a workspace agent to permanent scope")
+        print("    agent copy <name> <new>    Copy an agent under a new identity")
         print("    agent test <name>          Run one bounded structured-output test")
         print()
         print("  AI Team & Codex Bridge")
         print('    team plan "<goal>"         Plan, then offer interactive approval')
+        print('    team run "<goal>" --agents a,b Run an ordered reusable-agent job')
+        print('    team create "<goal>"       Start a workspace-local agent team draft')
+        print("    team agents add <agent>    Add an agent to the draft in order")
         print('    team plan --manual "<goal>" Plan without an approval prompt')
         print("    team roles                 Show all model and engine assignments")
         print("    team role show <role>      Inspect one role assignment")
@@ -735,6 +799,14 @@ class CommandRouter:
         print("    email thread <provider:id> Read a bounded conversation")
         print("    email summarize [provider] Summarize bounded unread mail locally")
         print("    connect                    Open the unified Connect Center")
+        print("    image                      Open provider-neutral Image Center")
+        print("    image status               Show provider, model, defaults, and external store")
+        print("    image providers            Show registered image-provider readiness")
+        print("    image provider use <name>  Select image provider without changing text AI")
+        print('    image generate "<prompt>" Generate one external image artifact')
+        print("    image history              Show bounded recent image attempts")
+        print("    image show <image-id>      Show safe image metadata")
+        print("    image save <id> <path>     Approval-gated workspace copy; never overwrite")
         print()
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
@@ -799,6 +871,7 @@ class CommandRouter:
             ("Weather", self.orion.weather_service.get_status().message),
             ("Calendar", self.orion.calendar_service.get_status().message),
             ("Email", self.orion.email_service.get_status().message),
+            ("Image Center", self.orion.image_service.get_status().message),
             ("Services", f"{len(self.orion.services)} registered"),
         )
         print("\nOrion Status")
@@ -1136,6 +1209,14 @@ class CommandRouter:
         print(f"Owners     : {len(owners)}")
         print(f"Channels   : {len(channels)} allowed")
         print(f"Roles      : {len(roles)} required")
+        image_enabled = bool(
+            self.orion.config_manager.get("connect.discord_bot.image_generation.enabled", False)
+        )
+        image_users = self.orion.config_manager.get(
+            "connect.discord_bot.image_generation.allowed_user_ids", []
+        ) or []
+        print(f"Images     : {'Enabled' if image_enabled else 'Disabled'}")
+        print(f"Image Users: {len(image_users)} approved")
         if configured and enabled and not running:
             print("Restart Orion to start the Discord interface automatically.")
 
@@ -1445,6 +1526,172 @@ class CommandRouter:
             print("[OK] Discord message posted.")
         except Exception as exc:
             print(f"Could not post to Discord: {exc}")
+
+    @staticmethod
+    def _image_prompt(value: str) -> str:
+        try:
+            parts = shlex.split(value)
+        except ValueError as exc:
+            raise ValueError("Image prompt contains unmatched quotes.") from exc
+        return " ".join(parts).strip()
+
+    def image_status(self, *, show_commands: bool = False):
+        service = self.orion.image_service
+        active = str(self.orion.config_manager.get("image.provider", "openai")).strip().lower()
+        status = next((item for item in service.statuses() if item.provider == active), None)
+        print("Image Center")
+        print("-" * 62)
+        print(f"Enabled        : {'Yes' if self.orion.config_manager.get('image.enabled', True) else 'No'}")
+        print(f"Active Provider: {active or 'None'}")
+        print(f"Provider State : {status.state.replace('_', ' ').title() if status else 'Unknown'}")
+        print(f"Model          : {status.model if status and status.model else 'Not selected'}")
+        print(f"Default Size   : {self.orion.config_manager.get('image.openai.size', '1024x1024')}")
+        print(f"Quality        : {self.orion.config_manager.get('image.openai.quality', 'medium')}")
+        print(f"Format         : {self.orion.config_manager.get('image.output_format', 'png')}")
+        print(f"External Store : {service.store.root}")
+        latest = service.history(1)
+        if latest:
+            item = latest[0]
+            print(f"Latest         : {item.image_id} | {item.status.title()} | {item.prompt_summary[:80]}")
+        else:
+            print("Latest         : No image attempts")
+        if show_commands:
+            print("Commands: image providers | image provider use <provider>")
+            print('          image generate "<prompt>" | image history | image show <image-id>')
+            print("          image save <image-id> <workspace-relative-path>")
+
+    def image_providers(self):
+        print("Image Providers")
+        print("-" * 62)
+        active = str(self.orion.config_manager.get("image.provider", "openai")).strip().lower()
+        for item in self.orion.image_service.statuses():
+            marker = "*" if item.provider == active else " "
+            print(
+                f"{marker} {item.display_name:<12} {item.state.replace('_', ' ').title():<20} "
+                f"{item.model or 'No model'}"
+            )
+            if item.detail:
+                print(f"    {item.detail}")
+        print("* selected image provider; independent from Orion's text provider")
+
+    def image_provider_use(self, provider: str):
+        if not provider:
+            print("Usage: image provider use <provider>")
+            return
+        try:
+            status = self.orion.image_service.set_provider(provider)
+            print(f"[OK] Image provider selected: {status.display_name} ({status.model})")
+            print("The active text provider was not changed.")
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"Could not select image provider: {exc}")
+
+    def image_generate(self, value: str):
+        try:
+            prompt = self._image_prompt(value)
+            if not prompt:
+                print('Usage: image generate "<prompt>"')
+                return
+            print("Generating one image through Image Center...")
+            result = self.orion.image_service.generate(prompt, source_interface="cli")
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"Image generation failed safely: {type(exc).__name__}")
+            return
+        if result.status != "succeeded" or not result.artifacts:
+            category = result.safe_error_category.replace("_", " ").title() or "Generation Failed"
+            print(f"Image generation unavailable: {category}")
+            print(f"Image ID: {result.image_id}")
+            return
+        artifact = result.artifacts[0]
+        print("[OK] Image generated")
+        print(f"Image ID : {result.image_id}")
+        print(f"Provider : {result.resolved_provider}")
+        print(f"Model    : {result.resolved_model}")
+        print(f"Size     : {artifact.width or '?'}x{artifact.height or '?'}")
+        print(f"Format   : {artifact.mime_type}")
+        print(f"Bytes    : {artifact.byte_size}")
+        print(f"Artifact : {self.orion.image_service.store.artifact_path(artifact)}")
+        print(f"Duration : {result.duration_seconds:.2f}s")
+        if result.estimated_cost_usd is not None:
+            print(f"Est. Cost: ${result.estimated_cost_usd:.4f}")
+        print("The image was not copied into the active workspace.")
+
+    def image_history(self):
+        limit = int(self.orion.config_manager.get("image.history_display_limit", 10))
+        values = self.orion.image_service.history(limit)
+        print("Image History")
+        print("-" * 62)
+        if not values:
+            print("No image attempts have been recorded.")
+            return
+        for item in values:
+            provider = item.resolved_provider or item.requested_provider or "none"
+            print(
+                f"{item.created_at} | {item.image_id} | {item.status.title()} | "
+                f"{provider} | {item.prompt_summary[:60]}"
+            )
+
+    def image_show(self, image_id: str):
+        try:
+            result = self.orion.image_service.show(image_id)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Image not found: {exc}")
+            return
+        print("Image Metadata")
+        print("-" * 62)
+        print(f"Image ID : {result.image_id}")
+        print(f"Status   : {result.status.title()}")
+        print(f"Provider : {result.resolved_provider or result.requested_provider or 'None'}")
+        print(f"Model    : {result.resolved_model or result.requested_model or 'None'}")
+        print(f"Created  : {result.created_at}")
+        print(f"Prompt   : {result.prompt_summary}")
+        print(f"Error    : {result.safe_error_category or 'None'}")
+        for artifact in result.artifacts:
+            print(f"Artifact : {self.orion.image_service.store.artifact_path(artifact)}")
+            print(f"SHA-256 : {artifact.sha256}")
+
+    def image_save(self, value: str):
+        try:
+            parts = shlex.split(value)
+        except ValueError:
+            parts = []
+        if len(parts) != 2:
+            print("Usage: image save <image-id> <workspace-relative-path>")
+            return
+        image_id, destination = parts
+        try:
+            plan = self.orion.image_service.prepare_save(image_id, destination)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            print(f"Image save refused: {exc}")
+            return
+        print("Image workspace copy")
+        print("-" * 62)
+        print(f"Image ID   : {plan.image_id}")
+        print(f"Source     : {plan.source}")
+        print(f"Destination: {self.orion.workspace_manager.root / plan.destination}")
+        print(f"Size       : {plan.byte_size} bytes")
+        print(f"SHA-256    : {plan.sha256}")
+        print(f"Exists     : {'Yes' if plan.exists else 'No'}")
+        if plan.exists:
+            print("Image not copied: Orion never overwrites workspace files.")
+            return
+        try:
+            answer = input("Copy this image into the active workspace? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer not in {"y", "yes"}:
+            print("Image not copied.")
+            return
+        try:
+            action = self.orion.action_service.create(
+                "image_save", {"image_id": image_id, "destination": destination},
+                source="cli", requires_approval=True,
+            )
+            self.orion.action_service.approve(action.id)
+            result = self.orion.action_service.execute(action)
+        except (KeyError, OSError, PermissionError, RuntimeError, ValueError) as exc:
+            print(f"Image save failed safely: {exc}")
+            return
+        print(f"[OK] {result.output}" if result.success else f"Image save failed: {result.error}")
 
     def show_vault(self):
         print("=" * 62)
@@ -2053,6 +2300,177 @@ class CommandRouter:
         attributes = getattr(team, "__dict__", {})
         return attributes.get("role_registry") if isinstance(attributes, dict) else None
 
+    def team_create(self, payload: str):
+        try:
+            goal = self._unquote_team_goal(payload)
+        except ValueError as exc:
+            print(f"Could not read team goal: {exc}")
+            return None
+        if not goal:
+            print('Usage: team create "<goal>"')
+            return None
+        drafts = getattr(self.orion, "agent_team_drafts", None)
+        if drafts is None:
+            print("Workspace agent team drafts are not available.")
+            return None
+        try:
+            draft = drafts.create(goal)
+        except (OSError, PermissionError, ValueError) as exc:
+            print(f"Agent team draft was not created: {exc}")
+            return None
+        print(f"[OK] Agent team draft created: {draft.goal}")
+        print("Add agents in order with: team agents add <agent>")
+        print("Run the selected team with: team run")
+        return draft
+
+    def team_agents_add(self, reference: str):
+        drafts = getattr(self.orion, "agent_team_drafts", None)
+        if drafts is None:
+            print("Workspace agent team drafts are not available.")
+            return None
+        try:
+            agent = self.orion.agents.load(reference)
+            if not agent.enabled:
+                raise ValueError(f"Agent is disabled: {agent.agent_id}")
+            draft = drafts.add(agent.agent_id)
+        except (
+            FileNotFoundError, OSError, PermissionError, RuntimeError, ValueError
+        ) as exc:
+            print(f"Agent was not added: {exc}")
+            return None
+        print(
+            f"[OK] Added {agent.name}. Order: "
+            + " -> ".join(draft.selected_agents)
+        )
+        return draft
+
+    def team_run(self, payload: str):
+        value = payload.strip()
+        if (
+            getattr(getattr(self.orion, "agents", None), "is_production_agent_manager", False)
+            and (value[:1] in {'"', "'"} or "--agents" in value)
+        ):
+            return self.team_agent_run(value)
+        return self.team_run_status(value)
+
+    def team_agent_run(self, payload: str):
+        goal = ""
+        selected: list[str] = []
+        provider = "auto"
+        model = "auto"
+        if payload.strip():
+            try:
+                tokens = shlex.split(payload, posix=True)
+            except ValueError as exc:
+                print(f"Could not read agent team job: {exc}")
+                return None
+            positional: list[str] = []
+            index = 0
+            while index < len(tokens):
+                token = tokens[index]
+                if token in {"--agents", "--provider", "--model"}:
+                    if index + 1 >= len(tokens):
+                        print(f"Option {token} requires a value.")
+                        return None
+                    value = tokens[index + 1]
+                    if token == "--agents":
+                        selected = [
+                            item.strip() for item in value.split(",") if item.strip()
+                        ]
+                    elif token == "--provider":
+                        provider = value
+                    else:
+                        model = value
+                    index += 2
+                    continue
+                if token.startswith("--"):
+                    print(f"Unknown team run option: {token}")
+                    return None
+                positional.append(token)
+                index += 1
+            goal = " ".join(positional).strip()
+        else:
+            drafts = getattr(self.orion, "agent_team_drafts", None)
+            if drafts is None:
+                print(
+                    'Usage: team run "<goal>" --agents planner,engineer,reviewer'
+                )
+                return None
+            try:
+                draft = drafts.load()
+            except (FileNotFoundError, OSError, PermissionError, ValueError) as exc:
+                print(str(exc))
+                return None
+            goal = draft.goal
+            selected = list(draft.selected_agents)
+
+        if not goal:
+            print('Usage: team run "<goal>" [--agents agent-1,agent-2]')
+            return None
+        if not selected:
+            try:
+                available = [
+                    agent for agent in self.orion.agents.all() if agent.enabled
+                ]
+            except (OSError, PermissionError, ValueError) as exc:
+                print(f"Could not list agents: {exc}")
+                return None
+            if not available:
+                print(
+                    "No enabled agents are available. Create one with "
+                    "agent create or agent create --from-template <template>."
+                )
+                return None
+            print("Choose agents in execution order:")
+            for number, agent in enumerate(available, 1):
+                print(
+                    f"  [{number}] {agent.name} ({agent.agent_id}) - {agent.role.job}"
+                )
+            answer = input(
+                "Selected numbers or IDs, comma-separated: "
+            ).strip()
+            for item in (part.strip() for part in answer.split(",")):
+                if not item:
+                    continue
+                if item.isdigit() and 1 <= int(item) <= len(available):
+                    selected.append(available[int(item) - 1].agent_id)
+                else:
+                    selected.append(item)
+        if not selected:
+            print("No agents were selected; the job was not started.")
+            return None
+        print("AI Team agent order: " + " -> ".join(selected))
+        try:
+            task = self.orion.team.plan(
+                goal,
+                selected_agents=selected,
+                provider=provider,
+                model=model,
+            )
+        except (OSError, PermissionError, TeamPlanningError, ValueError) as exc:
+            print(f"AI Team agent job failed: {exc}")
+            task_id = getattr(exc, "task_id", "")
+            if task_id:
+                print(f"Saved task: {task_id}")
+            return None
+        drafts = getattr(self.orion, "agent_team_drafts", None)
+        if drafts is not None and not payload.strip():
+            try:
+                drafts.clear()
+            except OSError:
+                pass
+        self._render_team_task(task)
+        return task
+
+    @staticmethod
+    def _unquote_team_goal(payload: str) -> str:
+        goal = payload.strip()
+        if goal[:1] in {'"', "'"}:
+            if len(goal) < 2 or goal[-1] != goal[0]:
+                raise ValueError("Team goal closing quote is missing.")
+            goal = goal[1:-1].strip()
+        return goal
+
     def team_plan(self, payload: str):
         goal = payload.strip()
         manual_mode = False
@@ -2484,6 +2902,16 @@ class CommandRouter:
                 if assignment.fallback_reason:
                     print(f"    Fallback: {assignment.fallback_reason}")
 
+        snapshots = getattr(task, "agent_snapshots", None)
+        if isinstance(snapshots, (list, tuple)) and snapshots:
+            print("\nSelected Agents (ordered snapshots)")
+            for index, snapshot in enumerate(snapshots, 1):
+                print(
+                    f"  {index}. {snapshot.name} ({snapshot.agent_id}) - "
+                    f"{snapshot.job} | {snapshot.actual_provider}:{snapshot.actual_model}"
+                )
+                print(f"     Responsibility: {snapshot.responsibility}")
+
         labels = {
             "architect": "Architect",
             "engineer_reviewer": "Engineering Reviewer",
@@ -2509,6 +2937,28 @@ class CommandRouter:
                 if metadata.fallback_reason:
                     print(f"  Fallback: {metadata.fallback_reason}")
                 print(f"  Duration: {metadata.duration_seconds:.3f}s")
+
+        if isinstance(snapshots, (list, tuple)) and snapshots:
+            for snapshot in snapshots:
+                artifact = task.artifact(snapshot.agent_id)
+                if artifact is None:
+                    continue
+                print(f"\n{snapshot.name} Contribution")
+                print(f"  {artifact.output.summary}")
+                for item in artifact.output.recommendations:
+                    print(f"  - {item}")
+                if artifact.output.risks:
+                    print("  Risks:")
+                    for risk in artifact.output.risks:
+                        print(f"    - {risk}")
+                metadata = getattr(artifact, "role_metadata", None)
+                if metadata is not None:
+                    print(
+                        f"  Assignment: {metadata.requested_assignment} -> "
+                        f"{metadata.actual_assignment}"
+                    )
+                    if metadata.fallback_reason:
+                        print(f"  Fallback: {metadata.fallback_reason}")
 
         if task.final_plan:
             print("\nFinal Plan")
@@ -2759,6 +3209,9 @@ class CommandRouter:
         self.orion.project_context.bind(selected)
         self.orion.task_manager.bind(selected)
         self.orion.codex_bridge.bind(selected, self.orion.workspace_manager.capabilities)
+        image_service = getattr(self.orion, "image_service", None)
+        if image_service is not None:
+            image_service.bind(selected)
         self.orion.conversation.bind(selected)
         self.orion.knowledge_index.bind(selected)
         self.orion.action_history.bind(selected)

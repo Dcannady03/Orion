@@ -6,13 +6,15 @@ import math
 import os
 import re
 import stat
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable
 from uuid import uuid4
 
+from orion.agents.models import AgentRunSnapshot, normalize_agent_id
+from orion.agents.prompt import AgentPromptBuilder
 from orion.services.team_roles import (
     ResolvedTeamRole,
     TeamRoleRegistry,
@@ -308,6 +310,8 @@ class TeamTask:
     messages: list[TeamMessage] = field(default_factory=list)
     usage: list[RoleUsage] = field(default_factory=list)
     role_assignments: list[TeamRoleSnapshot] = field(default_factory=list)
+    selected_agents: list[str] = field(default_factory=list)
+    agent_snapshots: list[AgentRunSnapshot] = field(default_factory=list)
     final_plan: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
@@ -345,6 +349,8 @@ class TeamTask:
             "messages": [asdict(item) for item in self.messages],
             "usage": [asdict(item) for item in self.usage],
             "role_assignments": [item.to_dict() for item in self.role_assignments],
+            "selected_agents": list(self.selected_agents),
+            "agent_snapshots": [item.to_dict() for item in self.agent_snapshots],
             "final_plan": list(self.final_plan),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -355,11 +361,16 @@ class TeamTask:
     def from_dict(cls, value: dict[str, Any]) -> "TeamTask":
         if isinstance(value, dict) and "role_assignments" not in value:
             value = {**value, "role_assignments": []}
+        if isinstance(value, dict) and "selected_agents" not in value:
+            value = {**value, "selected_agents": []}
+        if isinstance(value, dict) and "agent_snapshots" not in value:
+            value = {**value, "agent_snapshots": []}
         value = _exact_mapping(
             value,
             {
                 "task_id", "goal", "status", "artifacts", "messages", "usage",
-                "role_assignments", "final_plan", "created_at", "updated_at", "error",
+                "role_assignments", "selected_agents", "agent_snapshots",
+                "final_plan", "created_at", "updated_at", "error",
             },
             "Team task",
         )
@@ -374,7 +385,10 @@ class TeamTask:
         updated_at, updated = _timestamp(value["updated_at"], "Team task updated_at")
         if updated < created:
             raise ValueError("Team task updated_at cannot precede created_at.")
-        for field_name in ("artifacts", "messages", "usage", "role_assignments"):
+        for field_name in (
+            "artifacts", "messages", "usage", "role_assignments",
+            "selected_agents", "agent_snapshots",
+        ):
             if not isinstance(value[field_name], list):
                 raise ValueError(f"Team task {field_name} must be a JSON array.")
         artifacts = [TeamArtifact.from_value(item) for item in value["artifacts"]]
@@ -385,6 +399,21 @@ class TeamTask:
         ]
         if len(assignments) > 5 or len({item.role for item in assignments}) != len(assignments):
             raise ValueError("Team task role assignments are invalid or duplicated.")
+        try:
+            selected_agents = [
+                normalize_agent_id(item) for item in value["selected_agents"]
+            ]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Team task selected_agents must contain valid agent IDs.") from exc
+        if len(selected_agents) > 20 or len(set(selected_agents)) != len(selected_agents):
+            raise ValueError("Team task selected agents are invalid or duplicated.")
+        snapshots = [
+            AgentRunSnapshot.from_value(item) for item in value["agent_snapshots"]
+        ]
+        if len(snapshots) != len(selected_agents):
+            raise ValueError("Team task requires one snapshot for every selected agent.")
+        if [item.agent_id for item in snapshots] != selected_agents:
+            raise ValueError("Team task agent snapshot order must match selected_agents.")
         final_plan = _string_list(value["final_plan"], "Team task final_plan")
         error = _optional_string(value["error"], "Team task error")
         if status == TEAM_STATUS_AWAITING_APPROVAL and not final_plan:
@@ -399,6 +428,8 @@ class TeamTask:
             messages=messages,
             usage=usage,
             role_assignments=assignments,
+            selected_agents=selected_agents,
+            agent_snapshots=snapshots,
             final_plan=final_plan,
             created_at=created_at,
             updated_at=updated_at,
@@ -495,6 +526,7 @@ risks (array of concise risks), next_action (string)."""
         provider_factory,
         agent_registry=None,
         role_registry: TeamRoleRegistry | None = None,
+        prompt_builder: AgentPromptBuilder | None = None,
         *,
         now: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
@@ -507,10 +539,18 @@ risks (array of concise risks), next_action (string)."""
             config_manager,
             agent_registry=agent_registry,
         )
+        self.prompt_builder = prompt_builder or AgentPromptBuilder()
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._id_factory = id_factory or self._new_task_id
 
-    def plan(self, goal: str) -> TeamTask:
+    def plan(
+        self,
+        goal: str,
+        *,
+        selected_agents: list[str] | tuple[str, ...] | None = None,
+        provider: str = "auto",
+        model: str = "auto",
+    ) -> TeamTask:
         if not bool(self.config.get("team.enabled", True)):
             raise ValueError("AI Team is disabled in configuration.")
         normalized = " ".join(str(goal).split()).strip()
@@ -518,6 +558,13 @@ risks (array of concise risks), next_action (string)."""
             raise ValueError("AI Team goal cannot be empty.")
         if len(normalized) > 4000:
             raise ValueError("AI Team goal must be 4,000 characters or fewer.")
+        if selected_agents is not None:
+            return self._plan_with_agents(
+                normalized,
+                selected_agents,
+                provider=provider,
+                model=model,
+            )
 
         # Validate both active planning assignments before task persistence or a
         # provider call. Other workflow roles are snapshotted for transparent
@@ -613,6 +660,146 @@ risks (array of concise risks), next_action (string)."""
                 raise TeamPlanningError(str(exc), task_id=task.task_id) from exc
             raise TeamPlanningError(task.error, task_id=task.task_id) from exc
 
+    def _plan_with_agents(
+        self,
+        goal: str,
+        selected_agents: list[str] | tuple[str, ...],
+        *,
+        provider: str,
+        model: str,
+    ) -> TeamTask:
+        if self.agents is None or not hasattr(self.agents, "resolution_candidates"):
+            raise ValueError("The production Agent System is not available.")
+        references = [str(item).strip() for item in selected_agents if str(item).strip()]
+        if not references:
+            raise ValueError("Select at least one enabled agent for the team job.")
+        if len(references) > 20:
+            raise ValueError("A team job cannot select more than 20 agents.")
+
+        agents = [self.agents.load(reference) for reference in references]
+        identities = [item.agent_id for item in agents]
+        if len(set(identities)) != len(identities):
+            raise ValueError("Selected agents cannot contain duplicates.")
+        disabled = [item.agent_id for item in agents if not item.enabled]
+        if disabled:
+            raise ValueError(
+                "Disabled agents cannot be selected: " + ", ".join(disabled)
+            )
+        candidate_sets = [
+            self.agents.resolution_candidates(
+                agent,
+                goal=goal,
+                provider=provider,
+                model=model,
+            )
+            for agent in agents
+        ]
+        responsibilities = [
+            f"Contribute as {agent.role.job}"
+            + (f", specializing in {agent.role.specialty}" if agent.role.specialty else "")
+            for agent in agents
+        ]
+        snapshots = [
+            self.prompt_builder.build_snapshot(agent, candidates[0], responsibility)
+            for agent, candidates, responsibility in zip(
+                agents, candidate_sets, responsibilities
+            )
+        ]
+        timestamp = self._timestamp()
+        task = TeamTask(
+            task_id=self._id_factory(),
+            goal=goal,
+            status=TEAM_STATUS_PLANNING,
+            role_assignments=[],
+            selected_agents=identities,
+            agent_snapshots=snapshots,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+        task.messages.append(
+            TeamMessage("coordinator", identities[0], goal, timestamp)
+        )
+        self.store.save(task)
+
+        earlier_outputs: list[dict[str, Any]] = []
+        active_agent = identities[0]
+        try:
+            for index, (agent, candidates, responsibility) in enumerate(zip(
+                agents, candidate_sets, responsibilities
+            )):
+                active_agent = agent.agent_id
+                system_prompt = self.prompt_builder.build_system_prompt(
+                    agent,
+                    goal=goal,
+                    workspace=self.agents.workspace_root,
+                    responsibility=responsibility,
+                    earlier_outputs=earlier_outputs,
+                )
+                prompt = (
+                    f"Job goal:\n{goal}\n\n"
+                    f"Your responsibility:\n{responsibility}\n\n"
+                    "Return a concrete contribution that can be handed to the next "
+                    "selected agent. Put ordered, actionable work in recommendations."
+                )
+                output, usage, metadata, selected = self._run_selected_agent(
+                    agent.agent_id,
+                    prompt,
+                    system_prompt,
+                    candidates,
+                )
+                actual_model = usage.model
+                task.agent_snapshots[index] = replace(
+                    task.agent_snapshots[index],
+                    actual_provider=selected.provider,
+                    actual_model=actual_model,
+                )
+                created = self._timestamp()
+                task.artifacts.append(TeamArtifact(
+                    agent.agent_id,
+                    "agent_contribution",
+                    output,
+                    created,
+                    metadata,
+                ))
+                task.usage.append(usage)
+                earlier_outputs.append({
+                    "agent_id": agent.agent_id,
+                    "job": agent.role.job,
+                    "output": output.to_dict(),
+                })
+                recipient = (
+                    agents[index + 1].agent_id
+                    if index + 1 < len(agents)
+                    else "coordinator"
+                )
+                task.messages.append(TeamMessage(
+                    agent.agent_id,
+                    recipient,
+                    json.dumps(output.to_dict(), ensure_ascii=False),
+                    created,
+                ))
+                task.updated_at = created
+                self.store.save(task)
+            task.final_plan = list(task.artifacts[-1].output.recommendations)
+            task.status = TEAM_STATUS_AWAITING_APPROVAL
+            task.updated_at = self._timestamp()
+            self.store.save(task)
+            return task
+        except Exception as exc:
+            failed_time = self._timestamp()
+            task.status = TEAM_STATUS_FAILED
+            task.error = (
+                f"Selected agent {active_agent} failed ({type(exc).__name__})."
+            )
+            task.messages.append(
+                TeamMessage(active_agent, "coordinator", task.error, failed_time)
+            )
+            task.updated_at = failed_time
+            self.store.save(task)
+            if isinstance(exc, TeamPlanningError):
+                raise TeamPlanningError(str(exc), task_id=task.task_id) from exc
+            raise TeamPlanningError(task.error, task_id=task.task_id) from exc
+
     def task(self, task_id: str) -> TeamTask:
         return self.store.load(task_id)
 
@@ -688,6 +875,76 @@ risks (array of concise risks), next_action (string)."""
             duration_seconds=round(perf_counter() - started, 6),
         )
         return output, usage, metadata
+
+    def _run_selected_agent(
+        self,
+        agent_id: str,
+        prompt: str,
+        system_prompt: str,
+        candidates,
+    ):
+        started = perf_counter()
+        failures: list[str] = []
+        provider = None
+        selected = None
+        raw = ""
+        for candidate in candidates:
+            try:
+                provider = self.provider_factory.create(candidate.provider)
+                if str(getattr(provider, "model", "")) != candidate.model:
+                    if not hasattr(provider, "select_model"):
+                        raise ValueError(
+                            f"{candidate.provider} does not support agent-specific models."
+                        )
+                    provider.select_model(candidate.model)
+                raw = provider.chat(prompt, system_prompt=system_prompt)
+                selected = candidate
+                break
+            except (
+                ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, ValueError
+            ) as exc:
+                failures.append(
+                    f"{candidate.actual_assignment} ({type(exc).__name__})"
+                )
+        if selected is None or provider is None:
+            detail = ", ".join(failures) or "no available provider"
+            raise TeamPlanningError(
+                f"Agent {agent_id} provider routing failed: {detail}."
+            )
+        if len(str(raw)) > self.MAX_ROLE_RESPONSE_CHARS:
+            raise TeamPlanningError(
+                "AI Team agent response exceeded the 50,000-character limit."
+            )
+        output = self._parse_output(raw)
+        input_tokens = self._estimate_tokens(system_prompt + "\n" + prompt)
+        output_tokens = self._estimate_tokens(raw)
+        actual_model = str(getattr(provider, "model", selected.model))
+        actual_assignment = f"{selected.provider}:{actual_model}"
+        cost = self._estimate_cost(selected.provider, input_tokens, output_tokens)
+        fallback_reason = selected.fallback_reason
+        if failures:
+            fallback_reason = (
+                f"{'; '.join(failures)} failed; selected {actual_assignment} through "
+                f"{selected.routing_profile} routing."
+            )
+        usage = RoleUsage(
+            role=agent_id,
+            provider=selected.provider,
+            model=actual_model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=cost,
+        )
+        metadata = RoleArtifactMetadata(
+            requested_assignment=selected.requested_assignment,
+            actual_assignment=actual_assignment,
+            fallback_reason=fallback_reason,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=cost,
+            duration_seconds=round(perf_counter() - started, 6),
+        )
+        return output, usage, metadata, selected
 
     def _resolved_role(self, role: str) -> tuple[str, str]:
         resolved = self.role_registry.planning_candidates(role, "AI Team role status")[0]

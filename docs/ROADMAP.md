@@ -88,10 +88,21 @@ validation, routing-policy planning fallbacks, role metadata in immutable artifa
 and a complete living user/documentation process. Gatekeeper's approval, workspace,
 execution, review, and rollback protections remain intact.
 
-**Active milestone:** AI Team Documentation Reviewer (unreleased), following the
-completed-but-unreleased Automatic Validation milestone. Email Phase B and
-cross-platform diagnostics through `orion doctor` remain planned after the bounded
-review workflow.
+**Active milestone:** Image Center and Discord Image Generation (unreleased), following
+the completed-but-unreleased Automatic Validation and Documentation Review milestones.
+Email Phase B and cross-platform diagnostics through `orion doctor` remain planned
+after this provider-neutral media foundation.
+
+## Unreleased — Image Center and Discord Image Generation
+
+- [x] One registered provider-neutral ImageService remains independent from text AI routing
+- [x] The first production OpenAI adapter reuses Vault and validates bounded image responses
+- [x] Immutable artifacts and sanitized bounded history persist under `~/.orion/images/`
+- [x] Generation never writes to a workspace; copies require exact Action approval and never overwrite
+- [x] Discord reuses its existing gateway with separate opt-in users, cooldown, upload, and concurrency controls
+- [x] Explicit image intents run off the Discord event loop and never expose local paths
+- [x] CLI status, providers, generation, history, metadata, and approved save commands are documented
+- [x] Documentation Reviewer inventory recognizes Image Center changes and focused documentation
 
 ## Unreleased — AI Team Documentation Reviewer
 

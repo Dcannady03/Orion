@@ -9,7 +9,65 @@ compatibility.
 Do not put API keys, OAuth tokens, or service secrets in either configuration file.
 Orion Vault and the external token stores remain the only credential locations.
 
+## Image Center
+
+Image-provider selection is independent from `providers.default` and persists in the
+external user configuration:
+
+```yaml
+image:
+  enabled: true
+  provider: openai
+  history_limit: 100
+  history_display_limit: 10
+  max_prompt_chars: 4000
+  prompt_preview_chars: 300
+  max_images_per_request: 1
+  max_image_bytes: 20971520
+  request_timeout_seconds: 120
+  max_concurrent_jobs: 2
+  output_format: png
+  openai:
+    model: gpt-image-2
+    size: 1024x1024
+    quality: medium
+```
+
+Use `image provider use <provider>` instead of editing the selection manually. OpenAI
+credentials continue to live only in Orion Vault and are reused by the image adapter;
+there is no image-specific plaintext key. Provider status is a local readiness check
+and does not make a paid API call. The current adapter supports one image per request.
+
+Discord image generation is a separate opt-in restriction beneath the existing bot:
+
+```yaml
+connect:
+  discord_bot:
+    image_generation:
+      enabled: false
+      allowed_user_ids: []
+      cooldown_seconds: 30
+      max_prompt_chars: 1000
+      max_upload_bytes: 8388608
+      max_concurrent_channels: 2
+```
+
+The base Discord approved-user/channel/role/DM/mention policy is always evaluated
+first. `image_generation.allowed_user_ids` narrows that access further; an empty list
+authorizes no Discord image requests. Cooldowns and channel concurrency are process
+local. Artifacts and bounded metadata live under `~/.orion/images/`, never in this
+configuration file or the application tree. See `IMAGE_CENTER.md` for the complete
+storage, copy-approval, and Discord safety contract.
+
 ## AI Team role assignments
+
+Reusable agent definitions are not configuration or Vault entries. Permanent YAML
+profiles live under `~/.orion/agents/`; workspace profiles live under
+`<workspace>/.orion/agents/`. Provider credentials continue to come from Vault.
+Agent `execution.provider`, `execution.model`, and `execution.routing_profile`
+preferences are resolved through the services documented below. Agent permission
+values (`denied`, `approval`, or `allowed`) declare eligibility and never alter the
+central approval policy.
 
 ```yaml
 team:

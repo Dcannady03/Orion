@@ -1,4 +1,20 @@
-# Unreleased — Automatic Validation and Documentation Review
+# Unreleased — Image Center, Automatic Validation, and Documentation Review
+
+- Added one provider-neutral Image Center service and registry, independently
+  selectable from Orion's text AI provider, with an initial OpenAI GPT Image adapter.
+- Added strict image request/result/artifact schemas, bounded content validation,
+  sanitized provider failures, SHA-256 integrity, and update-safe storage beneath
+  `~/.orion/images/` without persisting keys, raw provider responses, temporary URLs,
+  base64 payloads, or unbounded prompts.
+- Added `image`, `image providers`, `image provider use`, `image generate`,
+  `image history`, `image show`, and approval-gated `image save` commands.
+- Kept generation outside the active workspace; image copies require an explicit
+  Action approval, remain path-confined and hash-verified, and never overwrite files.
+- Added opt-in Discord image intent routing through the existing restricted bot with
+  a separate allowed-user list, cooldowns, prompt/upload limits, concurrency bounds,
+  off-event-loop generation, and no local-path disclosure.
+- Added Image Center architecture, configuration, command, safety, Discord, provider,
+  troubleshooting, User Guide, and Documentation Reviewer coverage.
 
 - Activated the configured Documentation Reviewer as an automatic read-only stage
   after every Automatic Tester outcome and before human review.
@@ -19,8 +35,9 @@
   unrelated workspaces remain excluded.
 - Documentation Review never edits or repairs files, invokes Codex/Tester commands,
   alters approvals, performs Git actions, accepts work, or rolls changes back.
-- Added lifecycle, classification, coverage, routing, artifact, command, safety,
-  backward-compatibility, and real CLI scenario coverage; 414 tests pass.
+- Added Image Center, lifecycle, classification, routing, artifact, command, safety,
+  backward-compatibility, and real CLI scenario coverage; 447 tests pass with one
+  platform-dependent Windows symlink test skipped.
 
 - Added a real bounded Tester stage after successful AI Team implementation and before
   human review, while keeping implementation success and validation success separate.

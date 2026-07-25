@@ -20,7 +20,7 @@ from orion.core.profile import ProfileManager
 from orion.core.router import CommandRouter
 from orion.intelligence.factory import AIProviderFactory
 from orion.intelligence.brain import Brain
-from orion.agents import AgentRegistry, built_in_agents
+from orion.agents import AgentManager, WorkspaceTeamDraftStore, built_in_agents
 from orion.services.registry import ServiceRegistry
 from orion.services.briefing import BriefingService, SystemBriefingProvider
 from orion.services.home import HomeService
@@ -46,6 +46,8 @@ from orion.services.project_context import ProjectContext
 from orion.services.task_manager import TaskManager
 from orion.services.codex_bridge import CodexBridge, CodexBridgeStore
 from orion.services.execution_engines import ExecutionEngineService
+from orion.services.image import ImageProviderRegistry, ImageService, ImageStore
+from orion.services.image_openai import OpenAIImageAdapter
 from orion.services.companion import CompanionSettings, ActionTrustStore
 from orion.services.discovery import (
     ApplicationCatalog, ApplicationDiscoveryService, ApplicationMatcher, ApplicationLauncherService,
@@ -61,7 +63,7 @@ from pathlib import Path
 import importlib
 import subprocess
 import sys
-from orion.interfaces.discord import DiscordBotInterface
+from orion.interfaces.discord import DiscordBotInterface, DiscordImagePolicy
 
 
 class Orion:
@@ -291,18 +293,53 @@ class Orion:
             "vault", VaultService(self.config_manager, self.provider_manager, self.provider_manager.secrets)
         )
         self.vault.migrate_legacy_store()
+        self.image_providers = ImageProviderRegistry()
+        self.image_providers.register(OpenAIImageAdapter(
+            self.config_manager,
+            self.provider_manager.secrets,
+        ))
+        self.image_service = self.services.register(
+            "image",
+            ImageService(
+                self.config_manager,
+                self.image_providers,
+                ImageStore(
+                    self.paths.images,
+                    history_limit=int(self.config_manager.get("image.history_limit", 100)),
+                ),
+                self.workspace_manager.root,
+            ),
+        )
+        self.action_service.register_handler(
+            "image_save",
+            lambda action: self.image_service.save(
+                action.parameters.get("image_id", ""),
+                action.parameters.get("destination", ""),
+            ),
+        )
+        self.action_service.approval.set_policy(
+            "image_save", PolicyDecision.REQUIRE_APPROVAL,
+            "Copying an external generated image into the workspace requires explicit approval.",
+        )
         team_provider_factory = AIProviderFactory(
             self.config_manager, self.provider_manager.secrets
         )
         self.agents = self.services.register(
             "agents",
-            AgentRegistry(
+            AgentManager(
                 self.paths.agents,
+                self.workspace_manager,
                 self.config_manager,
                 team_provider_factory,
+                provider_manager=self.provider_manager,
+                routing_service=self.ai_routing,
             ),
         )
         self.agents.ensure_defaults(built_in_agents(self.config_manager))
+        self.agent_team_drafts = self.services.register(
+            "agent_team_drafts",
+            WorkspaceTeamDraftStore(self.workspace_manager),
+        )
         self.execution_engines = self.services.register(
             "execution_engines",
             ExecutionEngineService(self.config_manager, self.application_catalog),
@@ -352,6 +389,7 @@ class Orion:
                 vault=self.vault,
                 config_manager=self.config_manager,
                 discord_bot_runtime=lambda: self.discord_interface,
+                image_service=self.image_service,
             ),
         )
         self.briefing_service.register_provider(ConnectBriefingProvider(self.connect_service))
@@ -402,6 +440,15 @@ class Orion:
             channels,
             roles,
             allow_channel_members,
+            image_service=self.image_service,
+            image_policy=DiscordImagePolicy.from_values(
+                self.config_manager.get("connect.discord_bot.image_generation.enabled", False),
+                self.config_manager.get("connect.discord_bot.image_generation.allowed_user_ids", []),
+                self.config_manager.get("connect.discord_bot.image_generation.cooldown_seconds", 30),
+                self.config_manager.get("connect.discord_bot.image_generation.max_prompt_chars", 1000),
+                self.config_manager.get("connect.discord_bot.image_generation.max_upload_bytes", 8388608),
+                self.config_manager.get("connect.discord_bot.image_generation.max_concurrent_channels", 2),
+            ),
         )
         try:
             interface.start()

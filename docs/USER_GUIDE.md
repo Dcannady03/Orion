@@ -4,8 +4,8 @@
 
 **Project:** Orion — Personal AI Operating System
 
-**Documentation baseline:** v0.7.0 — Conductor plus unreleased Automatic Validation
-and Documentation Review
+**Documentation baseline:** v0.7.0 — Conductor plus unreleased Automatic Validation,
+Documentation Review, and Image Center
 
 Orion is a local-first personal intelligence operating system. It coordinates local
 and cloud AI providers, project knowledge, communication services, applications, and
@@ -28,7 +28,7 @@ Orion's core principle is simple:
 7. [Memory, conversations, search, and knowledge](#7-memory-conversations-search-and-knowledge)
 8. [Connect Center](#8-connect-center)
 9. [Email setup and use](#9-email-setup-and-use)
-10. [Calendar, Discord, weather, and network](#10-calendar-discord-weather-and-network)
+10. [Image Center, Calendar, Discord, weather, and network](#10-image-center-calendar-discord-weather-and-network)
 11. [Applications, actions, and plugins](#11-applications-actions-and-plugins)
 12. [Agent Registry](#12-agent-registry)
 13. [AI Team and Codex Bridge](#13-ai-team-and-codex-bridge)
@@ -220,6 +220,7 @@ Mutable private data lives outside the application directory:
 ~/.orion/agents/                  Custom agent definitions
 ~/.orion/team/tasks/              Persisted AI Team plans
 ~/.orion/codex/                   Approvals and implementation artifacts
+~/.orion/images/                  Generated image artifacts and bounded metadata
 ~/.orion/cache/                   Bounded routing and service caches
 ~/.orion/logs/                    Service logs, including Network Watch
 ```
@@ -620,7 +621,48 @@ account, recipients, subject, full body, attachments, and action.
 OAuth tokens and MSAL caches are stored beneath `~/.orion/tokens/`, never in project
 configuration, task artifacts, logs, or terminal output.
 
-## 10. Calendar, Discord, weather, and network
+## 10. Image Center, Calendar, Discord, weather, and network
+
+### Image Center
+
+Image Center is separate from Orion's text AI provider. The initial adapter uses the
+existing OpenAI Vault credential, but choosing it never changes chat, planning, or AI
+Team routing:
+
+```text
+image
+image status
+image providers
+image provider use openai
+image generate "a tiny lunar observatory in an ink illustration"
+image history
+image show <image-id>
+```
+
+Generated files live under `~/.orion/images/`, outside both the Orion installation and
+the active workspace. History contains safe bounded metadata and error categories—not
+API keys, raw provider responses, temporary URLs, base64 data, or unbounded prompts.
+
+To copy a validated artifact into the active project:
+
+```text
+image save <image-id> assets/generated/observatory.png
+```
+
+Orion shows the exact source, destination, size, and SHA-256 and accepts only explicit
+approval. The destination must be relative to the active workspace. Orion blocks
+absolute/traversal/protected/symlink paths, verifies the source again, and never
+overwrites a file. Image-copy approval is independent from AI Team approval.
+
+Discord image generation reuses the existing restricted bot and the same Image Center
+service. It is disabled by default and requires an additional image-user allowlist.
+Once an administrator has configured that external setting, approved users can send
+an explicit request such as `!image a friendly robot gardener` or mention Orion with
+“generate an image …”. Normal chat and phrases such as “Docker image” keep their text
+route. Cooldowns, prompt/upload limits, concurrent-channel bounds, and background
+provider work protect the gateway. Discord never receives the external local path and
+does not copy images into a workspace. See `IMAGE_CENTER.md` for configuration and the
+complete safety boundary.
 
 ### Calendar
 
@@ -754,28 +796,61 @@ Plugins register services and commands without taking control of Orion's core sa
 model. Plugin failures are isolated so one broken plugin does not prevent startup.
 Search and Network Watch are built-in plugins.
 
-## 12. Agent Registry
+## 12. Reusable Agent System
 
-A role is a workflow job. An agent is a configurable worker that may perform a
-planning role.
+An agent is a reusable worker profile with its own job, specialty, personality,
+instructions, provider/model preference, routing profile, capabilities, permissions,
+and scope. Permanent agents are available everywhere; workspace agents stay within
+the current project.
 
 ```text
 agent list
+agent list --scope workspace
 agent show <name>
+agent templates
 agent create
+agent create --from-template software-engineer
+agent create --from-template website-designer --scope workspace
+agent edit <name>
+agent delete <name>
 agent enable <name>
 agent disable <name>
+agent validate <name>
+agent promote <workspace-agent>
+agent copy <name> <new-name>
 agent test <name>
 ```
 
-Agent definitions are strict YAML files under `~/.orion/agents/`. They can declare a
-provider, model, specialist instructions, future tools, limits, and permissions. Orion
-does not replace existing definitions during updates.
+Permanent definitions are versioned YAML under `~/.orion/agents/`. Workspace
+definitions are under `<workspace>/.orion/agents/` and remain isolated when the active
+workspace changes. Starter templates are application resources copied into one of
+those user-controlled locations.
 
-In the current planning phase, declared tools and permissions are metadata only.
-`agent test` makes one bounded structured-output provider call. It cannot read or write
-files, run commands or tests, commit, push, or open a pull request. Disabled agents
-cannot be assigned to active AI Team planning roles.
+Choose agents and preserve their order with:
+
+```text
+team run "Build a product landing page" --agents planner,website-designer,marketing-specialist,reviewer
+```
+
+Or create a workspace-local draft:
+
+```text
+team create "Build a product landing page"
+team agents add planner
+team agents add website-designer
+team agents add reviewer
+team run
+```
+
+The team manifest records `selected_agents` plus immutable, secret-free snapshots of
+each effective agent, responsibility, and actual provider/model. Personality affects
+working and communication style but cannot override Orion safety, approvals,
+workspace confinement, provider restrictions, or secret handling.
+
+Capabilities are eligibility declarations. Even `allowed` permission policies do not
+bypass Orion's approval engine. Selected-agent calls are planning-only and receive no
+tools. Disabled agents cannot be selected. See [Agent System](AGENT_REGISTRY.md) for
+the complete schema, templates, routing behavior, safety model, and troubleshooting.
 
 ## 13. AI Team and Codex Bridge
 
@@ -1226,6 +1301,28 @@ calendar
 Mail and Calendar authorizations are separate; connecting one does not authorize the
 other.
 
+### Image generation is unavailable or Discord refuses it
+
+```text
+image
+image providers
+vault health
+discord bot status
+connect health
+```
+
+For `credential_missing`, configure OpenAI through `ai provider configure openai` so
+the key is verified and stored only in Vault. For `client_missing`, install Orion's
+repository requirements in the active Python environment. Provider timeouts, rate
+limits, content rejection, malformed payloads, and oversize responses are reported as
+safe categories; raw provider output is deliberately unavailable.
+
+Discord image generation has stricter controls than normal bot chat. Confirm the base
+bot user/channel/role/DM/mention policy first, then external
+`connect.discord_bot.image_generation` enablement, its non-empty allowed-user list,
+cooldown, prompt length, concurrent-channel limit, and upload size. An upload-limit
+failure retains the validated artifact by image ID but does not reveal its local path.
+
 ### Discord bot is not configured after an update
 
 ```text
@@ -1366,6 +1463,36 @@ Developer mode can expose safe diagnostics. It does not bypass approval or polic
 | `email thread <number|provider:id>` | Read a bounded conversation |
 | `email summarize [provider]` | Locally summarize bounded unread mail |
 
+### Image Center
+
+| Command | Purpose |
+| --- | --- |
+| `image` | Show image-provider readiness and safe storage status |
+| `image status` | Show provider, model, defaults, external store, and latest attempt |
+| `image providers` | List registered image providers and local availability |
+| `image provider use <provider>` | Select image generation independently from text AI |
+| `image generate "<prompt>"` | Generate one validated external artifact |
+| `image history` | Show bounded recent success and failure metadata |
+| `image show <image-id>` | Show safe metadata and verify the stored artifact |
+| `image save <image-id> <relative-path>` | Approve a verified no-overwrite workspace copy |
+
+### Agent System
+
+| Command | Purpose |
+| --- | --- |
+| `agent list [--scope permanent\|workspace]` | List reusable agents |
+| `agent show <agent>` | Inspect role, routing, capabilities, and permissions |
+| `agent templates` | List application-owned copyable templates |
+| `agent create` | Start guided agent creation |
+| `agent create --from-template <id> [--scope ...]` | Copy a template into user storage |
+| `agent edit <agent>` | Update a reusable definition |
+| `agent delete <agent>` | Delete after confirmation |
+| `agent enable` / `agent disable` | Change selection eligibility |
+| `agent validate <agent>` | Validate schema and storage identity |
+| `agent promote <agent>` | Move a workspace agent to permanent scope |
+| `agent copy <agent> <new-name>` | Copy a profile under a new identity |
+| `agent test <agent>` | Run one bounded provider/configuration test |
+
 ### AI Team
 
 | Command | Purpose |
@@ -1376,6 +1503,10 @@ Developer mode can expose safe diagnostics. It does not bypass approval or polic
 | `team role reset <role>` | Restore the default assignment |
 | `team plan "<goal>"` | Plan and offer interactive Y/N/D approval |
 | `team plan --manual "<goal>"` | Plan without prompting |
+| `team run "<goal>" --agents a,b` | Run an ordered reusable-agent planning job |
+| `team create "<goal>"` | Create a workspace-local agent team draft |
+| `team agents add <agent>` | Append one enabled agent to the draft |
+| `team run` | Run the current draft and clear it after task creation |
 | `team status <task-id>` | Reopen a persisted plan |
 | `team approve <task-id>` | Create an immutable manual approval |
 | `team implement <task-id> <approval-id>` | Run one bounded implementation |
@@ -1408,4 +1539,4 @@ This is Orion's living user guide. Every shipped feature, provider, setup path, 
 boundary, and user-facing command should be added here when it changes. Detailed
 implementation contracts remain in the focused files under `docs/`, including
 `EMAIL.md`, `AI_TEAM.md`, `CODEX_BRIDGE.md`, `EXECUTION_ENGINES.md`,
-`AGENT_REGISTRY.md`, `TASK_MANAGER.md`, and `CONFIGURATION.md`.
+`AGENT_REGISTRY.md`, `TASK_MANAGER.md`, `IMAGE_CENTER.md`, and `CONFIGURATION.md`.

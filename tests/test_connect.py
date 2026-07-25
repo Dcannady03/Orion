@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from orion.services.connect import ConnectService, ConnectBriefingProvider, ConnectStatus, DiscordWebhookClient, GmailClient, MailSummary
 from orion.services.email import EmailAccount, EmailProvider, EmailService
+from orion.services.base import ServiceState, ServiceStatus
 
 
 class FakeGmail:
@@ -110,6 +111,40 @@ class FakeDiscordRuntime:
 
 
 class DiscordBotConnectStatusTests(unittest.TestCase):
+    def test_discord_image_capability_uses_local_status_and_disabled_mode_makes_no_probe(self):
+        class FakeImageService:
+            def __init__(self):
+                self.calls = 0
+
+            def get_status(self):
+                self.calls += 1
+                return ServiceStatus(ServiceState.AVAILABLE, "OpenAI: Ready")
+
+        image = FakeImageService()
+        enabled = ConnectService(
+            FakeGmail(), DiscordWebhookClient(''),
+            config_manager=FakeConfig({
+                'connect.discord_bot.image_generation.enabled': True,
+            }),
+            image_service=image,
+        )
+        status = next(item for item in enabled.statuses() if item.key == 'discord_image')
+        self.assertTrue(status.configured)
+        self.assertTrue(status.healthy)
+        self.assertEqual(status.detail, "OpenAI: Ready")
+        self.assertEqual(image.calls, 1)
+
+        disabled = ConnectService(
+            FakeGmail(), DiscordWebhookClient(''),
+            config_manager=FakeConfig({
+                'connect.discord_bot.image_generation.enabled': False,
+            }),
+            image_service=image,
+        )
+        status = next(item for item in disabled.statuses() if item.key == 'discord_image')
+        self.assertEqual(status.detail, "Disabled")
+        self.assertEqual(image.calls, 1)
+
     def test_status_uses_two_way_discord_bot_configuration(self):
         config = FakeConfig({
             'connect.discord_bot.enabled': True,

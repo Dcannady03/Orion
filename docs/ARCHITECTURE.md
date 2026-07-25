@@ -83,6 +83,39 @@ contract and register independently. The service validates items, sorts them by 
 and isolates provider failures. This prevents Weather, Email, Calendar, Docker, or any
 future integration from becoming a hard dependency of Orion startup.
 
+## Provider-neutral Image Center
+
+`ImageService` is the only image-generation coordinator registered in Orion's service
+registry. Its `ImageProviderRegistry` resolves a selected provider independently from
+the Brain's text provider and reports local readiness without making a paid API call.
+The first production adapter is `OpenAIImageAdapter`; it lazily imports the official
+OpenAI client, reads the existing `openai` secret through `SecretStore`, and normalizes
+one encoded or temporary-URL provider response into validated bytes. Provider URLs,
+raw responses, credentials, and base64 payloads never cross the service boundary.
+
+Strict `ImageGenerationRequest`, `ImageGenerationResult`, and `ImageArtifact` schemas
+bound prompt length, count, size, output type, status, metadata, and paths. Requests
+pass deterministic content boundaries and a process-wide concurrency semaphore.
+Provider exceptions become stable safe categories. `ImageStore` atomically persists
+immutable results, SHA-256-verified artifacts, and bounded history under
+`OrionPaths.images` (`~/.orion/images/`), with untrusted paths resolved against that
+root. Application updates and workspace changes cannot replace this state.
+
+Generation has no workspace write capability. `image save` first constructs a
+path-confined, no-overwrite copy plan for the active workspace, then submits the exact
+image ID, destination, size, and hash through `ActionService`'s `REQUIRE_APPROVAL`
+policy. Execution revalidates workspace identity, source hash, destination boundary,
+protected metadata, symlinks, and non-existence before the atomic copy. This approval
+is unrelated to AI Team approval and grants no parent-directory access.
+
+`DiscordBotInterface` retains the existing inbound bot/user/channel/role/DM/mention
+policy as the outer gate. A deterministic intent detector routes only explicit image
+requests to the same registered service when the separate image feature and user list
+permit it. Per-user/channel cooldowns, concurrent-channel bounds, prompt/upload limits,
+and `asyncio.to_thread` keep provider work off the event loop. Discord receives only a
+validated attachment plus provider-neutral status; it never receives a local artifact
+path and never causes an implicit workspace copy.
+
 ## Provider-neutral Email Phase A
 
 `EmailService` is registered as `email` and is the only mail dependency exposed to the
@@ -145,17 +178,41 @@ owner-only file permissions where supported. Save and load both enforce the exac
 and nested-record schemas, including identity, status, timezone-aware timestamps,
 messages, role usage, and role-output fields.
 
-## Agent Registry Phase 1
+## Reusable Agent System
 
-`AgentRegistry` is registered as `agents` and owns strict YAML definitions beneath
-`~/.orion/agents/`. The application seeds Architect, Engineer, and Reviewer agents only
-when their files do not exist; subsequent edits remain user-owned across updates.
+`AgentManager` is registered as `agents` and coordinates two injected
+`AgentRepository` instances: permanent definitions under `~/.orion/agents/` and the
+active workspace's definitions under `.orion/agents/`. Repositories enforce scope,
+identity, containment, symlink rejection, bounded YAML, validation, and atomic
+replacement. The manager owns lifecycle operations, promotion, copying, cross-scope
+conflict detection, name/ID resolution, templates, and provider/model resolution.
 
-Workflow roles and configured workers are separate. `TeamOrchestrator` resolves each
-role's `agent` assignment, then uses that agent's provider, model, and instructions
-while retaining the role's fixed structured-output contract. Tool and permission
-declarations are metadata only in Phase 1. Neither `agent test` nor `team plan` receives
-a tool dispatcher, filesystem access, shell execution, or Git actions.
+`ManagedAgentDefinition` is the version 1 provider-neutral schema. Role, execution,
+capability, permission, workspace-access, and metadata records are separated.
+Application resources supply ten copyable templates through `AgentTemplateRegistry`.
+Legacy Phase 1 definitions remain readable and unknown fields do not prevent startup.
+Credentials remain in Vault and credential-shaped definition values are rejected.
+
+Explicit agent jobs extend rather than replace `TeamOrchestrator`. An ordered selection
+activates a generic sequential planning path. `AgentPromptBuilder` places Orion rules
+first, marks agent text and earlier outputs as untrusted, and includes the goal,
+workspace, job, specialty, personality, instructions, responsibility, permissions,
+and previous structured contributions. Calls retain the strict output schema and
+receive no tool dispatcher.
+
+`TeamTask.selected_agents` preserves order. `agent_snapshots` stores a sanitized
+effective definition, responsibility, requested and actual provider/model, and source
+definition timestamp for each selected agent. This prevents later profile edits from
+changing history. `WorkspaceTeamDraftStore` supports incremental `team create`,
+`team agents add`, and `team run` flow beneath workspace metadata.
+
+Provider/model candidates follow job override, agent preference, `AIRoutingService`,
+and configured-provider precedence. `ProviderManager` supplies current readiness and
+model validation, while `AIProviderFactory` creates the provider. Runtime fallback is
+allowed only under current routing policy and is written to artifacts and snapshots.
+Approved implementation and validation continue through existing execution engines,
+approvals, Codex Bridge, Automatic Tester, Documentation Review, rollback, and human
+review.
 
 ## Codex Bridge Phase 1
 

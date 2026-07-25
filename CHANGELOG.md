@@ -1,4 +1,41 @@
-# Unreleased — Automatic Validation and Documentation Review
+# Unreleased — Agent System, Image Center, Automatic Validation, and Documentation Review
+
+- Added the first production reusable Agent System with versioned YAML definitions,
+  job/specialty/personality instructions, provider/model/routing preferences,
+  capabilities, structured permission policies, timestamps, and enabled state.
+- Added permanent agents under `~/.orion/agents/` and isolated workspace agents under
+  `<workspace>/.orion/agents/`, with atomic writes, safe promotion/copy/delete,
+  name/ID resolution, conflict detection, unknown-field tolerance, legacy migration,
+  path traversal protection, and symlink escape rejection.
+- Added ten application-owned copyable templates and guided plus noninteractive
+  `agent` list/show/templates/create/edit/delete/enable/disable/validate/promote/copy
+  commands.
+- Extended AI Team with explicit ordered `--agents` selection, interactive selection,
+  workspace-local team drafts, sequential structured handoffs, sanitized effective
+  definition snapshots, and actual provider/model/fallback recording.
+- Reused `ProviderManager`, `AIRoutingService`, `AIProviderFactory`, Team task storage,
+  Vault, workspace safety, and approval/execution workflows. Agent permissions grant
+  eligibility only and cannot bypass approvals or run tools during planning.
+- Added Agent System architecture, schema, storage, command, workflow, routing,
+  permissions, safety, troubleshooting, compatibility, CLI, persistence, prompt, and
+  manifest coverage. The complete suite now passes 473 tests with two
+  platform-dependent Windows symlink tests skipped.
+
+- Added one provider-neutral Image Center service and registry, independently
+  selectable from Orion's text AI provider, with an initial OpenAI GPT Image adapter.
+- Added strict image request/result/artifact schemas, bounded content validation,
+  sanitized provider failures, SHA-256 integrity, and update-safe storage beneath
+  `~/.orion/images/` without persisting keys, raw provider responses, temporary URLs,
+  base64 payloads, or unbounded prompts.
+- Added `image`, `image providers`, `image provider use`, `image generate`,
+  `image history`, `image show`, and approval-gated `image save` commands.
+- Kept generation outside the active workspace; image copies require an explicit
+  Action approval, remain path-confined and hash-verified, and never overwrite files.
+- Added opt-in Discord image intent routing through the existing restricted bot with
+  a separate allowed-user list, cooldowns, prompt/upload limits, concurrency bounds,
+  off-event-loop generation, and no local-path disclosure.
+- Added Image Center architecture, configuration, command, safety, Discord, provider,
+  troubleshooting, User Guide, and Documentation Reviewer coverage.
 
 - Activated the configured Documentation Reviewer as an automatic read-only stage
   after every Automatic Tester outcome and before human review.
@@ -19,8 +56,9 @@
   unrelated workspaces remain excluded.
 - Documentation Review never edits or repairs files, invokes Codex/Tester commands,
   alters approvals, performs Git actions, accepts work, or rolls changes back.
-- Added lifecycle, classification, coverage, routing, artifact, command, safety,
-  backward-compatibility, and real CLI scenario coverage; 414 tests pass.
+- Added Image Center, lifecycle, classification, routing, artifact, command, safety,
+  backward-compatibility, and real CLI scenario coverage; 447 tests pass with one
+  platform-dependent Windows symlink test skipped.
 
 - Added a real bounded Tester stage after successful AI Team implementation and before
   human review, while keeping implementation success and validation success separate.

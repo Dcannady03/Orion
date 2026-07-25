@@ -17,6 +17,7 @@ stable interface.
 - `provider_manager` → `ProviderManager` (Ollama/OpenAI/Gemini federation and activation)
 - `vault` → `VaultService` (external credential verification and persistence)
 - `ai_routing` → `AIRoutingService` (provider-neutral routing profiles and fallback)
+- `image` → `ImageService` (provider-neutral image generation and external artifacts)
 - `email` → `EmailService` (normalized read-only Gmail and Microsoft Mail)
 - `connect` → `ConnectService` (provider-neutral communication health and Discord)
 
@@ -39,8 +40,19 @@ agents = orion.services.get("agents")
 tasks = orion.services.get("task_manager")
 codex_bridge = orion.services.get("codex_bridge")
 execution_engines = orion.services.get("execution_engines")
+image = orion.services.get("image")
 email = orion.services.get("email")
 ```
+
+`ImageService` owns strict image requests/results, an independent image-provider
+registry, bounded concurrency, content validation, sanitized outcome history, and
+SHA-256-verified artifacts beneath `~/.orion/images/`. The first adapter calls OpenAI
+through the official client and reads the existing OpenAI credential from Vault.
+Provider choice is independent from text/AI Team routing. Generation never writes to
+the active workspace; `image_save` delegates an exact relative copy to the normal
+approval-gated Action service and refuses overwrite, traversal, protected paths, and
+symlink escapes. Discord delegates explicit image intents to this same registered
+service after its existing bot policy plus image-specific restrictions pass.
 
 Existing attributes remain available for compatibility:
 

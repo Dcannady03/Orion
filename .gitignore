@@ -11,3 +11,4 @@ config/google-oauth-credentials.json
 .orion/oauth-state*.json
 .orion/vault.yaml
 .orion/vault.yaml.tmp
+/vault/

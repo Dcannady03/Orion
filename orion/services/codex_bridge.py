@@ -22,6 +22,7 @@ from orion.services.team import (
     TeamTask,
     TeamTaskStore,
 )
+from orion.agents.models import AgentRunSnapshot, normalize_agent_id
 from orion.services.team_roles import TeamRoleSnapshot
 from orion.services.team_validation import (
     AutomaticValidationService,
@@ -304,6 +305,8 @@ class PlanSnapshot:
     final_plan: tuple[str, ...]
     artifacts: tuple[TeamArtifact, ...]
     role_assignments: tuple[TeamRoleSnapshot, ...]
+    selected_agents: tuple[str, ...] = ()
+    agent_snapshots: tuple[AgentRunSnapshot, ...] = ()
 
     @classmethod
     def from_team_task(cls, task: TeamTask) -> "PlanSnapshot":
@@ -319,17 +322,25 @@ class PlanSnapshot:
             "role_assignments": [
                 item.to_dict() for item in validated.role_assignments
             ],
+            "selected_agents": list(validated.selected_agents),
+            "agent_snapshots": [
+                item.to_dict() for item in validated.agent_snapshots
+            ],
         })
 
     @classmethod
     def from_value(cls, value: Any) -> "PlanSnapshot":
         if isinstance(value, dict) and "role_assignments" not in value:
             value = {**value, "role_assignments": []}
+        if isinstance(value, dict) and "selected_agents" not in value:
+            value = {**value, "selected_agents": []}
+        if isinstance(value, dict) and "agent_snapshots" not in value:
+            value = {**value, "agent_snapshots": []}
         value = _exact_mapping(
             value,
             {
                 "schema_version", "team_task_id", "goal", "final_plan", "artifacts",
-                "role_assignments",
+                "role_assignments", "selected_agents", "agent_snapshots",
             },
             "Approved plan snapshot",
         )
@@ -352,6 +363,27 @@ class PlanSnapshot:
             or len({item.role for item in role_assignments}) != len(role_assignments)
         ):
             raise ValueError("Approved plan role assignments are invalid or duplicated.")
+        selected_value = value["selected_agents"]
+        snapshots_value = value["agent_snapshots"]
+        if not isinstance(selected_value, list) or not isinstance(snapshots_value, list):
+            raise ValueError("Approved plan agent selections must be JSON arrays.")
+        try:
+            selected_agents = tuple(normalize_agent_id(item) for item in selected_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Approved plan selected agents are invalid.") from exc
+        if len(selected_agents) > 20 or len(set(selected_agents)) != len(selected_agents):
+            raise ValueError("Approved plan selected agents are invalid or duplicated.")
+        agent_snapshots = tuple(
+            AgentRunSnapshot.from_value(item) for item in snapshots_value
+        )
+        if len(agent_snapshots) != len(selected_agents):
+            raise ValueError(
+                "Approved plan requires one snapshot for every selected agent."
+            )
+        if tuple(item.agent_id for item in agent_snapshots) != selected_agents:
+            raise ValueError(
+                "Approved plan agent snapshot order must match selected_agents."
+            )
         final_plan = _bounded_strings(
             value["final_plan"],
             "Approved final plan",
@@ -366,6 +398,8 @@ class PlanSnapshot:
             final_plan=final_plan,
             artifacts=artifacts,
             role_assignments=role_assignments,
+            selected_agents=selected_agents,
+            agent_snapshots=agent_snapshots,
         )
 
     @property
@@ -383,6 +417,11 @@ class PlanSnapshot:
         if self.role_assignments:
             value["role_assignments"] = [
                 item.to_dict() for item in self.role_assignments
+            ]
+        if self.selected_agents:
+            value["selected_agents"] = list(self.selected_agents)
+            value["agent_snapshots"] = [
+                item.to_dict() for item in self.agent_snapshots
             ]
         return value
 

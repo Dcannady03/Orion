@@ -234,6 +234,7 @@ class DocumentationReviewerTests(unittest.TestCase):
             "docs/CONFIGURATION.md": "# Configuration\n\nConfiguration reference.\n",
             "docs/ARCHITECTURE.md": "# Architecture\n\nService architecture.\n",
             "docs/SERVICES.md": "# Services\n\nWidget service.\n",
+            "docs/IMAGE_CENTER.md": "# Image Center\n\nProvider-neutral image service.\n",
             "docs/ROADMAP.md": "# Roadmap\n\nWidget milestone.\n",
             "docs/DEFINITION_OF_DONE.md": "# Definition of Done\n\nUpdate documentation.\n",
         }
@@ -390,6 +391,27 @@ class DocumentationReviewerTests(unittest.TestCase):
                 service, request, _, _, _ = self.request(tmp, validation=validation)
                 attempt = service.review(request)
                 self.assertEqual(attempt.status, "passed")
+
+    def test_image_center_changes_select_focused_documentation_inventory(self):
+        after = {
+            "orion/services/image.py": "class ImageService:\n    pass\n",
+            "docs/IMAGE_CENTER.md": "# Image Center\n\nSafe generation and copy workflow.\n",
+            "docs/USER_GUIDE.md": "# User Guide\n\nImage Center commands and Discord setup.\n",
+            "docs/CONFIGURATION.md": "# Configuration\n\nImage and Discord limits.\n",
+            "docs/SERVICES.md": "# Services\n\nRegistered ImageService.\n",
+            "CHANGELOG.md": "# Unreleased\n\n- Added Image Center.\n",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, _, _ = self.request(
+                tmp,
+                goal="Add provider-neutral image generation",
+                after=after,
+            )
+            attempt = service.review(request)
+            inspected = set(attempt.documents_inspected)
+            self.assertIn("docs/IMAGE_CENTER.md", inspected)
+            self.assertIn("docs/CONFIGURATION.md", inspected)
+            self.assertIn("docs/SERVICES.md", inspected)
 
     def test_model_warning_and_material_error_produce_independent_statuses(self):
         with tempfile.TemporaryDirectory() as tmp:

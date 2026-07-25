@@ -28,6 +28,10 @@ Reviewer after every Tester outcome. It classifies whether documentation is requ
 checks applicable guides/help/configuration/changelog coverage, makes one bounded
 planning-model review when needed, and stores immutable findings without editing files.
 
+The unreleased Image Center milestone adds provider-neutral image generation with an
+initial OpenAI adapter, update-safe external artifacts, bounded sanitized history,
+approval-gated workspace copies, and opt-in restricted Discord image requests.
+
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
 
@@ -65,6 +69,14 @@ network watch [seconds]      Monitor outages and latency in the background
 network report               Show current network monitoring statistics
 network stop                 Stop monitoring and save the final summary
 ask <question>               Talk to the configured AI provider
+image                        Open provider-neutral Image Center
+image status                 Show provider, model, defaults, and external store
+image providers              Show image-provider readiness
+image provider use <name>    Select the image provider independently of text AI
+image generate "<prompt>"    Generate one external image artifact
+image history                Show bounded recent image attempts
+image show <image-id>        Show safe artifact metadata
+image save <id> <path>       Approval-gated workspace copy; never overwrite
 task create "<goal>"         Create a proposed project task
 task list                    List project-local tasks
 task show <task-id>          Show task state and artifacts
@@ -72,13 +84,21 @@ task approve <task-id>       Explicitly approve a proposed task
 task cancel <task-id>        Cancel a non-terminal task
 task events <task-id>        Show append-only task progress
 task link-plan <id> <plan>   Link a reviewed AI Team plan artifact
-agent list                   Show configurable AI agents
-agent show <name>            Inspect an agent's instructions and permissions
-agent create                 Create a planning-safe custom agent
+agent list [--scope ...]     Show permanent or workspace AI agents
+agent templates              Show copyable starter profiles
+agent create                 Guided custom-agent creation
+agent edit <name>            Update a reusable agent
+agent delete <name>          Remove an agent after confirmation
 agent enable <name>          Enable an agent
 agent disable <name>         Disable an agent
+agent validate <name>        Validate a stored YAML definition
+agent promote <name>         Promote a workspace agent
+agent copy <name> <new-name> Copy a reusable profile
 agent test <name>            Run one bounded structured-output test
 team plan "<goal>"           Plan, then offer explicit Y/N/D approval
+team run "<goal>" --agents a,b Run an ordered reusable-agent job
+team create "<goal>"         Create a workspace-local team draft
+team agents add <agent>      Add one agent to the draft in order
 team plan --manual "<goal>"  Plan without an interactive approval prompt
 team roles                   Show AI Team role assignments
 team role show <role>        Inspect one model or engine assignment
@@ -218,6 +238,32 @@ Orion> ai benchmark
 
 AI profiles and model choices persist in `config/default.yaml`. The quick benchmark is opt-in because loading several models can use substantial RAM and VRAM.
 
+## Image Center
+
+Image Center generates validated image artifacts through an image-provider registry
+that is independent from Orion's text provider:
+
+```text
+Orion> image
+Orion> image status
+Orion> image providers
+Orion> image provider use openai
+Orion> image generate "a moonlit observatory above the clouds"
+Orion> image history
+Orion> image show <image-id>
+Orion> image save <image-id> assets/observatory.png
+```
+
+The first production adapter uses OpenAI's image API and the existing OpenAI credential
+in Orion Vault. Generated artifacts and bounded sanitized history live under
+`~/.orion/images/`, outside the application and active workspace. `image save` is a
+separate approval-gated Action: it accepts only a workspace-relative destination,
+verifies the artifact hash, blocks protected/symlink escapes, and never overwrites.
+
+Discord image requests reuse the existing restricted bot but remain disabled by
+default. They require a separate image-user allowlist and enforce cooldown, prompt,
+upload, and concurrency limits. See `docs/IMAGE_CENTER.md` for setup and safety details.
+
 ## Orion Home
 
 Orion opens to a provider-neutral personal command center. Refresh it at any time:
@@ -301,27 +347,29 @@ not silently execute linked project tasks. The event stream remains the foundati
 future workflow and streaming-progress consumers. See `docs/TASK_MANAGER.md` for the
 strict schemas and lifecycle.
 
-## Agent Registry Phase 1
+## Reusable Agent System
 
-Orion now separates workflow roles from the agents assigned to perform them. Agent
-definitions are strict YAML files under `~/.orion/agents/`, so custom specialists and
-their provider, model, instructions, tools, limits, and permissions survive application
-updates. Orion creates external Architect, Engineer, and Reviewer definitions once and
-never overwrites user edits.
+Orion separates workflow roles from reusable agents. Permanent versioned YAML profiles
+live under `~/.orion/agents/`; workspace-only profiles live under
+`<workspace>/.orion/agents/`. Each can define a job, specialty, personality,
+instructions, provider/model preferences, routing profile, capabilities, and
+conservative permission policies.
 
 ```text
 agent list
-agent show security-reviewer
-agent create
-agent enable security-reviewer
-agent disable security-reviewer
-agent test security-reviewer
+agent templates
+agent create --from-template planner
+agent create --from-template website-designer --scope workspace
+agent show website-designer
+team run "Build a product landing page" --agents planner,website-designer,marketing-specialist,reviewer
 ```
 
-`agent test` makes exactly one provider call and requires strict structured JSON.
-Declared tools and permissions are visible but inert: Phase 1 does not expose tools,
-modify files, run commands, or perform Git operations. See
-`docs/AGENT_REGISTRY.md` for the YAML schema and safety contract.
+Agent order and sanitized effective snapshots are stored in each team task. Resolution
+uses job overrides, agent preferences, Orion routing, then the configured provider;
+the actual provider/model is recorded. Capabilities grant eligibility to request an
+action, never approval. Selected-agent calls are bounded planning calls with no tools
+or mutations. See `docs/AGENT_REGISTRY.md` for schema, commands, workflows, safety,
+storage, and troubleshooting.
 
 ## AI Team Phase 1
 

@@ -78,6 +78,7 @@ ROOT_DOCUMENTS = (
     "README.md",
     "CHANGELOG.md",
 )
+IMAGE_CENTER_DOCUMENTS = ("docs/IMAGE_CENTER.md", "docs/CONFIGURATION.md", "docs/SERVICES.md")
 CATEGORY_DOCUMENTS = {
     "command": ("docs/AI_TEAM.md",),
     "configuration": ("docs/CONFIGURATION.md",),
@@ -1034,6 +1035,8 @@ developer-contract gaps. Return an empty findings array when coverage is complet
         applicable = set(ROOT_DOCUMENTS)
         for category in classification.categories:
             applicable.update(CATEGORY_DOCUMENTS.get(category, ()))
+        if any("image" in item.path.casefold() for item in changes.changes):
+            applicable.update(IMAGE_CENTER_DOCUMENTS)
         missing = sorted(path for path in applicable if not (workspace / path).is_file())
         if missing:
             checks.append(DocumentationCheck(
@@ -1195,6 +1198,8 @@ developer-contract gaps. Return an empty findings array when coverage is complet
         selected = list(ROOT_DOCUMENTS)
         for category in classification.categories:
             selected.extend(CATEGORY_DOCUMENTS.get(category, ()))
+        if any("image" in item.path.casefold() for item in changes.changes):
+            selected.extend(IMAGE_CENTER_DOCUMENTS)
         selected.extend(
             item.path for item in changes.changes
             if Path(item.path).suffix.casefold() == ".md"
