@@ -62,6 +62,46 @@ transitions. Codex Bridge remains a separate explicit approval and execution ser
 linking or approving a project task never invokes it. Workspace rebinding isolates
 each project's tasks and events.
 
+## Orion v1.0 Command Center foundation
+
+`CommandCenterService` is registered as `command_center` beside the existing agent,
+team, task, provider, and workspace services. It is the application boundary for one
+personal organization, departments that reference existing agent IDs, high-level jobs,
+append-only safe activity, the interface-neutral snapshot, and read-only diagnostics.
+It contains no provider client, execution engine, terminal renderer, or GUI logic.
+
+`FileCommandCenterRepository` persists versioned YAML organization, department, and
+job records plus JSON Lines activity under `OrionPaths.command_center`
+(`~/.orion/command-center/`). Complete YAML records are validated, written to an
+owner-restricted unique temporary file, flushed, and atomically replaced. Activity
+events are validated, ordered, duplicate-resistant, flushed appends. Invalid,
+malformed, or unsupported records are reported and never reset. The repository uses a
+process-local lock; multiple concurrent Orion processes writing one user root remain
+unsupported.
+
+Membership and assignment resolve through the production `AgentManager`, preserving
+permanent/workspace scope, enabled state, routing preferences, capabilities, and
+central permissions. Departments store only IDs. Missing or disabled historical
+references remain visible as snapshot/doctor warnings and are never repaired by
+deleting an agent or rewriting user data.
+
+The validated job transition graph separates creation, queueing, planning, approval,
+running, review, completion, failure, pause, and cancellation. Creating a job invokes
+nothing. Entering Awaiting Approval records a pending state; Running is rejected until
+the existing Orion approval has explicitly resolved it. The registered
+`command_center_jobs` adapter lets AI Team and future engines report state through the
+same service without importing provider, Codex, or terminal types.
+
+The v1 snapshot is a detached JSON-safe dictionary with organization and department
+summaries, agent grouping/counts, active/queued/approval/review/completed jobs, recent
+safe activity, optional local provider/routing health, an optional path-minimized
+workspace summary, and sorted reference warnings. Full goals and absolute workspace
+paths are omitted from job summaries. Future interfaces must consume this service
+contract rather than parse storage.
+
+See `ORION_V1_COMMAND_CENTER.md` for schemas, lifecycle, CLI, security, migration, and
+the staged roadmap to a desktop and remote Command Center.
+
 
 ## Workspace Search
 

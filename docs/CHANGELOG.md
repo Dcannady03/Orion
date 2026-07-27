@@ -1,4 +1,19 @@
-# Unreleased — Image Center, Automatic Validation, and Documentation Review
+# Unreleased — Command Center, Image Center, Automatic Validation, and Documentation Review
+
+- Added one registered provider-neutral `CommandCenterService` over the existing
+  Agent System, provider routing, workspace, and service-registry architecture.
+- Added the default Orion Organization, departments, immutable recommended-role
+  templates, multi-department agent references, high-level jobs, validated lifecycle
+  transitions, approval state, progress, and safe result/error summaries.
+- Added versioned atomic YAML and append-only JSONL persistence beneath
+  `~/.orion/command-center/`; malformed or unsupported schemas are reported without
+  reset, and secret-bearing metadata is rejected.
+- Added a deterministic display-safe snapshot contract, optional provider/workspace
+  adapters, warning generation, a generic AI Team lifecycle adapter, and a read-only
+  doctor.
+- Added the `command-center` / `cc` CLI, interactive and scripted creation, terminal
+  status, JSON output, help/completion, comprehensive tests, and
+  `ORION_V1_COMMAND_CENTER.md`.
 
 - Added one provider-neutral Image Center service and registry, independently
   selectable from Orion's text AI provider, with an initial OpenAI GPT Image adapter.

@@ -9,11 +9,13 @@ stable interface.
 - `workspace` → `WorkspaceManager`
 - `session_memory` → `SessionMemory`
 - `code` → `CodeSkill`
-- `agents` → `AgentRegistry` (external YAML agent definitions)
+- `agents` → `AgentManager` (permanent and workspace YAML agent definitions)
 - `team` → `TeamOrchestrator` (bounded Architect and Engineer planning)
 - `codex_bridge` → `CodexBridge` (approval-bound local implementation runs)
 - `execution_engines` → `ExecutionEngineService` (shared CLI resolution/probing and independent desktop-app detection)
 - `task_manager` → `TaskManager` (strict project work and progress events)
+- `command_center` → `CommandCenterService` (organization, jobs, activity, snapshot, and doctor)
+- `command_center_jobs` → `CommandCenterJobUpdateAdapter` (provider-neutral lifecycle reporting)
 - `provider_manager` → `ProviderManager` (Ollama/OpenAI/Gemini federation and activation)
 - `vault` → `VaultService` (external credential verification and persistence)
 - `ai_routing` → `AIRoutingService` (provider-neutral routing profiles and fallback)
@@ -38,11 +40,20 @@ memory = orion.services.get("session_memory")
 code = orion.services.get("code")
 agents = orion.services.get("agents")
 tasks = orion.services.get("task_manager")
+command_center = orion.services.get("command_center")
+command_center_jobs = orion.services.get("command_center_jobs")
 codex_bridge = orion.services.get("codex_bridge")
 execution_engines = orion.services.get("execution_engines")
 image = orion.services.get("image")
 email = orion.services.get("email")
 ```
+
+`CommandCenterService` stores versioned organization state under
+`~/.orion/command-center/` and resolves department/job agent references through the
+existing `agents` service. Its snapshot contains plain display-safe values for CLI and
+future interfaces. `CommandCenterJobUpdateAdapter` reports lifecycle state only; it
+does not execute work, resolve an approval on its own, or alter workspace and
+permission enforcement.
 
 `ImageService` owns strict image requests/results, an independent image-provider
 registry, bounded concurrency, content validation, sanitized outcome history, and

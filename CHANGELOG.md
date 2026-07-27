@@ -1,4 +1,26 @@
-# Unreleased — Agent System, Image Center, Automatic Validation, and Documentation Review
+# Unreleased — Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
+
+- Added the Orion v1.0 Command Center application layer with one default personal
+  organization, departments, multi-department agent membership, high-level jobs,
+  validated lifecycle transitions, progress, approval state, and safe summaries.
+- Added immutable Engineering, Marketing, Business, and Automation department
+  templates with recommended roles; applying a template never creates agents.
+- Reused the production Agent System by ID, including permanent/workspace and
+  enabled/disabled state, without copying or deleting agent definitions.
+- Added atomic versioned YAML storage and append-only JSONL activity under
+  `~/.orion/command-center/`, with schema validation, secret-shaped metadata
+  rejection, symlink protection, bounded reads, and no destructive recovery.
+- Added a deterministic JSON-safe snapshot for future interfaces with department
+  grouping, job classifications, provider/routing and workspace summaries, and
+  missing/disabled-reference warnings.
+- Added `command-center` and `cc` status, snapshot, department, template, job,
+  activity, and read-only doctor commands with interactive and noninteractive
+  creation.
+- Added a provider- and engine-neutral job lifecycle adapter for existing AI Team and
+  future runners. It cannot execute jobs, grant permissions, create approvals, or
+  bypass the existing workspace and immutable approval services.
+- Added architecture, README, roadmap, User Guide, help, completion, storage,
+  lifecycle, snapshot, CLI, doctor, integration, and regression coverage.
 
 - Added the first production reusable Agent System with versioned YAML definitions,
   job/specialty/personality instructions, provider/model/routing preferences,

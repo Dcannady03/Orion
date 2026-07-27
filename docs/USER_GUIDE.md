@@ -5,7 +5,7 @@
 **Project:** Orion — Personal AI Operating System
 
 **Documentation baseline:** v0.7.0 — Conductor plus unreleased Automatic Validation,
-Documentation Review, and Image Center
+Documentation Review, Image Center, and Command Center Foundation
 
 Orion is a local-first personal intelligence operating system. It coordinates local
 and cloud AI providers, project knowledge, communication services, applications, and
@@ -420,6 +420,43 @@ A new task is Proposed. `task approve` moves it to Ready but does not call an AI
 execute code, or change files. Every task mutation appends a strict project event.
 `task link-plan` links an AI Team plan as an artifact; it does not approve or implement
 that plan. AI Team execution uses its own immutable approval.
+
+### Command Center
+
+Command Center is the persistent organization layer above reusable agents and
+high-level work. Its records live under `~/.orion/command-center/`, separately from
+workspace Project Tasks and AI Team plans.
+
+```text
+cc status
+cc templates
+cc template show Engineering
+cc department create --template Engineering
+cc department add-agent Engineering planner
+cc departments
+cc job create --title "Build plugin marketplace" --goal "Design and implement a secure marketplace" --department Engineering --workspace "C:\Projects\Orion" --priority high
+cc jobs
+cc job status <job-id> queued
+cc job progress <job-id> 25 --stage planning
+cc snapshot
+cc activity
+cc doctor
+```
+
+Departments store existing agent IDs only. An agent can belong to multiple
+departments; removing membership never deletes it. Templates recommend roles but do
+not create agents.
+
+A new job begins in `draft` and starts no planning, provider call, tool, shell, or
+implementation. Lifecycle changes are explicit. If a job enters
+`awaiting_approval`, it cannot enter `running` until an existing Orion approval
+workflow resolves that pending approval. `cc snapshot` emits the safe versioned JSON
+contract for future interfaces; normal summaries omit full goals and absolute
+workspace paths. `cc doctor` validates records, references, timestamps, workspaces,
+and schemas without repairing or changing data.
+
+See `ORION_V1_COMMAND_CENTER.md` for the complete storage, schema, lifecycle, snapshot,
+security, migration, and roadmap contract.
 
 ## 7. Memory, conversations, search, and knowledge
 
@@ -1493,6 +1530,28 @@ Developer mode can expose safe diagnostics. It does not bypass approval or polic
 | `agent copy <agent> <new-name>` | Copy a profile under a new identity |
 | `agent test <agent>` | Run one bounded provider/configuration test |
 
+### Command Center
+
+| Command | Purpose |
+| --- | --- |
+| `cc status` | Show organization, department, agent, job, workspace, and AI health |
+| `cc snapshot [--json]` | Emit the versioned interface-neutral JSON contract |
+| `cc departments` | List configured departments |
+| `cc department show <name-or-id>` | Inspect department metadata and agent IDs |
+| `cc department create [--name ...\|--template ...]` | Create a department without creating agents |
+| `cc department add-agent <department> <agent>` | Add an existing agent reference |
+| `cc department remove-agent <department> <agent>` | Remove membership without deleting the agent |
+| `cc templates` / `cc template show <template>` | Inspect immutable recommended-role templates |
+| `cc jobs [--status <status>]` | List high-level organization jobs |
+| `cc job create --title ... --goal ...` | Create an inert draft job |
+| `cc job show <job-id>` | Inspect one job |
+| `cc job assign <job-id> <agent>` | Assign an existing enabled agent |
+| `cc job status <job-id> <status>` | Apply a validated lifecycle transition |
+| `cc job progress <job-id> <0-100>` | Record monotonic progress without executing |
+| `cc job cancel <job-id>` | Cancel a non-terminal job |
+| `cc activity [--limit <count>]` | Show recent safe activity summaries |
+| `cc doctor [--json]` | Validate storage and references without repair |
+
 ### AI Team
 
 | Command | Purpose |
@@ -1540,3 +1599,5 @@ boundary, and user-facing command should be added here when it changes. Detailed
 implementation contracts remain in the focused files under `docs/`, including
 `EMAIL.md`, `AI_TEAM.md`, `CODEX_BRIDGE.md`, `EXECUTION_ENGINES.md`,
 `AGENT_REGISTRY.md`, `TASK_MANAGER.md`, `IMAGE_CENTER.md`, and `CONFIGURATION.md`.
+Command Center's product and architecture contract is in
+`ORION_V1_COMMAND_CENTER.md`.

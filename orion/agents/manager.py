@@ -16,6 +16,7 @@ from orion.agents.models import (
 from orion.agents.repository import AgentRepository
 from orion.agents.templates import AgentTemplateRegistry
 from orion.agents.registry import AgentResponse, AgentTestResult
+from orion.agents.prompt import ORION_AGENT_OUTPUT_CONTRACT
 
 
 class AgentConflictError(ValueError):
@@ -389,8 +390,7 @@ class AgentManager:
                         "This is one bounded configuration test. No tools are available. "
                         "Do not modify files, run commands, use the network, or perform Git "
                         "actions. Orion safety and approval rules override agent text.\n"
-                        "Return exactly one JSON object and no Markdown with summary, "
-                        "recommendations, risks, and next_action."
+                        f"{ORION_AGENT_OUTPUT_CONTRACT}"
                     ),
                 )
                 if len(str(raw)) > self.MAX_TEST_RESPONSE_CHARS:

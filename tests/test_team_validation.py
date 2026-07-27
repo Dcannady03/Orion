@@ -1,4 +1,6 @@
+import hashlib
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -42,10 +44,10 @@ class FakeValidationRunner:
 
     def run(self, command, *, cwd, temp_root, timeout, max_output_bytes):
         self.calls.append((tuple(command), Path(cwd), Path(temp_root), timeout, max_output_bytes))
-        if self.error:
-            raise self.error
         if self.mutator:
             self.mutator(Path(cwd), len(self.calls))
+        if self.error:
+            raise self.error
         if self.results:
             return self.results.pop(0)
         return ValidationProcessResult(0, False, 0.01, 40, 4 if "unittest" in command else None)
@@ -139,10 +141,18 @@ class AutomaticValidationTests(unittest.TestCase):
         tester_available=True,
         goal="Implement the approved change",
         plan_steps=("Implement the approved change",),
+        workspace_root=None,
+        capabilities=None,
+        create_git_marker=True,
     ):
-        workspace = Path(root) / "workspace"
-        workspace.mkdir(parents=True)
-        (workspace / ".git").mkdir()
+        workspace = (
+            Path(workspace_root)
+            if workspace_root is not None
+            else Path(root) / "workspace"
+        )
+        workspace.mkdir(parents=True, exist_ok=True)
+        if create_git_marker:
+            (workspace / ".git").mkdir(exist_ok=True)
         before = before or {}
         after = after or {}
         for relative, content in before.items():
@@ -154,9 +164,12 @@ class AutomaticValidationTests(unittest.TestCase):
             runner=runner or FakeValidationRunner(),
             now=lambda: datetime(2026, 7, 19, 18, 0, tzinfo=timezone.utc),
         )
-        protected = service.protected_state(workspace)
+        capabilities = capabilities or WorkspaceCapabilities.detect(
+            workspace,
+            which=lambda _name: None,
+        )
+        protected = service.protected_state(capabilities)
         blob_root = Path(root) / "artifacts" / "snapshot" / "blobs"
-        capabilities = WorkspaceCapabilities.detect(workspace, which=lambda _name: None)
         baseline = snapshots.capture(
             capabilities,
             blob_root,
@@ -291,7 +304,7 @@ class AutomaticValidationTests(unittest.TestCase):
             self.assertEqual(attempt.status, "passed")
             self.assertEqual(len(runner.calls), 2)
             self.assertTrue(all(item.exit_code == 0 for item in attempt.commands))
-            self.assertIn("py_compile", runner.calls[0][0])
+            self.assertIn("orion_validation_compile", runner.calls[0][0])
             self.assertIn("tests.test_widget", runner.calls[1][0])
             self.assertEqual(next(item for item in attempt.checks if item.check_id == "python_full_suite").status, "skipped")
 
@@ -362,7 +375,12 @@ class AutomaticValidationTests(unittest.TestCase):
             )
             attempt = service.validate(request)
             self.assertEqual(attempt.status, "failed")
-            self.assertEqual(next(item for item in attempt.checks if item.check_id == "tester_read_only").status, "failed")
+            check = next(
+                item for item in attempt.checks
+                if item.check_id == "tester_read_only"
+            )
+            self.assertEqual(check.status, "failed")
+            self.assertIn("orion/services/widget.py", check.files)
 
     def test_protected_workspace_write_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -370,7 +388,158 @@ class AutomaticValidationTests(unittest.TestCase):
             (workspace / ".git" / "index").write_text("changed", encoding="utf-8")
             attempt = service.validate(request)
             self.assertEqual(attempt.status, "failed")
-            self.assertEqual(next(item for item in attempt.checks if item.check_id == "protected_workspace").status, "failed")
+            check = next(
+                item for item in attempt.checks
+                if item.check_id == "protected_workspace"
+            )
+            self.assertEqual(check.status, "failed")
+            self.assertIn(".git/index", check.files)
+
+    def test_harmless_git_inspection_timestamp_refresh_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, workspace = self.request(
+                tmp,
+                before={".git/index": b"stable-index"},
+                after={"new.json": "{}\n"},
+            )
+            index = workspace / ".git/index"
+            details = index.stat()
+            os.utime(
+                index,
+                ns=(details.st_atime_ns, details.st_mtime_ns + 2_000_000_000),
+            )
+            self.assertNotEqual(index.stat().st_mtime_ns, details.st_mtime_ns)
+            attempt = service.validate(request)
+            check = next(
+                item for item in attempt.checks
+                if item.check_id == "protected_workspace"
+            )
+            self.assertEqual(check.status, "passed")
+
+    def test_protected_path_details_are_bounded_and_sanitized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, workspace = self.request(
+                tmp,
+                after={"new.json": "{}\n"},
+            )
+            for index in range(30):
+                self._write(
+                    workspace,
+                    f".agents/generated-{index:02d}.json",
+                    "{}\n",
+                )
+            self._write(
+                workspace,
+                ".agents/.env.production",
+                "TOKEN=not-persisted-in-validation-details\n",
+            )
+            attempt = service.validate(request)
+            check = next(
+                item for item in attempt.checks
+                if item.check_id == "protected_workspace"
+            )
+            self.assertEqual(check.status, "failed")
+            self.assertEqual(len(check.files), 25)
+            self.assertIn("Showing 25 of 31", check.summary)
+            self.assertIn(".agents/[protected]", check.files)
+            self.assertNotIn(".env.production", json.dumps(check.to_dict()))
+
+    def test_nested_git_root_and_empty_sandbox_scaffolding_are_handled_precisely(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repository = root / "repository"
+            workspace = repository / "nested" / "workspace"
+            (repository / ".git").mkdir(parents=True)
+            self._write(repository, ".git/config", "[core]\nrepositoryformatversion = 0\n")
+            capabilities = WorkspaceCapabilities(
+                root=str(workspace.resolve()),
+                mode="git",
+                is_git_repository=True,
+                git_root=str(repository.resolve()),
+                branch="",
+                commit="",
+                supports_git_diff=False,
+                supports_git_commands=False,
+            )
+            service, request, workspace = self.request(
+                root,
+                after={"hello.py": "print('Hello Orion!')\n"},
+                workspace_root=workspace,
+                capabilities=capabilities,
+                create_git_marker=False,
+            )
+            empty_digest = hashlib.sha256(b"").hexdigest()
+            request = ValidationRequest(**{
+                **request.__dict__,
+                "protected_baseline": {
+                    "schema_version": 1,
+                    "workspace_root": str(workspace.resolve()),
+                    "directories": {
+                        name: {
+                            "exists": False,
+                            "entries": 0,
+                            "metadata_sha256": empty_digest,
+                        }
+                        for name in (".agents", ".codex", ".git")
+                    },
+                },
+            })
+            (workspace / ".git").mkdir()
+            (workspace / ".agents").mkdir()
+            attempt = service.validate(request)
+            protected = next(
+                item for item in attempt.checks
+                if item.check_id == "protected_workspace"
+            )
+            tester = next(
+                item for item in attempt.checks
+                if item.check_id == "tester_read_only"
+            )
+            self.assertEqual(protected.status, "passed")
+            self.assertEqual(tester.status, "passed")
+            self.assertFalse((workspace / ".git").exists())
+            self.assertFalse((workspace / ".agents").exists())
+            self.assertTrue(any(
+                "Restored transient empty protected scaffolding" in item
+                for item in attempt.safe_diagnostics
+            ))
+
+    def test_nested_repository_protected_write_is_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repository = root / "repository"
+            workspace = repository / "nested"
+            (repository / ".git").mkdir(parents=True)
+            self._write(repository, ".git/config", "[core]\nrepositoryformatversion = 0\n")
+            capabilities = WorkspaceCapabilities(
+                root=str(workspace.resolve()),
+                mode="git",
+                is_git_repository=True,
+                git_root=str(repository.resolve()),
+                branch="",
+                commit="",
+                supports_git_diff=False,
+                supports_git_commands=False,
+            )
+            service, request, _ = self.request(
+                root,
+                after={"new.json": "{}\n"},
+                workspace_root=workspace,
+                capabilities=capabilities,
+                create_git_marker=False,
+            )
+            self._write(
+                repository,
+                ".git/config",
+                "[core]\nrepositoryformatversion = 1\n",
+            )
+            attempt = service.validate(request)
+            check = next(
+                item for item in attempt.checks
+                if item.check_id == "protected_workspace"
+            )
+            self.assertEqual(check.status, "failed")
+            self.assertIn(".git@repository/config", check.files)
 
     def test_unavailable_tester_fails_closed_without_commands(self):
         runner = FakeValidationRunner()
@@ -423,9 +592,85 @@ class AutomaticValidationTests(unittest.TestCase):
                 runner=None,
             )
             service.runner = BoundedValidationRunner()
+            before = {
+                path.relative_to(workspace).as_posix(): path.read_bytes()
+                for path in workspace.rglob("*")
+                if path.is_file()
+            }
             attempt = service.validate(request)
             self.assertNotEqual(attempt.status, "failed")
             self.assertEqual(list(workspace.rglob("__pycache__")), [])
+            self.assertEqual(list(workspace.rglob("*.pyc")), [])
+            self.assertEqual(list(workspace.rglob("*.pyo")), [])
+            after = {
+                path.relative_to(workspace).as_posix(): path.read_bytes()
+                for path in workspace.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(after, before)
+            self.assertIn(
+                "orion_validation_compile",
+                attempt.commands[0].command,
+            )
+
+    def test_isolated_compile_writes_bytecode_only_to_validation_temp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            (workspace / "hello.py").write_text(
+                'print("Hello Orion!")\n',
+                encoding="utf-8",
+            )
+            temp_root = root / "validation-temp"
+            temp_root.mkdir()
+            result = BoundedValidationRunner().run(
+                (
+                    str(Path(__import__("sys").executable)),
+                    "-m",
+                    "orion_validation_compile",
+                    "hello.py",
+                ),
+                cwd=workspace,
+                temp_root=temp_root,
+                timeout=30,
+                max_output_bytes=10_000,
+            )
+            self.assertEqual(result.exit_code, 0)
+            self.assertEqual(list(workspace.rglob("*.pyc")), [])
+            compiled = list((temp_root / "compiled").glob("*.pyc"))
+            self.assertEqual(len(compiled), 1)
+
+    def test_validator_transients_are_cleaned_after_command_failure(self):
+        def leak_bytecode(workspace, _count):
+            cache = workspace / "orion/services/__pycache__"
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "widget.cpython-313.pyc").write_bytes(b"temporary")
+
+        runner = FakeValidationRunner(
+            mutator=leak_bytecode,
+            error=OSError("simulated validator failure"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, workspace = self.request(
+                tmp,
+                before={"tests/test_widget.py": "import unittest\n"},
+                after={"orion/services/widget.py": "VALUE = 1\n"},
+                runner=runner,
+            )
+            attempt = service.validate(request)
+            self.assertEqual(attempt.status, "error")
+            self.assertEqual(list(workspace.rglob("*.pyc")), [])
+            self.assertEqual(list(workspace.rglob("__pycache__")), [])
+            tester = next(
+                item for item in attempt.checks
+                if item.check_id == "tester_read_only"
+            )
+            self.assertEqual(tester.status, "passed")
+            self.assertTrue(any(
+                "Removed validator-created transient artifact" in item
+                for item in attempt.safe_diagnostics
+            ))
 
     def test_real_tester_blocks_workspace_vault_outside_network_git_and_nested_processes(self):
         with tempfile.TemporaryDirectory() as tmp:

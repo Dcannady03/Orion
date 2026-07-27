@@ -13,6 +13,7 @@ import shlex
 
 from orion.agents import AgentDefinition, AgentPermissions
 from orion.agents.cli import AgentCommandHandler
+from orion.command_center.cli import CommandCenterCommandHandler
 from orion.services.team import TeamPlanningError
 from orion.services.codex_bridge import CodexBridgeError, PlanSnapshot
 from orion.services.execution_engines import ExecutionEngineUnavailable
@@ -253,6 +254,22 @@ class CommandRouter:
 
         elif command_lower in {"benchmark models", "ai benchmark"}:
             self.benchmark_ai_models()
+
+        elif (
+            getattr(self.orion, "command_center", None) is not None
+            and (
+                command_lower in {"command-center", "cc"}
+                or command_lower.startswith(("command-center ", "cc "))
+            )
+        ):
+            prefix = (
+                "cc"
+                if command_lower == "cc" or command_lower.startswith("cc ")
+                else "command-center"
+            )
+            CommandCenterCommandHandler(self.orion.command_center).handle(
+                raw_command[len(prefix):].strip()
+            )
 
         elif (
             getattr(getattr(self.orion, "agents", None), "is_production_agent_manager", False)
@@ -736,6 +753,17 @@ class CommandRouter:
         print("    project status             Show project progress")
         print("    index build                Refresh the code knowledge index")
         print("    index find <text>          Search indexed project knowledge")
+        print()
+        print("  Command Center")
+        print("    cc status                  Show organization, jobs, and health")
+        print("    cc snapshot                Emit the interface-neutral JSON contract")
+        print("    cc departments             List organization departments")
+        print("    cc department create       Create or apply a department template")
+        print("    cc templates               Show recommended department roles")
+        print("    cc jobs                    List high-level organization jobs")
+        print("    cc job create              Create a job without starting execution")
+        print("    cc activity                Show recent safe activity summaries")
+        print("    cc doctor                  Validate storage and references read-only")
         print()
         print("  Safety & control")
         print("    action pending             Review pending actions")

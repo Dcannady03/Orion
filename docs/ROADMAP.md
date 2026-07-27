@@ -88,10 +88,30 @@ validation, routing-policy planning fallbacks, role metadata in immutable artifa
 and a complete living user/documentation process. Gatekeeper's approval, workspace,
 execution, review, and rollback protections remain intact.
 
-**Active milestone:** Image Center and Discord Image Generation (unreleased), following
-the completed-but-unreleased Automatic Validation and Documentation Review milestones.
-Email Phase B and cross-platform diagnostics through `orion doctor` remain planned
-after this provider-neutral media foundation.
+**Active milestone:** Orion v1.0 Command Center Foundation (unreleased), following the
+completed-but-unreleased Automatic Validation, Documentation Review, and Image Center
+milestones. It establishes persistent organization, departments, jobs, activity,
+snapshots, CLI, and diagnostics without claiming the deferred GUI or autonomous
+scheduler.
+
+## Unreleased — Orion v1.0 Command Center Foundation
+
+- [x] One default external personal organization with a versioned schema
+- [x] Departments reference existing agents and support multi-department membership
+- [x] Engineering, Marketing, Business, and Automation are immutable templates only
+- [x] High-level jobs use validated statuses, priorities, progress, and approval state
+- [x] Job creation remains inert and independent of providers, Codex, and execution
+- [x] Append-only activity contains bounded safe summaries and identifiers
+- [x] The deterministic JSON snapshot supports future interface consumers
+- [x] Provider/routing and workspace status use existing read-only service adapters
+- [x] `command-center` / `cc` commands cover status, operations, and JSON output
+- [x] Read-only doctor detects malformed storage and invalid references
+- [x] A generic lifecycle adapter preserves existing Team approval/workspace boundaries
+- [x] Runtime data remains beneath `~/.orion/command-center/`
+- [ ] Explicit user-controlled linking to Project Tasks, AI Team plans, and reviewed runs
+- [ ] Local application API and event cursors
+- [ ] Desktop Command Center GUI
+- [ ] Scheduled automation and authenticated remote/mobile controls
 
 ## Unreleased — Image Center and Discord Image Generation
 

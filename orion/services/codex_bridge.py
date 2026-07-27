@@ -33,6 +33,7 @@ from orion.services.team_documentation import (
     DocumentationAttempt,
     DocumentationRequest,
     DocumentationReviewService,
+    sanitized_documentation_error,
 )
 from orion.services.execution_engines import (
     ExecutionEngine,
@@ -1680,7 +1681,9 @@ class CodexBridge:
                 created_at=self._timestamp(),
             )
             if self.team_roles is not None:
-                protected_baseline = self.validation_service.protected_state(execution_workspace)
+                protected_baseline = self.validation_service.protected_state(
+                    context.workspace
+                )
                 self.store.write_run_artifact(
                     run_id,
                     "validation-protected-baseline.json",
@@ -2117,7 +2120,7 @@ class CodexBridge:
                 attempt = self.documentation_service.error(
                     request,
                     "documentation_review_error",
-                    f"Documentation Review stopped safely ({type(exc).__name__}).",
+                    sanitized_documentation_error(exc),
                 )
             self.store.write_documentation_attempt(
                 attempt,

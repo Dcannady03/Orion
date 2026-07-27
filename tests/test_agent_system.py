@@ -23,7 +23,7 @@ from orion.agents import (
 from orion.agents.cli import AgentCommandHandler
 from orion.core.router import CommandRouter
 from orion.services.codex_bridge import PlanSnapshot
-from orion.services.team import TeamOrchestrator, TeamTaskStore
+from orion.services.team import TeamOrchestrator, TeamPlanningError, TeamTaskStore
 
 
 class FlatConfig:
@@ -105,6 +105,16 @@ class FakeProvider:
             "risks": [],
             "next_action": "Continue",
         })
+
+
+class SequencedProvider(FakeProvider):
+    def __init__(self, model, responses):
+        super().__init__(model, "sequenced")
+        self.responses = iter(responses)
+
+    def chat(self, prompt, system_prompt=None):
+        self.calls.append((prompt, system_prompt))
+        return next(self.responses)
 
 
 class FakeFactory:
@@ -364,7 +374,96 @@ class AgentSystemTests(unittest.TestCase):
             self.assertIn("Software Engineer", prompt)
             self.assertIn("highest priority", prompt)
             self.assertIn("cannot override", prompt)
+            self.assertIn(
+                "recommendations must be a non-empty JSON array of plain strings only",
+                prompt,
+            )
+            self.assertIn('"recommendations":["ordered step"]', prompt)
             self.assertIn("no mutation is allowed", prompt)
+
+    def test_selected_agent_repairs_object_recommendations_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            invalid = json.dumps({
+                "summary": "Planner contribution",
+                "recommendations": [{
+                    "step": "Define the bounded implementation sequence",
+                    "acceptance_criteria": ["Tests pass"],
+                }],
+                "risks": [],
+                "next_action": "Continue",
+            })
+            valid = json.dumps({
+                "summary": "Planner contribution",
+                "recommendations": [
+                    "Define the bounded implementation sequence and acceptance criteria."
+                ],
+                "risks": [],
+                "next_action": "Continue",
+            })
+            provider = SequencedProvider("openai-model", [invalid, valid])
+            factory = FakeFactory({"openai": provider})
+            manager = self.manager(
+                tmp,
+                provider_manager=FakeProviderManager(),
+                routing=FakeRouting(),
+                factory=factory,
+            )
+            planner = self.create(manager, "Planner")
+            task = TeamOrchestrator(
+                manager.config,
+                TeamTaskStore(Path(tmp) / "tasks"),
+                factory,
+                manager,
+                id_factory=lambda: "team-agent-schema-repair",
+            ).plan(
+                "Plan a release",
+                selected_agents=[planner.agent_id],
+            )
+            self.assertEqual(len(provider.calls), 2)
+            self.assertIn("strict output validator", provider.calls[1][0])
+            self.assertIn(
+                "recommendations must be a non-empty JSON array of plain strings only",
+                provider.calls[1][0],
+            )
+            self.assertEqual(
+                task.final_plan,
+                ["Define the bounded implementation sequence and acceptance criteria."],
+            )
+            self.assertIn(
+                "one bounded schema-repair attempt",
+                task.artifacts[0].role_metadata.fallback_reason,
+            )
+
+    def test_selected_agent_stops_after_one_failed_schema_repair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            invalid = json.dumps({
+                "summary": "Planner contribution",
+                "recommendations": [{"step": "Still structured"}],
+                "risks": [],
+                "next_action": "Continue",
+            })
+            provider = SequencedProvider("openai-model", [invalid, invalid])
+            factory = FakeFactory({"openai": provider})
+            manager = self.manager(
+                tmp,
+                provider_manager=FakeProviderManager(),
+                routing=FakeRouting(),
+                factory=factory,
+            )
+            planner = self.create(manager, "Planner")
+            team = TeamOrchestrator(
+                manager.config,
+                TeamTaskStore(Path(tmp) / "tasks"),
+                factory,
+                manager,
+                id_factory=lambda: "team-agent-schema-repair-failed",
+            )
+            with self.assertRaisesRegex(
+                TeamPlanningError,
+                "remained invalid after one bounded schema-repair attempt",
+            ):
+                team.plan("Plan a release", selected_agents=[planner.agent_id])
+            self.assertEqual(len(provider.calls), 2)
 
     def test_permissions_are_eligibility_not_approval_bypass(self):
         with tempfile.TemporaryDirectory() as tmp:

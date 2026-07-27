@@ -35,6 +35,11 @@ VALIDATION_ID_PATTERN = re.compile(r"validation-[0-9]{4}")
 VALIDATION_STATUSES = frozenset({"passed", "warnings", "failed", "unavailable", "error"})
 VALIDATION_CHECK_STATUSES = frozenset({"passed", "warning", "failed", "skipped", "error"})
 PROTECTED_WORKSPACE_PARTS = frozenset({".git", ".codex", ".agents"})
+PROTECTED_FINGERPRINT_VERSION = 2
+MAX_PROTECTED_TRACKED_PATHS = 2_000
+MAX_CHANGED_PATH_DETAILS = 25
+MAX_TRANSIENT_PATHS = 10_000
+VALIDATOR_TEMP_PREFIX = ".orion-validation-"
 TESTER_DENIED_WORKSPACE_PARTS = frozenset({".git", ".codex", ".agents", ".orion", "vault"})
 TESTER_DENIED_FILE_NAMES = frozenset({
     ".env", "credentials.json", "secrets.json", "secrets.yaml", "secrets.yml",
@@ -148,6 +153,70 @@ def _sha256(path: Path) -> str:
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _safe_detail_path(value: str, *, maximum: int = 1_000) -> str:
+    """Return a bounded relative path while hiding credential-like names."""
+    raw = str(value).replace("\\", "/").strip("/")
+    parts: list[str] = []
+    for part in raw.split("/"):
+        lowered = part.casefold()
+        if (
+            lowered in TESTER_DENIED_FILE_NAMES
+            or lowered.startswith(".env.")
+            or lowered in {"vault", "tokens"}
+            or Path(part).suffix.casefold() in TESTER_DENIED_FILE_SUFFIXES
+        ):
+            parts.append("[protected]")
+        else:
+            parts.append(part)
+    return _safe_text("/".join(parts) or ".", maximum=maximum, required=True)
+
+
+def _git_index_semantic_sha256(path: Path) -> str:
+    """Hash Git index entries while ignoring stat-cache and extension churn."""
+    data = path.read_bytes()
+    raw_digest = hashlib.sha256(data).hexdigest()
+    if len(data) < 12 or data[:4] != b"DIRC":
+        return raw_digest
+    version = int.from_bytes(data[4:8], "big")
+    count = int.from_bytes(data[8:12], "big")
+    if version not in {2, 3} or count > 10_000_000:
+        return raw_digest
+    digest = hashlib.sha256()
+    digest.update(data[:12])
+    offset = 12
+    try:
+        for _ in range(count):
+            start = offset
+            if start + 62 > len(data):
+                return raw_digest
+            mode = data[start + 24:start + 28]
+            object_id = data[start + 40:start + 60]
+            flags = int.from_bytes(data[start + 60:start + 62], "big")
+            cursor = start + 62
+            extended = b""
+            if version >= 3 and flags & 0x4000:
+                if cursor + 2 > len(data):
+                    return raw_digest
+                extended = data[cursor:cursor + 2]
+                cursor += 2
+            end = data.find(b"\0", cursor)
+            if end < cursor or end == cursor:
+                return raw_digest
+            name = data[cursor:end]
+            digest.update(mode)
+            digest.update(object_id)
+            digest.update((flags & 0xF000).to_bytes(2, "big"))
+            digest.update(extended)
+            digest.update(name)
+            digest.update(b"\0")
+            offset = start + (((end + 1 - start) + 7) & ~7)
+            if offset > len(data):
+                return raw_digest
+    except (IndexError, OverflowError, ValueError):
+        return raw_digest
     return digest.hexdigest()
 
 
@@ -416,6 +485,13 @@ class ValidationProcessResult:
     test_count: int | None = None
 
 
+@dataclass(frozen=True)
+class ProtectedStateDifference:
+    problem: str
+    paths: tuple[str, ...]
+    total_paths: int
+
+
 class BoundedValidationRunner:
     """Run only Orion-selected Python validation commands in an isolated temp home."""
 
@@ -436,7 +512,7 @@ class BoundedValidationRunner:
         argv = tuple(str(item) for item in command)
         if len(argv) < 3 or Path(argv[0]).resolve() != Path(sys.executable).resolve() or argv[1] != "-m":
             raise PermissionError("Tester rejected a command outside the deterministic Python allowlist.")
-        if argv[2] not in {"py_compile", "unittest"}:
+        if argv[2] not in {"orion_validation_compile", "unittest"}:
             raise PermissionError("Tester rejected an unsupported validation module.")
         environment = {
             name: value for name, value in os.environ.items()
@@ -444,6 +520,9 @@ class BoundedValidationRunner:
         }
         guard = temp_root / "sitecustomize.py"
         guard.write_text(_VALIDATION_GUARD, encoding="utf-8")
+        if argv[2] == "orion_validation_compile":
+            compile_module = temp_root / "orion_validation_compile.py"
+            compile_module.write_text(_VALIDATION_COMPILE_MODULE, encoding="utf-8")
         cache = temp_root / "pycache"
         cache.mkdir(parents=True, exist_ok=True)
         for name in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "TMPDIR"):
@@ -508,6 +587,34 @@ class BoundedValidationRunner:
             min(total, max_output_bytes + 1),
             int(match.group(1)) if match else None,
         )
+
+
+_VALIDATION_COMPILE_MODULE = r'''# Orion isolated Python compilation.
+import hashlib
+import os
+import pathlib
+import py_compile
+import sys
+
+_TEMP = pathlib.Path(os.environ["ORION_VALIDATION_TEMP"]).resolve()
+_WORKSPACE = pathlib.Path(os.environ["ORION_VALIDATION_WORKSPACE"]).resolve()
+_OUTPUT = _TEMP / "compiled"
+_OUTPUT.mkdir(parents=True, exist_ok=True)
+
+for _value in sys.argv[1:]:
+    _relative = pathlib.Path(_value)
+    if _relative.is_absolute() or ".." in _relative.parts or _relative.suffix.casefold() != ".py":
+        raise PermissionError("Orion rejected an invalid Python compile path.")
+    _source = (_WORKSPACE / _relative).resolve()
+    try:
+        _source.relative_to(_WORKSPACE)
+    except ValueError as _error:
+        raise PermissionError("Orion rejected a Python path outside the workspace.") from _error
+    if not _source.is_file():
+        raise FileNotFoundError("Orion could not find a changed Python file.")
+    _name = hashlib.sha256(_relative.as_posix().encode("utf-8")).hexdigest() + ".pyc"
+    py_compile.compile(str(_source), cfile=str(_OUTPUT / _name), doraise=True)
+'''
 
 
 _VALIDATION_GUARD = r'''# Orion automatic-validation child guard.
@@ -644,9 +751,282 @@ class AutomaticValidationService:
         self.runner = runner or BoundedValidationRunner()
         self._now = now or (lambda: datetime.now(timezone.utc))
 
-    def protected_state(self, workspace: str | Path) -> dict[str, Any]:
-        """Hash protected metadata without reading contents or touching Vault data."""
+    def protected_state(
+        self,
+        workspace: str | Path | WorkspaceCapabilities,
+    ) -> dict[str, Any]:
+        """Fingerprint protected paths without persisting their contents or timestamps."""
+        root, git_root = self._protected_roots(workspace)
+        targets: dict[str, tuple[Path, str]] = {
+            name: (root / name, "workspace")
+            for name in sorted(PROTECTED_WORKSPACE_PARTS)
+        }
+        if git_root is not None and not _same_path(git_root, root):
+            targets[".git@repository"] = (git_root / ".git", "repository")
+
+        directories: dict[str, Any] = {}
+        for label, (target, scope) in sorted(targets.items()):
+            digest = hashlib.sha256()
+            fingerprints: dict[str, Any] = {}
+            count = 0
+            exists = target.exists() or target.is_symlink()
+            kind = "missing"
+            if exists:
+                details = target.lstat()
+                kind = self._protected_kind(details.st_mode)
+                paths = (
+                    [target]
+                    if kind != "directory"
+                    else sorted(target.rglob("*"), key=lambda item: str(item).casefold())
+                )
+                for path in paths:
+                    count += 1
+                    if count > 50_000:
+                        raise ValueError(
+                            f"Protected workspace metadata is too large to validate: {label}"
+                        )
+                    relative = "." if path == target else path.relative_to(target).as_posix()
+                    entry = self._protected_entry(label, path, relative)
+                    path_id = hashlib.sha256(
+                        relative.casefold().encode("utf-8", errors="surrogatepass")
+                    ).hexdigest()
+                    digest.update(path_id.encode("ascii"))
+                    digest.update(json.dumps(
+                        entry,
+                        sort_keys=True,
+                        ensure_ascii=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8"))
+                    if len(fingerprints) < MAX_PROTECTED_TRACKED_PATHS:
+                        fingerprints[path_id] = entry
+            directories[label] = {
+                "exists": exists,
+                "kind": kind,
+                "scope": scope,
+                "entries": count,
+                "metadata_sha256": digest.hexdigest(),
+                "path_fingerprints": fingerprints,
+                "details_truncated": count > MAX_PROTECTED_TRACKED_PATHS,
+            }
+        return {
+            "schema_version": VALIDATION_SCHEMA_VERSION,
+            "fingerprint_version": PROTECTED_FINGERPRINT_VERSION,
+            "workspace_root": str(root),
+            "git_root": "" if git_root is None else str(git_root),
+            "directories": directories,
+        }
+
+    def protected_difference(
+        self,
+        baseline: Mapping[str, Any] | None,
+        workspace: str | Path | WorkspaceCapabilities,
+    ) -> ProtectedStateDifference:
+        if baseline is None:
+            return ProtectedStateDifference("", (), 0)
+        root, _ = self._protected_roots(workspace)
+        try:
+            if baseline.get("schema_version") != VALIDATION_SCHEMA_VERSION:
+                return ProtectedStateDifference(
+                    "Protected metadata baseline has an unsupported schema.",
+                    (),
+                    0,
+                )
+            if not _same_path(baseline.get("workspace_root", ""), root):
+                return ProtectedStateDifference(
+                    "Protected metadata baseline belongs to another workspace.",
+                    (),
+                    0,
+                )
+            if baseline.get("fingerprint_version") != PROTECTED_FINGERPRINT_VERSION:
+                current = self._legacy_protected_state(root)
+                before_directories = baseline.get("directories")
+                if not isinstance(before_directories, Mapping):
+                    raise TypeError("Protected directory baseline is invalid.")
+                changed = [
+                    name
+                    for name in sorted(set(before_directories) | set(current["directories"]))
+                    if before_directories.get(name) != current["directories"].get(name)
+                ]
+                if not changed:
+                    return ProtectedStateDifference("", (), 0)
+                details = tuple(
+                    _safe_detail_path(f"{name}/")
+                    for name in changed[:MAX_CHANGED_PATH_DETAILS]
+                )
+                return ProtectedStateDifference(
+                    self._path_change_summary(
+                        "Unexpected protected workspace metadata change",
+                        len(changed),
+                        details,
+                    ),
+                    details,
+                    len(changed),
+                )
+
+            current = self.protected_state(workspace)
+            before_directories = baseline.get("directories")
+            after_directories = current.get("directories")
+            if not isinstance(before_directories, Mapping) or not isinstance(
+                after_directories, Mapping
+            ):
+                raise TypeError("Protected directory state is invalid.")
+            paths: list[str] = []
+            total = 0
+            for label in sorted(set(before_directories) | set(after_directories)):
+                before = before_directories.get(label)
+                after = after_directories.get(label)
+                if not isinstance(before, Mapping) or not isinstance(after, Mapping):
+                    total += 1
+                    if len(paths) < MAX_CHANGED_PATH_DETAILS:
+                        paths.append(_safe_detail_path(f"{label}/"))
+                    continue
+                if before.get("metadata_sha256") == after.get("metadata_sha256") and (
+                    before.get("exists"),
+                    before.get("kind"),
+                ) == (
+                    after.get("exists"),
+                    after.get("kind"),
+                ):
+                    continue
+                before_paths = before.get("path_fingerprints", {})
+                after_paths = after.get("path_fingerprints", {})
+                if not isinstance(before_paths, Mapping) or not isinstance(
+                    after_paths, Mapping
+                ):
+                    total += 1
+                    if len(paths) < MAX_CHANGED_PATH_DETAILS:
+                        paths.append(_safe_detail_path(f"{label}/"))
+                    continue
+                changed_ids = [
+                    path_id
+                    for path_id in sorted(set(before_paths) | set(after_paths))
+                    if before_paths.get(path_id) != after_paths.get(path_id)
+                ]
+                total += max(1, len(changed_ids))
+                for path_id in changed_ids:
+                    if len(paths) >= MAX_CHANGED_PATH_DETAILS:
+                        break
+                    entry = after_paths.get(path_id) or before_paths.get(path_id) or {}
+                    display = (
+                        entry.get("path")
+                        if isinstance(entry, Mapping)
+                        else f"{label}/"
+                    )
+                    paths.append(_safe_detail_path(str(display or f"{label}/")))
+                if not changed_ids and len(paths) < MAX_CHANGED_PATH_DETAILS:
+                    paths.append(_safe_detail_path(f"{label}/"))
+            if not total:
+                return ProtectedStateDifference("", (), 0)
+            bounded = tuple(dict.fromkeys(paths))
+            return ProtectedStateDifference(
+                self._path_change_summary(
+                    "Unexpected protected workspace metadata change",
+                    total,
+                    bounded,
+                ),
+                bounded,
+                total,
+            )
+        except (OSError, TypeError, ValueError):
+            return ProtectedStateDifference(
+                "Protected workspace metadata could not be validated safely.",
+                (),
+                0,
+            )
+
+    def restore_transient_protected_directories(
+        self,
+        baseline: Mapping[str, Any] | None,
+        workspace: str | Path | WorkspaceCapabilities,
+    ) -> tuple[str, ...]:
+        """Restore only empty protected directories that were absent in the baseline."""
+        if baseline is None or not isinstance(baseline.get("directories"), Mapping):
+            return ()
+        root, _ = self._protected_roots(workspace)
+        restored: list[str] = []
+        for name in sorted(PROTECTED_WORKSPACE_PARTS):
+            previous = baseline["directories"].get(name)
+            target = root / name
+            if (
+                not isinstance(previous, Mapping)
+                or previous.get("exists") is not False
+                or not target.is_dir()
+                or target.is_symlink()
+            ):
+                continue
+            try:
+                if next(target.iterdir(), None) is not None:
+                    continue
+                target.rmdir()
+                restored.append(_safe_detail_path(f"{name}/"))
+            except OSError:
+                continue
+        return tuple(restored)
+
+    @staticmethod
+    def _protected_roots(
+        workspace: str | Path | WorkspaceCapabilities,
+    ) -> tuple[Path, Path | None]:
+        if isinstance(workspace, WorkspaceCapabilities):
+            root = Path(workspace.root).expanduser().resolve()
+            git_root = (
+                Path(workspace.git_root).expanduser().resolve()
+                if workspace.is_git_repository and workspace.git_root
+                else None
+            )
+            return root, git_root
         root = Path(workspace).expanduser().resolve()
+        fallback: Path | None = None
+        for candidate in (root, *root.parents):
+            marker = candidate / ".git"
+            if marker.is_file():
+                return root, candidate
+            if marker.is_dir():
+                fallback = fallback or candidate
+                if any((marker / name).exists() for name in ("HEAD", "config", "objects")):
+                    return root, candidate
+        return root, fallback
+
+    @staticmethod
+    def _protected_kind(mode: int) -> str:
+        if stat.S_ISDIR(mode):
+            return "directory"
+        if stat.S_ISREG(mode):
+            return "file"
+        if stat.S_ISLNK(mode):
+            return "symlink"
+        return "other"
+
+    def _protected_entry(
+        self,
+        label: str,
+        path: Path,
+        relative: str,
+    ) -> dict[str, Any]:
+        details = path.lstat()
+        kind = self._protected_kind(details.st_mode)
+        content_sha256 = ""
+        if kind == "file":
+            content_sha256 = (
+                _git_index_semantic_sha256(path)
+                if label.startswith(".git") and relative.casefold() == "index"
+                else _sha256(path)
+            )
+        elif kind == "symlink":
+            content_sha256 = hashlib.sha256(
+                os.readlink(path).encode("utf-8", errors="surrogatepass")
+            ).hexdigest()
+        display = label if relative == "." else f"{label}/{relative}"
+        return {
+            "path": _safe_detail_path(display),
+            "kind": kind,
+            "size": int(details.st_size),
+            "mode": int(stat.S_IMODE(details.st_mode)),
+            "content_sha256": content_sha256,
+        }
+
+    @staticmethod
+    def _legacy_protected_state(root: Path) -> dict[str, Any]:
         directories: dict[str, Any] = {}
         for name in sorted(PROTECTED_WORKSPACE_PARTS):
             target = root / name
@@ -658,15 +1038,22 @@ class AutomaticValidationService:
                     f".\0{root_details.st_size}\0{root_details.st_mtime_ns}\0"
                     f"{stat.S_IFMT(root_details.st_mode)}\n".encode("utf-8")
                 )
-                for path in sorted(target.rglob("*"), key=lambda item: str(item).casefold()):
+                for path in sorted(
+                    target.rglob("*"),
+                    key=lambda item: str(item).casefold(),
+                ):
                     count += 1
                     if count > 50_000:
-                        raise ValueError(f"Protected workspace metadata is too large to validate: {name}")
+                        raise ValueError(
+                            f"Protected workspace metadata is too large to validate: {name}"
+                        )
                     relative = path.relative_to(target).as_posix()
                     details = path.lstat()
                     digest.update(
-                        f"{relative}\0{details.st_size}\0{details.st_mtime_ns}\0{stat.S_IFMT(details.st_mode)}\n".encode(
-                            "utf-8", errors="surrogatepass"
+                        f"{relative}\0{details.st_size}\0{details.st_mtime_ns}\0"
+                        f"{stat.S_IFMT(details.st_mode)}\n".encode(
+                            "utf-8",
+                            errors="surrogatepass",
                         )
                     )
             directories[name] = {
@@ -679,6 +1066,22 @@ class AutomaticValidationService:
             "workspace_root": str(root),
             "directories": directories,
         }
+
+    @staticmethod
+    def _path_change_summary(
+        prefix: str,
+        total: int,
+        paths: tuple[str, ...],
+    ) -> str:
+        shown = ", ".join(paths)
+        suffix = (
+            f" Showing {len(paths)} of {total}: {shown}."
+            if paths and total > len(paths)
+            else f" Changed: {shown}."
+            if paths
+            else ""
+        )
+        return f"{prefix} ({total} path(s)).{suffix}"[:1_000]
 
     def markdown_checks(
         self,
@@ -713,6 +1116,19 @@ class AutomaticValidationService:
             or engine.engine_id.casefold() != request.tester.actual_assignment.casefold()
         ):
             return self.unavailable(request, "Configured Tester execution engine is unavailable.")
+
+        restored = self.restore_transient_protected_directories(
+            request.protected_baseline,
+            request.workspace,
+        )
+        if restored:
+            diagnostics.append(
+                self._path_change_summary(
+                    "Restored transient empty protected scaffolding",
+                    len(restored),
+                    restored,
+                )
+            )
 
         expected = {item.path: item for item in request.changes.changes}
         reported = {
@@ -749,16 +1165,22 @@ class AutomaticValidationService:
             tuple(sorted(expected, key=str.casefold)),
         ))
 
-        protected_problem = self._protected_problem(request.protected_baseline, workspace)
+        protected_difference = self.protected_difference(
+            request.protected_baseline,
+            request.workspace,
+        )
         checks.append(ValidationCheck(
             "protected_workspace",
             "Protected workspace metadata",
-            "failed" if protected_problem else ("warning" if request.protected_baseline is None else "passed"),
-            protected_problem or (
+            "failed" if protected_difference.problem else (
+                "warning" if request.protected_baseline is None else "passed"
+            ),
+            protected_difference.problem or (
                 "Protected metadata baseline is unavailable for this older run."
                 if request.protected_baseline is None
                 else "No writes were detected in .git, .codex, or .agents."
             ),
+            protected_difference.paths,
         ))
 
         changed_existing = [
@@ -791,89 +1213,63 @@ class AutomaticValidationService:
             (path for path in changed_existing if Path(path).suffix.casefold() == ".py"),
             key=str.casefold,
         )
-        with tempfile.TemporaryDirectory(prefix="orion-validation-") as temporary:
-            temp_root = Path(temporary).resolve()
-            if python_files:
-                files_inspected.update(python_files)
-                compile_results = []
-                for offset in range(0, len(python_files), 25):
-                    chunk = python_files[offset:offset + 25]
-                    process = self._run_command(
-                        (sys.executable, "-m", "py_compile", *chunk),
-                        f"python -m py_compile <changed-python-files {offset + 1}-{offset + len(chunk)}>",
-                        workspace,
-                        temp_root,
-                    )
-                    commands.append(process[0])
-                    compile_results.append(process)
-                compile_status = (
-                    "error" if any(item[1] == "error" for item in compile_results)
-                    else "failed" if any(item[1] == "failed" for item in compile_results)
-                    else "passed"
-                )
-                checks.append(ValidationCheck(
-                    "python_compile",
-                    "Python compile",
-                    compile_status,
-                    (
-                        f"Compiled {len(python_files)} changed Python file(s) in "
-                        f"{len(compile_results)} bounded command(s)."
-                        if compile_status == "passed"
-                        else next(item[2] for item in compile_results if item[1] != "passed")
-                    ),
-                    tuple(python_files),
-                ))
-                test_files, full_suite, selection_reason = self._python_test_plan(workspace, python_files)
-                if test_files or full_suite:
-                    if full_suite:
-                        argv = (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py")
-                        display = "python -m unittest discover -s tests -p test_*.py"
-                        check_id = "python_full_tests"
-                        name = "Full Python test discovery"
-                    else:
-                        modules = tuple(Path(item).with_suffix("").as_posix().replace("/", ".") for item in test_files)
-                        argv = (sys.executable, "-m", "unittest", *modules)
-                        display = "python -m unittest " + " ".join(modules)
-                        check_id = "python_targeted_tests"
-                        name = "Targeted Python tests"
-                        files_inspected.update(test_files)
-                    process = self._run_command(argv, display, workspace, temp_root)
-                    commands.append(process[0])
-                    summary = process[2]
-                    if process[3] is not None:
-                        summary = f"{process[3]} test(s); {summary}"
-                    checks.append(ValidationCheck(check_id, name, process[1], summary, tuple(test_files)))
-                    if not full_suite:
-                        checks.append(ValidationCheck(
-                            "python_full_suite",
-                            "Full Python test suite",
-                            "skipped",
-                            "Targeted tests were sufficient for the changed modules.",
-                        ))
-                    elif selection_reason:
-                        diagnostics.append(selection_reason)
-                else:
-                    checks.append(ValidationCheck(
-                        "python_tests",
-                        "Python tests",
-                        "warning",
-                        selection_reason or "No relevant Python tests were discovered.",
-                    ))
+        protected_before_commands = self.protected_state(request.workspace)
+        transient_problems: tuple[str, ...] = ()
+        if python_files:
+            (
+                python_checks,
+                python_commands,
+                python_inspected,
+                python_diagnostics,
+                transient_problems,
+            ) = self._validate_python(workspace, python_files)
+            checks.extend(python_checks)
+            commands.extend(python_commands)
+            files_inspected.update(python_inspected)
+            diagnostics.extend(python_diagnostics)
 
         final_changes, _ = self.snapshots.compare(
             request.baseline,
             request.blob_root,
             SnapshotLimits.from_config(self.config),
         )
-        mutation_problem = final_changes.to_dict() != request.changes.to_dict()
-        final_protected_problem = self._protected_problem(request.protected_baseline, workspace)
+        mutation_paths = self._workspace_change_difference(
+            request.changes,
+            final_changes,
+        )
+        final_protected_difference = self.protected_difference(
+            protected_before_commands,
+            request.workspace,
+        )
+        tester_paths = tuple(dict.fromkeys(
+            (
+                *mutation_paths,
+                *final_protected_difference.paths,
+                *transient_problems,
+            )
+        ))[:MAX_CHANGED_PATH_DETAILS]
+        total_tester_paths = (
+            len(mutation_paths)
+            + final_protected_difference.total_paths
+            + len(transient_problems)
+        )
+        tester_problem = bool(
+            mutation_paths
+            or final_protected_difference.problem
+            or transient_problems
+        )
         checks.append(ValidationCheck(
             "tester_read_only",
             "Tester read-only boundary",
-            "failed" if mutation_problem or final_protected_problem else "passed",
-            "Tester commands altered workspace state."
-            if mutation_problem or final_protected_problem
+            "failed" if tester_problem else "passed",
+            self._path_change_summary(
+                "Tester commands altered workspace state",
+                max(total_tester_paths, len(tester_paths)),
+                tester_paths,
+            )
+            if tester_problem
             else "Validation left implementation files and protected metadata unchanged.",
+            tester_paths,
         ))
 
         statuses = {item.status for item in checks}
@@ -991,6 +1387,266 @@ class AutomaticValidationService:
             "safe_diagnostics": diagnostics,
             "artifact_paths": list(request.artifact_paths),
         })
+
+    def _validate_python(
+        self,
+        workspace: Path,
+        python_files: list[str],
+    ) -> tuple[
+        list[ValidationCheck],
+        list[ValidationCommand],
+        set[str],
+        list[str],
+        tuple[str, ...],
+    ]:
+        checks: list[ValidationCheck] = []
+        commands: list[ValidationCommand] = []
+        inspected = set(python_files)
+        diagnostics: list[str] = []
+        transient_before = self._validator_transient_inventory(workspace)
+        cleaned: tuple[str, ...] = ()
+        transient_problems: tuple[str, ...] = ()
+        try:
+            with tempfile.TemporaryDirectory(prefix="orion-validation-") as temporary:
+                temp_root = Path(temporary).resolve()
+                compile_results = []
+                for offset in range(0, len(python_files), 25):
+                    chunk = python_files[offset:offset + 25]
+                    process = self._run_command(
+                        (
+                            sys.executable,
+                            "-m",
+                            "orion_validation_compile",
+                            *chunk,
+                        ),
+                        (
+                            "python -m orion_validation_compile "
+                            f"<changed-python-files {offset + 1}-{offset + len(chunk)}>"
+                        ),
+                        workspace,
+                        temp_root,
+                    )
+                    commands.append(process[0])
+                    compile_results.append(process)
+                compile_status = (
+                    "error" if any(item[1] == "error" for item in compile_results)
+                    else "failed" if any(item[1] == "failed" for item in compile_results)
+                    else "passed"
+                )
+                checks.append(ValidationCheck(
+                    "python_compile",
+                    "Python compile",
+                    compile_status,
+                    (
+                        f"Compiled {len(python_files)} changed Python file(s) into "
+                        f"an isolated temporary directory in {len(compile_results)} "
+                        "bounded command(s)."
+                        if compile_status == "passed"
+                        else next(
+                            item[2]
+                            for item in compile_results
+                            if item[1] != "passed"
+                        )
+                    ),
+                    tuple(python_files),
+                ))
+
+                test_files, full_suite, selection_reason = self._python_test_plan(
+                    workspace,
+                    python_files,
+                )
+                if test_files or full_suite:
+                    if full_suite:
+                        argv = (
+                            sys.executable,
+                            "-m",
+                            "unittest",
+                            "discover",
+                            "-s",
+                            "tests",
+                            "-p",
+                            "test_*.py",
+                        )
+                        display = "python -m unittest discover -s tests -p test_*.py"
+                        check_id = "python_full_tests"
+                        name = "Full Python test discovery"
+                    else:
+                        modules = tuple(
+                            Path(item).with_suffix("").as_posix().replace("/", ".")
+                            for item in test_files
+                        )
+                        argv = (sys.executable, "-m", "unittest", *modules)
+                        display = "python -m unittest " + " ".join(modules)
+                        check_id = "python_targeted_tests"
+                        name = "Targeted Python tests"
+                        inspected.update(test_files)
+                    process = self._run_command(
+                        argv,
+                        display,
+                        workspace,
+                        temp_root,
+                    )
+                    commands.append(process[0])
+                    summary = process[2]
+                    if process[3] is not None:
+                        summary = f"{process[3]} test(s); {summary}"
+                    checks.append(ValidationCheck(
+                        check_id,
+                        name,
+                        process[1],
+                        summary,
+                        tuple(test_files),
+                    ))
+                    if not full_suite:
+                        checks.append(ValidationCheck(
+                            "python_full_suite",
+                            "Full Python test suite",
+                            "skipped",
+                            "Targeted tests were sufficient for the changed modules.",
+                        ))
+                    elif selection_reason:
+                        diagnostics.append(selection_reason)
+                else:
+                    checks.append(ValidationCheck(
+                        "python_tests",
+                        "Python tests",
+                        "warning",
+                        selection_reason
+                        or "No relevant Python tests were discovered.",
+                    ))
+        finally:
+            cleaned = self._cleanup_validator_transients(
+                workspace,
+                transient_before,
+            )
+            transient_after = self._validator_transient_inventory(workspace)
+            transient_problems = self._transient_difference(
+                transient_before,
+                transient_after,
+            )
+        if cleaned:
+            diagnostics.append(self._path_change_summary(
+                "Removed validator-created transient artifact",
+                len(cleaned),
+                cleaned[:MAX_CHANGED_PATH_DETAILS],
+            ))
+        return checks, commands, inspected, diagnostics, transient_problems
+
+    def _validator_transient_inventory(
+        self,
+        workspace: Path,
+    ) -> dict[str, tuple[str, int, str]]:
+        result: dict[str, tuple[str, int, str]] = {}
+        ignored = {
+            ".git", ".codex", ".agents", ".orion", "vault", "tokens",
+            ".venv", "venv", "env", "node_modules", "bower_components",
+            "build", "dist", "target", "coverage", "htmlcov",
+        }
+
+        def tracked(relative: Path) -> bool:
+            return (
+                any(part.casefold() == "__pycache__" for part in relative.parts)
+                or any(part.casefold().startswith(VALIDATOR_TEMP_PREFIX) for part in relative.parts)
+                or relative.suffix.casefold() in {".pyc", ".pyo"}
+            )
+
+        for current, directories, files in os.walk(
+            workspace,
+            topdown=True,
+            followlinks=False,
+        ):
+            current_path = Path(current)
+            directories[:] = [
+                name
+                for name in directories
+                if name.casefold() not in ignored
+            ]
+            for name in sorted((*directories, *files), key=str.casefold):
+                path = current_path / name
+                relative = path.relative_to(workspace)
+                if not tracked(relative):
+                    continue
+                details = path.lstat()
+                kind = self._protected_kind(details.st_mode)
+                digest = _sha256(path) if kind == "file" else ""
+                result[relative.as_posix()] = (
+                    kind,
+                    int(details.st_size),
+                    digest,
+                )
+                if len(result) > MAX_TRANSIENT_PATHS:
+                    raise ValueError(
+                        "Validator transient artifact inventory exceeded its safety limit."
+                    )
+        return result
+
+    def _cleanup_validator_transients(
+        self,
+        workspace: Path,
+        before: Mapping[str, tuple[str, int, str]],
+    ) -> tuple[str, ...]:
+        after = self._validator_transient_inventory(workspace)
+        new_paths = set(after) - set(before)
+        new_temp_roots = {
+            relative
+            for relative in new_paths
+            if any(
+                part.casefold().startswith(VALIDATOR_TEMP_PREFIX)
+                for part in Path(relative).parts
+            )
+        }
+        cleaned: list[str] = []
+        for relative in sorted(new_paths, key=lambda item: len(Path(item).parts), reverse=True):
+            path = (workspace / relative).resolve()
+            try:
+                path.relative_to(workspace)
+            except ValueError:
+                continue
+            kind = after[relative][0]
+            in_new_temp = any(
+                relative == root or relative.startswith(root.rstrip("/") + "/")
+                for root in new_temp_roots
+            )
+            is_bytecode = Path(relative).suffix.casefold() in {".pyc", ".pyo"}
+            try:
+                if kind == "file" and (is_bytecode or in_new_temp):
+                    path.unlink()
+                    cleaned.append(_safe_detail_path(relative))
+                elif kind == "directory" and (
+                    Path(relative).name.casefold() == "__pycache__"
+                    or in_new_temp
+                ):
+                    path.rmdir()
+                    cleaned.append(_safe_detail_path(relative + "/"))
+            except OSError:
+                continue
+        return tuple(cleaned)
+
+    @staticmethod
+    def _transient_difference(
+        before: Mapping[str, tuple[str, int, str]],
+        after: Mapping[str, tuple[str, int, str]],
+    ) -> tuple[str, ...]:
+        changed = [
+            _safe_detail_path(relative)
+            for relative in sorted(set(before) | set(after), key=str.casefold)
+            if before.get(relative) != after.get(relative)
+        ]
+        return tuple(changed)
+
+    @staticmethod
+    def _workspace_change_difference(
+        expected: WorkspaceChangeSet,
+        actual: WorkspaceChangeSet,
+    ) -> tuple[str, ...]:
+        before = {item.path: item.to_dict() for item in expected.changes}
+        after = {item.path: item.to_dict() for item in actual.changes}
+        changed = [
+            _safe_detail_path(relative)
+            for relative in sorted(set(before) | set(after), key=str.casefold)
+            if before.get(relative) != after.get(relative)
+        ]
+        return tuple(changed)
 
     def _run_command(
         self,
@@ -1180,20 +1836,12 @@ class AutomaticValidationService:
             return sorted(targets, key=str.casefold), False, ""
         return all_tests, True, "No targeted tests matched; selected full test discovery."
 
-    def _protected_problem(self, baseline: Mapping[str, Any] | None, workspace: Path) -> str:
-        if baseline is None:
-            return ""
-        try:
-            if baseline.get("schema_version") != VALIDATION_SCHEMA_VERSION:
-                return "Protected metadata baseline has an unsupported schema."
-            if not _same_path(baseline.get("workspace_root", ""), workspace):
-                return "Protected metadata baseline belongs to another workspace."
-            current = self.protected_state(workspace)
-            if current.get("directories") != baseline.get("directories"):
-                return "Unexpected write detected in .git, .codex, or .agents."
-        except (OSError, TypeError, ValueError):
-            return "Protected workspace metadata could not be validated safely."
-        return ""
+    def _protected_problem(
+        self,
+        baseline: Mapping[str, Any] | None,
+        workspace: str | Path | WorkspaceCapabilities,
+    ) -> str:
+        return self.protected_difference(baseline, workspace).problem
 
     def validation_log(self, attempt: ValidationAttempt) -> str:
         lines = [

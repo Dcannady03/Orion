@@ -29,6 +29,7 @@ from orion.services.team_documentation import (
     DocumentationFinding,
     DocumentationRequest,
     DocumentationReviewService,
+    sanitized_documentation_error,
 )
 from orion.services.team_roles import ResolvedTeamRole, ROLE_SPEC_BY_NAME
 from orion.services.team_validation import AutomaticValidationService
@@ -369,6 +370,28 @@ class DocumentationReviewerTests(unittest.TestCase):
             attempt = service.review(request)
             self.assertEqual(attempt.status, "not_required")
             self.assertEqual(provider.calls, [])
+
+    def test_trivial_standalone_example_is_not_required_without_model_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, provider, factory = self.request(
+                tmp,
+                goal="Create hello.py that prints Hello Orion!",
+                after={
+                    "hello.py": (
+                        "# Run with Python 3; acceptance: print Hello Orion! exactly.\n"
+                        'print("Hello Orion!")\n'
+                    ),
+                },
+                implementation_summary=(
+                    "Created the small standalone hello.py example."
+                ),
+            )
+            attempt = service.review(request)
+            self.assertEqual(attempt.status, "not_required")
+            self.assertEqual(attempt.classification_decision, "deterministic_not_required")
+            self.assertEqual(provider.calls, [])
+            self.assertEqual(factory.calls, [])
+            self.assertIn("hello.py", attempt.classification.evidence)
         with tempfile.TemporaryDirectory() as tmp:
             service, request, _, provider, _ = self.request(
                 tmp,
@@ -578,12 +601,15 @@ class DocumentationReviewerTests(unittest.TestCase):
                 providers={"ollama": provider},
                 roles=roles,
             )
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(RuntimeError) as captured:
                 service.review(request)
-            attempt = service.error(request, "provider_error", "Provider failed safely.")
+            reason = sanitized_documentation_error(captured.exception)
+            attempt = service.error(request, "provider_error", reason)
             payload = json.dumps(attempt.to_dict())
             self.assertEqual(attempt.status, "error")
             self.assertNotIn("sk-secret", payload)
+            self.assertIn("[REDACTED]", payload)
+            self.assertIn("ollama:review-model", payload)
             self.assertEqual(attempt.safe_error_category, "provider_error")
 
     def test_prompt_is_bounded_redacted_and_contains_no_source_or_vault_content(self):
@@ -654,7 +680,7 @@ class DocumentationReviewerTests(unittest.TestCase):
 
 
 class DocumentationWorkflowTests(unittest.TestCase):
-    def bridge(self, root, *, provider_response=None):
+    def bridge(self, root, *, provider_response=None, provider_error=None):
         root = Path(root)
         workspace = root / "workspace"
         workspace.mkdir()
@@ -711,7 +737,9 @@ class DocumentationWorkflowTests(unittest.TestCase):
         config = FlatConfig()
         roles = DocumentationRoles(engine)
         provider = FakeProvider(
-            "review-model", provider_response or model_response()
+            "review-model",
+            provider_response or model_response(),
+            error=provider_error,
         )
         factory = FakeProviderFactory({"ollama": provider})
         bridge = CodexBridge(
@@ -731,6 +759,36 @@ class DocumentationWorkflowTests(unittest.TestCase):
             platform_name="nt",
         )
         return bridge, workspace, runner, provider
+
+    def test_documentation_runtime_error_preserves_sanitized_provider_reason(self):
+        secret = "sk-secret-never-persist"
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge, _, _, _ = self.bridge(
+                tmp,
+                provider_error=RuntimeError(
+                    "local model runner ran out of memory; "
+                    f"credential {secret}; path C:\\private\\model.bin"
+                ),
+            )
+            approval = bridge.approve("team-documentation-001")
+            run = bridge.execute(
+                "team-documentation-001",
+                approval.approval_id,
+            )
+            self.assertEqual(run.documentation.status, "error")
+            diagnostics = " ".join(run.documentation.safe_diagnostics)
+            self.assertIn("ran out of memory", diagnostics)
+            self.assertIn("[REDACTED]", diagnostics)
+            self.assertIn("[path]", diagnostics)
+            self.assertNotIn(secret, json.dumps(run.documentation.to_dict()))
+            restored = bridge.store.load_documentation_attempt(
+                run.run_id,
+                run.documentation_history[-1],
+            )
+            self.assertEqual(
+                restored.safe_diagnostics,
+                run.documentation.safe_diagnostics,
+            )
 
     def test_automatic_documentation_review_follows_validation_and_is_independent(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -32,6 +32,13 @@ The unreleased Image Center milestone adds provider-neutral image generation wit
 initial OpenAI adapter, update-safe external artifacts, bounded sanitized history,
 approval-gated workspace copies, and opt-in restricted Discord image requests.
 
+The unreleased Orion v1.0 Command Center foundation adds one personal organization,
+department membership over existing agents, high-level job lifecycle state,
+append-only safe activity, a deterministic interface-neutral snapshot, a cohesive
+`command-center` / `cc` CLI, and read-only diagnostics. Job creation remains inert;
+existing approval, workspace, provider, AI Team, and execution boundaries remain
+authoritative.
+
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
 
@@ -84,6 +91,15 @@ task approve <task-id>       Explicitly approve a proposed task
 task cancel <task-id>        Cancel a non-terminal task
 task events <task-id>        Show append-only task progress
 task link-plan <id> <plan>   Link a reviewed AI Team plan artifact
+cc status                    Show the personal AI organization
+cc snapshot                  Emit the versioned JSON snapshot contract
+cc departments               List organization departments
+cc department create         Create or apply a department template
+cc templates                 Show recommended department roles
+cc jobs                      List high-level organization jobs
+cc job create                Create a job without executing it
+cc activity                  Show recent safe organization activity
+cc doctor                    Validate Command Center read-only
 agent list [--scope ...]     Show permanent or workspace AI agents
 agent templates              Show copyable starter profiles
 agent create                 Guided custom-agent creation
@@ -150,6 +166,8 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 
 ## Project structure
 
+- `orion/command_center` - organization, jobs, activity, snapshot, storage, and CLI
+
 - `orion/core` — runtime, configuration, profile, and routing
 - `orion/intelligence` — Brain, identity, intents, and AI providers
 - `orion/agents` — strict external agent definitions and registry
@@ -171,12 +189,14 @@ documentation, changelog updates, manual verification, and a final safety audit.
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **362 passing tests**.
+The current codebase contains **509 passing tests**, with two platform-dependent
+Windows symlink tests skipped.
 
 ## Roadmap
 
-The active development milestone is **Email Phase B: Approval-Gated Mail Actions**,
-building on Courier's read-only provider-neutral foundation.
+The active development milestone is **Orion v1.0 Command Center Foundation**,
+building a persistent organization and job-control contract over the existing Agent
+System, AI Team, routing, workspace, and approval services.
 See `docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish
@@ -346,6 +366,36 @@ state transitions. Codex Bridge is a separate, explicit AI Team approval path an
 not silently execute linked project tasks. The event stream remains the foundation for
 future workflow and streaming-progress consumers. See `docs/TASK_MANAGER.md` for the
 strict schemas and lifecycle.
+
+## Orion v1.0 Command Center Foundation
+
+Command Center persists one personal organization under
+`~/.orion/command-center/`. Departments reference existing permanent or workspace
+agent IDs, jobs model high-level goals with validated lifecycle transitions, and
+append-only activity stores only bounded summaries and identifiers.
+
+```text
+cc status
+cc templates
+cc department create --template Engineering
+cc department add-agent Engineering planner
+cc job create --title "Build plugin marketplace" --goal "Design a secure marketplace" --department Engineering --priority high
+cc jobs
+cc snapshot
+cc doctor
+```
+
+`cc snapshot` is the versioned, plain-JSON contract intended for future desktop,
+Discord, voice, and mobile clients. It groups agents by department, classifies active,
+queued, approval, review, and completed jobs, and adds safe provider/workspace health
+plus missing-reference warnings. It omits full goals and absolute workspace paths from
+job summaries.
+
+Creating a job does not plan, call a provider, run Codex, execute a shell, change a
+workspace, or grant an agent permission. The generic job-update adapter lets existing
+AI Team and future execution services report lifecycle state while preserving Orion's
+approval gate. See `docs/ORION_V1_COMMAND_CENTER.md` for the architecture, schemas,
+storage, security contract, CLI, migration policy, and v1.0 roadmap.
 
 ## Reusable Agent System
 

@@ -127,6 +127,27 @@ def _safe_text(value: Any, *, maximum: int = 1_000, required: bool = False) -> s
     return text[:maximum]
 
 
+def _safe_exception_detail(exc: BaseException) -> str:
+    detail = _safe_text(str(exc), maximum=500)
+    detail = re.sub(
+        r"(?i)\b[A-Z]:[\\/](?:[^<>:\"|?*\r\n]+[\\/])*[^<>:\"|?*\r\n]*",
+        "[path]",
+        detail,
+    )
+    detail = re.sub(r"(https?://[^\s?]+)\?[^\s]+", r"\1?[redacted]", detail)
+    return detail or "No provider detail was returned."
+
+
+def sanitized_documentation_error(exc: BaseException) -> str:
+    """Preserve a bounded provider cause without persisting secrets or local paths."""
+    return _safe_text(
+        "Documentation Review stopped safely "
+        f"({type(exc).__name__}: {_safe_exception_detail(exc)}).",
+        maximum=1_000,
+        required=True,
+    )
+
+
 def _bounded_strings(
     value: Any,
     label: str,
@@ -702,8 +723,12 @@ developer-contract gaps. Return an empty findings array when coverage is complet
         recorded_problem = self._recorded_state_problem(request.changes, workspace)
         if recorded_problem:
             raise ValueError(recorded_problem)
+        self.validation_service.restore_transient_protected_directories(
+            request.protected_baseline,
+            request.workspace,
+        )
         metadata_before = self._workspace_metadata(workspace)
-        protected_before = self.validation_service.protected_state(workspace)
+        protected_before = self.validation_service.protected_state(request.workspace)
 
         command_changes = self._command_changes(request, workspace)
         configuration_changes = self._configuration_changes(request, workspace)
@@ -815,12 +840,20 @@ developer-contract gaps. Return an empty findings array when coverage is complet
 
         final_problem = self._recorded_state_problem(request.changes, workspace)
         metadata_after = self._workspace_metadata(workspace)
-        protected_after = self.validation_service.protected_state(workspace)
-        protected_problem = self._protected_problem(request.protected_baseline, workspace)
+        protected_after = self.validation_service.protected_state(request.workspace)
+        reviewer_protected_problem = self.validation_service.protected_difference(
+            protected_before,
+            request.workspace,
+        ).problem
+        protected_problem = self._protected_problem(
+            request.protected_baseline,
+            request.workspace,
+        )
         if (
             final_problem
             or metadata_after != metadata_before
             or protected_after.get("directories") != protected_before.get("directories")
+            or reviewer_protected_problem
             or protected_problem
         ):
             checks.append(DocumentationCheck(
@@ -974,11 +1007,35 @@ developer-contract gaps. Return an empty findings array when coverage is complet
             "dead code", "performance only", "performance-only", "no observable behavior",
         )
         explicitly_internal = any(term in lowered for term in internal_terms)
+        trivial_change = changes.changes[0] if len(changes.changes) == 1 else None
+        trivial_standalone = bool(
+            trivial_change is not None
+            and trivial_change.kind == "created"
+            and trivial_change.after_size <= 10_000
+            and len(Path(trivial_change.path).parts) == 1
+            and Path(trivial_change.path).suffix.casefold() in {".py", ".txt"}
+            and (
+                Path(trivial_change.path).stem.casefold() == "hello"
+                or Path(trivial_change.path).stem.casefold().startswith(
+                    ("example", "demo", "sample", "scratch")
+                )
+            )
+            and not command_changes
+            and not configuration_changes
+        )
         if markdown_paths and not non_test_paths:
             add("documentation-only", "Documentation content itself changed.", markdown_paths[0])
 
         required = bool(categories) and not only_tests
-        if explicitly_internal and not {
+        if trivial_standalone:
+            required = False
+            reasons = [
+                "A single small standalone example was added without changing an Orion "
+                "product, command, configuration, safety, or developer contract."
+            ]
+            evidence = [trivial_change.path]
+            categories.clear()
+        elif explicitly_internal and not {
             "command", "configuration", "safety", "public-api", "artifact-format",
             "architecture", "setup", "release", "user-output", "platform",
         }.intersection(categories):
@@ -1341,8 +1398,19 @@ developer-contract gaps. Return an empty findings array when coverage is complet
                     output_tokens,
                     self._estimate_cost(candidate.provider, input_tokens, output_tokens),
                 ), failures
-            except (ConnectionError, KeyError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
-                failures.append(f"{candidate.actual_assignment} ({type(exc).__name__})")
+            except (
+                ConnectionError,
+                KeyError,
+                OSError,
+                RuntimeError,
+                TimeoutError,
+                TypeError,
+                ValueError,
+            ) as exc:
+                failures.append(
+                    f"{candidate.actual_assignment} "
+                    f"({type(exc).__name__}: {_safe_exception_detail(exc)})"
+                )
         categories = ", ".join(failures) or "no available provider"
         raise RuntimeError(f"Documentation Reviewer provider routing failed: {categories}.")
 
@@ -1557,16 +1625,15 @@ developer-contract gaps. Return an empty findings array when coverage is complet
         except OSError:
             return ""
 
-    def _protected_problem(self, baseline: Mapping[str, Any] | None, workspace: Path) -> str:
-        if baseline is None:
-            return ""
-        try:
-            current = self.validation_service.protected_state(workspace)
-            if current.get("directories") != baseline.get("directories"):
-                return "Unexpected protected workspace metadata change."
-        except (OSError, TypeError, ValueError):
-            return "Protected workspace metadata could not be verified safely."
-        return ""
+    def _protected_problem(
+        self,
+        baseline: Mapping[str, Any] | None,
+        workspace: str | Path | WorkspaceCapabilities,
+    ) -> str:
+        return self.validation_service.protected_difference(
+            baseline,
+            workspace,
+        ).problem
 
     @staticmethod
     def _recorded_state_problem(changes: WorkspaceChangeSet, workspace: Path) -> str:

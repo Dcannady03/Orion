@@ -14,7 +14,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from orion.agents.models import AgentRunSnapshot, normalize_agent_id
-from orion.agents.prompt import AgentPromptBuilder
+from orion.agents.prompt import AgentPromptBuilder, ORION_AGENT_OUTPUT_CONTRACT
 from orion.services.team_roles import (
     ResolvedTeamRole,
     TeamRoleRegistry,
@@ -915,9 +915,18 @@ risks (array of concise risks), next_action (string)."""
             raise TeamPlanningError(
                 "AI Team agent response exceeded the 50,000-character limit."
             )
-        output = self._parse_output(raw)
+        output, repair_prompt, repaired_raw = self._parse_selected_agent_output(
+            provider,
+            raw,
+            system_prompt,
+        )
         input_tokens = self._estimate_tokens(system_prompt + "\n" + prompt)
-        output_tokens = self._estimate_tokens(raw)
+        output_tokens = self._estimate_tokens(str(raw))
+        if repair_prompt is not None and repaired_raw is not None:
+            input_tokens += self._estimate_tokens(
+                system_prompt + "\n" + repair_prompt
+            )
+            output_tokens += self._estimate_tokens(str(repaired_raw))
         actual_model = str(getattr(provider, "model", selected.model))
         actual_assignment = f"{selected.provider}:{actual_model}"
         cost = self._estimate_cost(selected.provider, input_tokens, output_tokens)
@@ -926,6 +935,11 @@ risks (array of concise risks), next_action (string)."""
             fallback_reason = (
                 f"{'; '.join(failures)} failed; selected {actual_assignment} through "
                 f"{selected.routing_profile} routing."
+            )
+        if repair_prompt is not None:
+            repair_note = "Provider output required one bounded schema-repair attempt."
+            fallback_reason = " ".join(
+                item for item in (fallback_reason, repair_note) if item
             )
         usage = RoleUsage(
             role=agent_id,
@@ -945,6 +959,53 @@ risks (array of concise risks), next_action (string)."""
             duration_seconds=round(perf_counter() - started, 6),
         )
         return output, usage, metadata, selected
+
+    def _parse_selected_agent_output(
+        self,
+        provider,
+        raw: str,
+        system_prompt: str,
+    ) -> tuple[RoleOutput, str | None, str | None]:
+        try:
+            return self._parse_output(raw), None, None
+        except TeamPlanningError as initial_error:
+            repair_prompt = self._schema_repair_prompt(raw, initial_error)
+            try:
+                repaired_raw = provider.chat(
+                    repair_prompt,
+                    system_prompt=system_prompt,
+                )
+            except Exception as exc:
+                raise TeamPlanningError(
+                    "AI Team agent schema-repair call failed "
+                    f"({type(exc).__name__})."
+                ) from exc
+            if len(str(repaired_raw)) > self.MAX_ROLE_RESPONSE_CHARS:
+                raise TeamPlanningError(
+                    "AI Team agent schema-repair response exceeded the "
+                    "50,000-character limit."
+                )
+            try:
+                output = self._parse_output(repaired_raw)
+            except TeamPlanningError as exc:
+                raise TeamPlanningError(
+                    "AI Team agent response remained invalid after one bounded "
+                    f"schema-repair attempt: {exc}"
+                ) from exc
+            return output, repair_prompt, str(repaired_raw)
+
+    @staticmethod
+    def _schema_repair_prompt(raw: str, error: TeamPlanningError) -> str:
+        return (
+            "Your previous response was rejected by Orion's strict output validator.\n"
+            f"Validation error: {error}\n\n"
+            "Correct only the JSON shape. Preserve the intended plan, do not add new "
+            "facts, and return the corrected JSON object only.\n\n"
+            f"{ORION_AGENT_OUTPUT_CONTRACT}\n\n"
+            "<previous_response_untrusted>\n"
+            f"{str(raw)}\n"
+            "</previous_response_untrusted>"
+        )
 
     def _resolved_role(self, role: str) -> tuple[str, str]:
         resolved = self.role_registry.planning_candidates(role, "AI Team role status")[0]

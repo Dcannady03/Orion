@@ -57,6 +57,11 @@ from orion.conversation import ConversationService
 from orion.knowledge import KnowledgeIndex
 from orion.plugins.manager import PluginManager
 from orion.actions import ActionHistory, ActionService, PolicyDecision
+from orion.command_center import (
+    CommandCenterJobUpdateAdapter,
+    CommandCenterService,
+    FileCommandCenterRepository,
+)
 from orion.ui.console import Console
 from datetime import datetime
 from pathlib import Path
@@ -363,6 +368,21 @@ class Orion:
                 self.agents,
                 self.team_roles,
             ),
+        )
+        self.command_center = self.services.register(
+            "command_center",
+            CommandCenterService(
+                FileCommandCenterRepository(self.paths.command_center),
+                self.agents,
+                provider_manager=self.provider_manager,
+                routing_service=self.ai_routing,
+                workspace_manager=self.workspace_manager,
+            ),
+        )
+        self.command_center.ensure_default_organization()
+        self.command_center_jobs = self.services.register(
+            "command_center_jobs",
+            CommandCenterJobUpdateAdapter(self.command_center),
         )
         self.codex_bridge = self.services.register(
             "codex_bridge",

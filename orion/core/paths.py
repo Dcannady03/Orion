@@ -50,6 +50,10 @@ class OrionPaths:
         return self.user_root / "agents"
 
     @property
+    def command_center(self) -> Path:
+        return self.user_root / "command-center"
+
+    @property
     def codex_bridge(self) -> Path:
         return self.user_root / "codex"
 
