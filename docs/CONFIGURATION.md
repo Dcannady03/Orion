@@ -11,6 +11,22 @@ Orion Vault and the external token stores remain the only credential locations.
 See `RUNTIME_DATA.md` for the complete boundary between repository source, global
 user state, workspace-generated artifacts, and sanitized test fixtures.
 
+## Goal Proposal expiry
+
+Goal Proposal lifetime is configurable in external Orion configuration:
+
+```yaml
+goals:
+  proposals:
+    default_expiry_hours: 24
+    max_expiry_hours: 168
+```
+
+Both values must be positive integers, and the default cannot exceed the maximum.
+Creation may request `--expires-hours` within that bound. Reads never refresh a
+proposal's expiry. These settings affect review lifetime only; they grant no
+capability, provider, Team, approval, workspace, or execution permission.
+
 ## Image Center
 
 Image-provider selection is independent from `providers.default` and persists in the

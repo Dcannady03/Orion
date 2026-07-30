@@ -35,6 +35,7 @@ class ConfigManager:
         "email",
         "ai",
         "team",
+        "goals",
         "vault",
         "connect",
         "image",

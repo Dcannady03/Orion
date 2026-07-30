@@ -19,6 +19,15 @@ from orion.core.paths import OrionPaths
 from orion.core.profile import ProfileManager
 from orion.core.router import CommandRouter
 from orion.application.commands.ai_team_commands import AiTeamApplicationHandler
+from orion.application.capabilities import default_capability_registry
+from orion.application.goals import (
+    GoalApplicationHandler,
+    GoalEngine,
+    GoalProposalApplicationHandler,
+    GoalProposalRepository,
+    GoalProposalService,
+    GoalProposalTranslator,
+)
 from orion.intelligence.factory import AIProviderFactory
 from orion.intelligence.brain import Brain
 from orion.agents import AgentManager, WorkspaceTeamDraftStore, built_in_agents
@@ -416,6 +425,61 @@ class Orion:
             ),
         )
         self.command_center.set_team_integration(self.command_center_team)
+        self.capability_registry = self.services.register(
+            "capability_registry",
+            default_capability_registry(),
+        )
+        self.goal_engine = self.services.register(
+            "goal_engine",
+            GoalEngine(
+                self.capability_registry,
+                workspace_manager=self.workspace_manager,
+                project_context=self.project_context,
+                command_center=self.command_center,
+            ),
+        )
+        self.goal_application = self.services.register(
+            "goal_application",
+            GoalApplicationHandler(self.goal_engine),
+        )
+        self.goal_proposal_repository = self.services.register(
+            "goal_proposal_repository",
+            GoalProposalRepository(
+                self.paths.goal_proposals,
+                forbidden_root=self.paths.install_root,
+            ),
+        )
+        self.goal_proposal_translator = self.services.register(
+            "goal_proposal_translator",
+            GoalProposalTranslator(),
+        )
+        self.goal_proposals = self.services.register(
+            "goal_proposals",
+            GoalProposalService(
+                self.goal_proposal_repository,
+                self.capability_registry,
+                translator=self.goal_proposal_translator,
+                team_application=self.team_application,
+                workspace_manager=self.workspace_manager,
+                project_context=self.project_context,
+                command_center=self.command_center,
+                default_expiry_hours=int(self.config_manager.get(
+                    "goals.proposals.default_expiry_hours",
+                    24,
+                )),
+                max_expiry_hours=int(self.config_manager.get(
+                    "goals.proposals.max_expiry_hours",
+                    168,
+                )),
+            ),
+        )
+        self.goal_proposal_application = self.services.register(
+            "goal_proposal_application",
+            GoalProposalApplicationHandler(
+                self.goal_engine,
+                self.goal_proposals,
+            ),
+        )
 
         # Orion Connect unifies communication services behind one center.
         self.connect_service = self.services.register(

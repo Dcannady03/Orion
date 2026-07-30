@@ -48,6 +48,34 @@ CLI -> AI Team CLI adapter -> AI Team application handler
     -> ApplicationResult -> shared CLI renderer
 ```
 
+## Goal Engine relationship
+
+The v0.8.2 Goal Engine can propose `team.plan`, `team.implement`, `team.validate`, and
+`team.documentation_review` when those definitions exist in the Capability Registry.
+That proposal is metadata only. The Goal Engine never calls the AI Team application
+handler, creates a Team task, invokes an Architect or reviewer, asks a provider to
+plan, records or consumes approval, starts Codex Bridge, runs validation, or performs
+Documentation Review.
+
+Approval prediction simply copies the registry's flags. A predicted
+`team.implement` boundary does not satisfy AI Team's immutable plan-hash, workspace,
+actor, and single-use approval checks. Future acceptance of a Goal Proposal must
+still enter the existing typed AI Team application boundary and preserve its
+interactive approval and execution safeguards. See `GOAL_ENGINE.md`.
+
+v0.8.3 Goal Proposals add one narrow bridge to AI Team. The only supported
+translation is `team.plan` to the existing immutable `TeamPlanRequest`, dispatched
+directly through `AiTeamApplicationHandler.plan`. Proposal creation and validation do
+not call AI Team or a planning provider. Only explicit, hash-bound proposal acceptance
+may invoke Team planning once.
+
+The resulting Team task still awaits the normal separate AI Team approval. Proposal
+acceptance does not approve its plan hash, bind Codex execution, claim a Team
+approval, implement files, run validation, perform Documentation Review, or continue
+to the proposal's later steps. Proposal `consumed` means the accepted planning
+operation returned successfully; it does not mean the goal or implementation is
+complete. See `GOAL_PROPOSALS.md`.
+
 The handler accepts typed plan, task, approval, implementation, run, rollback, role,
 and synchronization requests. It returns JSON-safe semantic lifecycle data as well as
 the compatibility message shown in the terminal. A future local client can therefore

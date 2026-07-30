@@ -20,8 +20,9 @@ Awaiting Review, and rollback boundaries remain unchanged.
 
 ## Current development branch
 
-The development branch contains unreleased Command Center, Agent System, Image Center,
-Automatic Validation, Documentation Review, and application-core stabilization work.
+The development branch contains unreleased Goal Engine and Goal Proposals, Command
+Center, Agent System, Image Center, Automatic Validation, Documentation Review, and
+application-core stabilization work.
 These capabilities are tested development features; they are not part of the v0.7.0
 stable release.
 
@@ -52,6 +53,20 @@ The application-core stabilization milestone adds immutable structured results, 
 serializable capability registry, and a Command Center application handler shared
 through a small CLI renderer. The CLI remains the only completed local interactive
 client in this milestone.
+
+The unreleased v0.8.2 Goal Engine accepts high-level outcomes, classifies them with
+authoritative deterministic rules, resolves read-only workspace and department
+context, discovers real registry capabilities, predicts approval boundaries, and
+returns an immutable execution preview. It does not call Team, Command Center,
+providers, agents, approvals, execution engines, Git, or repository writes. See
+[Goal Engine](docs/GOAL_ENGINE.md).
+
+The unreleased v0.8.3 Goal Proposals milestone persists exact Goal Plans as versioned,
+expiring, SHA-256-protected review records under external Orion user data. Explicit
+Y/N/D acceptance is single-use and may dispatch only the first allowlisted operation.
+The initial allowlist translates `team.plan` into the existing `TeamPlanRequest` and
+stops; Team implementation still requires its separate immutable approval. See
+[Goal Proposals](docs/GOAL_PROPOSALS.md).
 
 ### Experimental and planned interfaces
 
@@ -113,6 +128,18 @@ task approve <task-id>       Explicitly approve a proposed task
 task cancel <task-id>        Cancel a non-terminal task
 task events <task-id>        Show append-only task progress
 task link-plan <id> <plan>   Link a reviewed AI Team plan artifact
+goal plan "<goal>"           Build a deterministic capability plan
+goal explain "<goal>"        Explain every planning decision
+goal preview "<goal>"        Preview stages and approval boundaries
+goal capabilities "<goal>"   Show registry-backed proposed capabilities
+goal classify "<goal>"       Classify intent without execution
+goal validate "<goal>"       Validate a complete plan read-only
+goal proposal create "<goal>" Persist an expiring review proposal
+goal proposal show <id>      Inspect proposal content and hash
+goal proposal list           List persisted proposal history
+goal proposal validate <id>  Validate integrity and current context
+goal proposal accept <id>    Confirm and dispatch at most one operation
+goal proposal reject <id>    Permanently reject a pending proposal
 cc status                    Show the personal AI organization
 cc snapshot                  Emit the versioned JSON snapshot contract
 cc departments               List organization departments
@@ -195,7 +222,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 - `orion/command_center` - organization, jobs, activity, snapshot, storage, and CLI
 
 - `orion/core` — runtime, configuration, profile, and routing
-- `orion/application` — structured results, capability metadata, and application commands
+- `orion/application` — structured results, Goal Engine, capability metadata, and application commands
 - `orion/interfaces` — CLI rendering and other interface adapters
 - `orion/intelligence` — Brain, identity, intents, and AI providers
 - `orion/agents` — strict external agent definitions and registry
@@ -226,10 +253,12 @@ source, user data, workspace-generated state, and sanitized test fixtures.
 
 ## Roadmap
 
-The active development work combines **Orion v1.0 Command Center** with incremental
-application-core stabilization: a persistent organization and explicit durable
-job-control workflow over the existing Agent System, AI Team, routing, workspace,
-immutable approval, validation, documentation, and execution services.
+The active development work combines the **v0.8.2 Goal Engine**, **v0.8.3 Goal
+Proposals**, and **Orion v1.0 Command Center** with incremental application-core
+stabilization: deterministic planning, an explicit single-operation trust bridge,
+and a persistent organization/job-control workflow over the existing Agent System,
+AI Team, routing, workspace, immutable approval, validation, documentation, and
+execution services.
 See `docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish

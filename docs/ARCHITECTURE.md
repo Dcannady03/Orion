@@ -19,7 +19,7 @@ service or provider objects. `CapabilityRegistry` publishes deterministic metada
 about a deliberately limited representative set of operations; definitions describe
 permissions, approval requirements, and schemas but never execute work.
 
-Command Center and AI Team use this boundary. Command Center's application handler
+Command Center, AI Team, and the Goal Engine use this boundary. Command Center's application handler
 coordinates `CommandCenterService` and its Team integration. AI Team uses typed
 requests in `orion/application/commands/ai_team_commands.py`; its separate CLI adapter
 owns legacy syntax and interactive prompts. Both return `ApplicationResult` and use
@@ -29,9 +29,9 @@ owns legacy syntax and interactive prompts. Both return `ApplicationResult` and 
 ```text
 CLI input
   -> core router
-  -> Command Center or AI Team CLI adapter
+  -> Goal, Command Center, or AI Team CLI adapter
   -> application handler
-  -> Command Center / Team / Codex domain services
+  -> Goal planner or Command Center / Team / Codex domain services
   -> ApplicationResult
   -> CLI renderer
 ```
@@ -46,6 +46,63 @@ Future GUI, REST, voice, Discord, mobile, or server clients must call applicatio
 commands or domain services and consume structured results; they must not scrape CLI
 text. Those interfaces are not implemented in this milestone. See
 `APPLICATION_CORE.md` for the current contract and remaining extraction work.
+
+## Goal Engine reasoning boundary
+
+`GoalEngine`, registered as `goal_engine`, sits above capability metadata and beside
+the existing application handlers. It accepts an immutable `GoalRequest` and returns
+an immutable `GoalPlan`; it does not sit on an execution path.
+
+```text
+Before: user selects CLI command -> handler -> service
+After : user states outcome -> Goal Engine -> capability proposal
+                                      |
+                                      +-> no execution
+```
+
+The engine classifies ten deterministic categories, resolves an explicit/active/bound
+workspace and existing Command Center department, and semantically selects only
+definitions present in the current `CapabilityRegistry`. Approval prediction is the
+logical OR of the selected definitions' `requires_approval` flags. The engine reads
+department and project metadata but never creates jobs, invokes Team planning,
+contacts providers, consumes approvals, changes workspaces, runs agents, calls
+execution engines, or writes a repository.
+
+The runtime registers `capability_registry`, `goal_engine`, and `goal_application`.
+`goal_cli.py` is the only Goal syntax owner, while `CommandRouter` has one dispatch
+branch. The resulting JSON models can be reused later by voice, GUI, Discord, REST,
+or mobile interfaces without moving CLI syntax into the reasoning layer. Those
+interfaces and AI-assisted planning are not implemented. See `GOAL_ENGINE.md`.
+
+## Goal Proposal trust boundary
+
+`GoalProposalService` is registered as `goal_proposals` beside `goal_engine`. It
+persists immutable plan snapshots through `GoalProposalRepository` under the external
+Orion user-data root. `GoalProposalApplicationHandler` is the reusable client
+boundary; the CLI adapter is never called internally.
+
+```text
+Goal Engine recommendation
+  -> Proposal snapshot + SHA-256 + capability fingerprints
+  -> external strict JSON
+  -> human confirmation bound to exact hash
+  -> atomic pending-to-accepted transition
+  -> explicit team.plan translation
+  -> existing Team application handler
+  -> consumed or failed
+```
+
+Mutable proposal lifecycle fields are excluded from the plan hash. Selected
+capability schemas, permissions, mutation/approval flags, resolved inputs, expiry,
+workspace, department, and typed request label are included. A proposal-scoped
+fingerprint blocks selected-capability drift; the full registry fingerprint reports
+unrelated catalog drift as a warning.
+
+The accepted state is intentionally non-replayable. If the process stops between
+acceptance and terminal persistence, Orion cannot safely infer whether the downstream
+operation happened. It leaves the proposal accepted for inspection rather than
+retrying. No worker, continuation loop, Mission Engine, or multi-step execution is
+present. See `GOAL_PROPOSALS.md`.
 
 ## First Contact onboarding
 

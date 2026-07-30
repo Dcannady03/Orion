@@ -1,4 +1,41 @@
-# Unreleased — Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
+# Unreleased — Goal Engine, Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
+
+- Added Orion v0.8.3 Goal Proposals as immutable, versioned, expiring review records
+  stored in strict JSON under external `~/.orion/goals/proposals/`.
+- Added random proposal IDs, canonical SHA-256 plan hashes, full-registry and
+  proposal-scoped capability fingerprints, fixed bounded expiry, and fail-closed
+  explicit supersession.
+- Added pending, accepted, consumed, failed, rejected, expired, invalid, and
+  superseded lifecycle states with expected-state, hash-bound, single-use acceptance
+  and no retry or automatic continuation.
+- Added an explicit translation allowlist supporting only
+  `team.plan -> TeamPlanRequest -> AiTeamApplicationHandler.plan`; no arbitrary
+  imports, reflection, callables, CLI dispatch, Command Center job creation, or later
+  proposal steps are permitted.
+- Added `goal proposal create`, `show`, `list`, `validate`, `accept`, and `reject`
+  commands. Acceptance renders and validates the exact proposal before Y/N/D
+  confirmation, dispatches at most one operation, and preserves the separate AI Team
+  implementation approval.
+- Added external path/configuration, atomic persistence, integrity, expiry,
+  capability drift, workspace/department, rejection, supersession, typed dispatch,
+  CLI, and no-execution safety coverage.
+- Added Orion v0.8.2 Goal Engine with immutable JSON-safe requests, context, plans,
+  capability steps, explanations, and informational execution previews.
+- Added authoritative deterministic classification across Engineering, Marketing,
+  Documentation, Research, Automation, Security, Operations, Planning, Release, and
+  Personal Productivity goals.
+- Added read-only explicit/active/bound/project workspace resolution and existing
+  Command Center department ownership without creating or changing either.
+- Added semantic discovery of only current Capability Registry definitions, including
+  schema, permission, mutation, and approval metadata; missing capabilities fail
+  safely instead of producing synthetic steps.
+- Added `goal plan`, `goal explain`, `goal preview`, `goal capabilities`,
+  `goal classify`, and `goal validate` through a thin CLI adapter and one router
+  dispatch branch.
+- Kept all Goal Engine output planning-only: it cannot invoke providers, application
+  handlers, agents, jobs, approvals, execution engines, Git, repository writes, or
+  workspace changes. The future AI planning switch currently defers to deterministic
+  validation.
 
 - Extracted AI Team parsing and lifecycle coordination from the core router into a
   thin CLI adapter and a reusable typed application handler returning immutable,

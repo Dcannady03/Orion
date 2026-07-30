@@ -88,11 +88,52 @@ validation, routing-policy planning fallbacks, role metadata in immutable artifa
 and a complete living user/documentation process. Gatekeeper's approval, workspace,
 execution, review, and rollback protections remain intact.
 
-**Active milestone:** Orion v1.0 Command Center (unreleased), following the
-completed-but-unreleased Automatic Validation, Documentation Review, and Image Center
-milestones. It establishes persistent organization, departments, jobs, explicit AI
+**Active milestones:** Orion v0.8.2 Goal Engine, Orion v0.8.3 Goal Proposals, and Orion v1.0 Command Center
+(unreleased), following the completed-but-unreleased Automatic Validation,
+Documentation Review, and Image Center milestones. Goal Engine establishes
+deterministic outcome classification and registry-backed previews without execution.
+Command Center establishes persistent organization, departments, jobs, explicit AI
 Team launch, durable workflow tracking, activity, snapshots, CLI, and diagnostics
 without claiming the deferred GUI or autonomous scheduler.
+
+## Unreleased — Orion v0.8.3 Goal Proposals
+
+- [x] Immutable, schema-versioned, expiring Goal Proposal lifecycle models
+- [x] External strict JSON persistence under `~/.orion/goals/proposals/`
+- [x] Atomic owner-restricted writes, duplicate rejection, bounded listing, and
+      malformed-record detection
+- [x] Canonical SHA-256 plan hashes over immutable review content
+- [x] Full-registry warnings and blocking proposal-scoped capability fingerprints
+- [x] Pending, accepted, consumed, failed, rejected, expired, invalid, and superseded
+      lifecycle semantics
+- [x] Explicit hash-bound, expected-state, single-use acceptance
+- [x] Fail-closed accepted state for interrupted or uncertain dispatch
+- [x] Explicit `team.plan` to `TeamPlanRequest` translation allowlist
+- [x] Direct dispatch through `AiTeamApplicationHandler`, never through CLI syntax
+- [x] Downstream Team approval remains separate and authoritative
+- [x] Create, show, list, validate, accept, and reject CLI with Y/N/D confirmation
+- [x] Explicit supersession preserves both versions and blocks the old proposal
+- [x] No automatic continuation, retries, Mission Engine, worker, REST, GUI, or voice
+- [ ] Cross-process transactional storage or database migration
+- [ ] Additional typed translations after separate safety reviews
+- [ ] Mission Engine only after proposal acceptance and recovery are stable
+
+## Unreleased — Orion v0.8.2 Goal Engine
+
+- [x] Immutable JSON-safe GoalRequest, GoalContext, GoalPlan, CapabilityStep,
+      GoalExplanation, and GoalPreview models
+- [x] Authoritative deterministic classification across ten outcome categories
+- [x] Read-only explicit, active, bound, and Project Context workspace resolution
+- [x] Existing enabled Command Center department resolution without auto-creation
+- [x] Dynamic semantic discovery of only registered capability definitions
+- [x] Registry-derived input, output, permission, mutation, and approval metadata
+- [x] Deterministic stages, explanations, warnings, risks, and stable goal IDs
+- [x] `goal plan`, `explain`, `preview`, `capabilities`, `classify`, and `validate`
+- [x] ApplicationResult compatibility, thin CLI parsing, and one router dispatch
+- [x] No provider, agent, job, approval, execution engine, Git, or workspace mutation
+- [x] Future AI suggestion switch with deterministic validation still authoritative
+- [ ] Persisted, expiring Goal Proposals with explicit user acceptance
+- [ ] Typed proposal-to-application request translation without automatic execution
 
 ## Unreleased — Orion v1.0 Command Center Foundation
 

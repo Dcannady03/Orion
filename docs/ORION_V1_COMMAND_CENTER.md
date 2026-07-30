@@ -73,6 +73,24 @@ fallback. Shared reconciliation is non-recursive: Team operations notify the
 Command Center integration, while Command Center continues to derive its job
 projection from authoritative persisted Team and Codex records.
 
+The v0.8.2 Goal Engine may read the enabled department list to predict ownership of a
+high-level goal. It never creates a department or job, calls the Team integration,
+records activity, launches planning, or changes Command Center state. An explicit
+department must already exist and be enabled; otherwise planning fails. Automatic
+resolution only selects a configured category-compatible department and leaves the
+plan unassigned when none exists.
+
+A Goal Plan is not a Command Center job and grants no launch authority. A future
+milestone may translate an explicitly accepted Goal Proposal into a typed inert job
+creation request, but job creation and launch must remain separate user decisions.
+
+Goal Proposals v0.8.3 intentionally do not translate
+`command_center.job.create`, preview, or launch. Their initial allowlist contains only
+`team.plan`. Proposal creation, validation, acceptance recording, rejection, and
+supersession never create a Command Center job or activity event. Any future Command
+Center translation must use a typed application boundary and preserve the existing
+separation between inert job creation and explicit launch.
+
 ## 5. Organization model
 
 The milestone supports one default personal organization:
@@ -647,6 +665,7 @@ The foundation does not implement:
 
 - a desktop, web, or mobile GUI;
 - autonomous job execution or a background scheduler;
+- automatic Goal Plan adoption, job creation, or launch;
 - parallel multi-agent execution redesign;
 - a background polling daemon or retroactive automatic adoption of unrelated Team
   records;

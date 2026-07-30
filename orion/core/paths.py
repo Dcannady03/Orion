@@ -61,6 +61,10 @@ class OrionPaths:
     def images(self) -> Path:
         return self.user_root / "images"
 
+    @property
+    def goal_proposals(self) -> Path:
+        return self.user_root / "goals" / "proposals"
+
     def ensure(self) -> None:
         for path in (
             self.user_root,

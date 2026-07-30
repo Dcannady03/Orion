@@ -16,11 +16,26 @@ CLI parser
   -> CLI renderer
 ```
 
-Command Center and AI Team now use this boundary. AI Team terminal parsing lives in
+Command Center, AI Team, and the Goal Engine now use this boundary. AI Team terminal parsing lives in
 `ai_team_cli.py`; typed lifecycle coordination lives in
 `ai_team_commands.py`. The core router recognizes the `team` family and delegates it.
 The application handler has no direct `print()` or `input()` dependency. Interactive
 agent selection, Y/N/D approval, and rollback confirmation remain in the CLI adapter.
+
+The Goal Engine adds a deliberately different, read-only application flow:
+
+```text
+GoalRequest
+  -> deterministic classification and context resolution
+  -> CapabilityRegistry inspection
+  -> GoalPlan / GoalPreview
+  -> ApplicationResult
+```
+
+`orion/application/goals/` owns immutable models, deterministic planning, and the
+application handler. Its CLI adapter only parses the `goal` command family and uses
+the shared renderer. It never calls a capability or domain service that can mutate
+state.
 
 ## Structured results
 
@@ -60,6 +75,56 @@ There is no `team.cancel`, `team.review`, or Team completion capability because 
 authoritative Team services do not implement those operations. Capability metadata
 never grants permission and never bypasses Vault, workspace, sandbox, validation, or
 approval controls.
+
+The Goal Engine discovers candidate steps from this registry rather than constructing
+unregistered IDs. Each `CapabilityStep` copies its input/output fields, permissions,
+mutation flag, and approval flag from the selected definition. A missing planning
+capability produces a failure instead of a synthetic step.
+
+## Goal planning results
+
+`GoalRequest`, `GoalContext`, `CapabilityStep`, `GoalExplanation`, `GoalPreview`, and
+`GoalPlan` are immutable and JSON serializable. A plan contains only resolved strings,
+numbers, booleans, tuples, and nested goal models. It exposes deterministic
+classification evidence, an existing workspace and optional existing department,
+registry-backed steps, estimated stages, predicted approval boundaries, warnings,
+risks, and planning-only next actions.
+
+Goal planning does not call Team planning, create Command Center jobs, claim
+approvals, invoke providers or execution engines, bind workspaces, edit repositories,
+or persist a plan. `allow_ai_planning` is future-facing; v0.8.2 records a warning and
+keeps deterministic validation authoritative. See `GOAL_ENGINE.md` for the complete
+contract.
+
+## Goal Proposal application boundary
+
+v0.8.3 adds a persistent bridge without changing `GoalPlan`. The Proposal application
+handler coordinates:
+
+```text
+GoalRequest -> GoalEngine -> GoalPlan -> GoalProposalService
+                                      -> external GoalProposal JSON
+
+confirmed GoalProposalAcceptance
+  -> explicit GoalProposalTranslator allowlist
+  -> TeamPlanRequest
+  -> AiTeamApplicationHandler.plan
+  -> ApplicationResult
+```
+
+The Proposal repository owns only strict external JSON persistence. The service owns
+hashing, expiry, fingerprints, validation, status transitions, supersession, and
+single-use acceptance. The translator supports only `team.plan` and contains no
+reflection, arbitrary imports, callable names, or generic dispatch. The Proposal
+handler returns nested downstream `ApplicationResult` data but never prints or
+prompts. `goal_proposal_cli.py` owns Y/N/D confirmation and the shared renderer.
+
+Creation, show, list, validation, rejection, and supersession invoke no application
+operation. Acceptance records `accepted` before dispatching at most one typed request.
+A successful downstream result makes the proposal `consumed`; a downstream failure
+makes it terminal `failed`. An `accepted` record after interruption blocks replay.
+Goal Proposal acceptance does not create AI Team implementation approval. See
+`GOAL_PROPOSALS.md`.
 
 ## AI Team lifecycle results
 

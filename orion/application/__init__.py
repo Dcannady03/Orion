@@ -6,10 +6,34 @@ from orion.application.capabilities import (
     default_capability_registry,
 )
 from orion.application.results import ApplicationResult
+from orion.application.goals import (
+    CapabilityStep,
+    GoalApplicationHandler,
+    GoalContext,
+    GoalEngine,
+    GoalExplanation,
+    GoalPlan,
+    GoalPreview,
+    GoalProposal,
+    GoalProposalApplicationHandler,
+    GoalProposalService,
+    GoalRequest,
+)
 
 __all__ = [
     "ApplicationResult",
     "CapabilityDefinition",
     "CapabilityRegistry",
+    "CapabilityStep",
+    "GoalApplicationHandler",
+    "GoalContext",
+    "GoalEngine",
+    "GoalExplanation",
+    "GoalPlan",
+    "GoalPreview",
+    "GoalProposal",
+    "GoalProposalApplicationHandler",
+    "GoalProposalService",
+    "GoalRequest",
     "default_capability_registry",
 ]

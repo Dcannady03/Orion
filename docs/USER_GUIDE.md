@@ -4,8 +4,9 @@
 
 **Project:** Orion — Personal AI Operating System
 
-**Documentation baseline:** v0.7.0 — Conductor plus unreleased Automatic Validation,
-Documentation Review, Image Center, and Command Center workflow integration
+**Documentation baseline:** v0.7.0 — Conductor plus unreleased Goal Engine and Goal
+Proposals, Automatic Validation, Documentation Review, Image Center, and Command
+Center workflow integration
 
 Orion is a local-first personal intelligence operating system. It coordinates local
 and cloud AI providers, project knowledge, communication services, applications, and
@@ -478,6 +479,61 @@ schemas without repairing or changing data.
 
 See `ORION_V1_COMMAND_CENTER.md` for the complete storage, schema, lifecycle, snapshot,
 security, migration, and roadmap contract.
+
+### Goal Engine
+
+Use the Goal Engine when you know the outcome but do not yet want to choose or run a
+workflow:
+
+```text
+goal plan "Review this project and prepare it for release"
+goal explain "Review this project and prepare it for release"
+goal preview "Create a marketing website"
+goal capabilities "Build a Valheim mod"
+goal classify "Analyze project"
+goal validate "Prepare release"
+```
+
+The engine classifies the goal deterministically, resolves the active or explicit
+workspace and an existing department, and discovers compatible definitions in the
+current Capability Registry. Its plan explains every proposed capability and copies
+approval requirements from registry metadata.
+
+Every Goal command is planning-only. It does not create Command Center jobs or Team
+tasks, contact AI providers, run agents, consume approvals, execute code, change the
+workspace, or edit the repository. `--allow-ai-planning` is reserved for a future
+suggestion layer and currently keeps the deterministic planner authoritative. See
+`GOAL_ENGINE.md` for models, options, safety, and future design.
+
+### Goal Proposals
+
+Persist a Goal Plan when you want an exact, expiring review record:
+
+```text
+goal proposal create "Prepare Orion for release"
+goal proposal list --status pending
+goal proposal show <proposal-id>
+goal proposal validate <proposal-id>
+goal proposal accept <proposal-id>
+goal proposal reject <proposal-id> --reason "Wrong workspace"
+```
+
+Proposals live under `~/.orion/goals/proposals/`, not in the workspace or application
+repository. Creation copies the ordered plan, selected capability safety metadata,
+fixed expiry, full and scoped registry fingerprints, and a canonical SHA-256 hash.
+Showing and listing do not refresh or change the record. Validation may only mark a
+pending record expired or demonstrably invalid.
+
+Acceptance renders the exact ID, goal, workspace, department, next capability,
+mutation/approval metadata, expiry, hash, and validation warnings before prompting
+`Y/N/D`. A confirmed acceptance is bound to that exact hash and is single-use. In
+v0.8.3 the only supported operation is `team.plan`; Orion dispatches it directly
+through the existing Team application handler and stops.
+
+A consumed proposal means that one planning request returned successfully. The new
+Team plan still needs its separate Team approval before implementation. Proposal
+acceptance does not approve Codex, execute later proposal steps, create a Command
+Center job, or start a Mission. See `GOAL_PROPOSALS.md`.
 
 ## 7. Memory, conversations, search, and knowledge
 
@@ -1572,6 +1628,38 @@ Developer mode can expose safe diagnostics. It does not bypass approval or polic
 | `cc job cancel <job-id>` | Cancel a non-terminal job |
 | `cc activity [--limit <count>]` | Show recent safe activity summaries |
 | `cc doctor [--json]` | Validate storage and references without repair |
+
+### Goal Engine
+
+| Command | Purpose |
+| --- | --- |
+| `goal plan "<goal>"` | Build an immutable registry-backed capability plan |
+| `goal explain "<goal>"` | Explain classification, context, capabilities, and approval |
+| `goal preview "<goal>"` | Show informational stages and approval boundaries |
+| `goal capabilities "<goal>"` | Show every proposed registered capability |
+| `goal classify "<goal>"` | Classify intent without requiring execution |
+| `goal validate "<goal>"` | Validate a complete planning-only proposal |
+
+All complete-plan commands accept optional `--workspace`, `--department`,
+`--priority`, `--outcome`, `--attachment`, `--provider`,
+`--execution-mode plan|preview`, and `--allow-ai-planning`. No Goal command executes
+the proposed work.
+
+### Goal Proposals
+
+| Command | Purpose |
+| --- | --- |
+| `goal proposal create "<goal>"` | Persist an expiring immutable proposal without execution |
+| `goal proposal show <id>` | Inspect exact content, next step, expiry, and hash |
+| `goal proposal list [--status ...] [--goal ...]` | List bounded proposal history |
+| `goal proposal validate <id>` | Check hash, capabilities, workspace, department, and inputs |
+| `goal proposal accept <id>` | Confirm and dispatch at most one allowlisted operation |
+| `goal proposal reject <id> [--reason ...]` | Permanently reject a pending proposal |
+
+Creation also accepts `--expires-hours <1-168>` and
+`--supersedes <pending-proposal-id>`. Acceptance requires Y/N/D confirmation and never
+continues automatically. `goal validate "<goal>"` validates an ephemeral Goal Plan;
+`goal proposal validate <id>` validates a persisted proposal.
 
 ### AI Team
 

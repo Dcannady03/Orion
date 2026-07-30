@@ -20,6 +20,7 @@ from orion.application.commands.ai_team_cli import (
     AiTeamCliAdapter,
     dispatch_ai_team,
 )
+from orion.application.commands.goal_cli import dispatch_goal
 from orion.services.email import redact_email_text
 
 
@@ -258,6 +259,9 @@ class CommandRouter:
             self.benchmark_ai_models()
 
         elif dispatch_command_center(self.orion, raw_command):
+            pass
+
+        elif dispatch_goal(self.orion, raw_command):
             pass
 
         elif (
@@ -652,6 +656,20 @@ class CommandRouter:
         print("    project status             Show project progress")
         print("    index build                Refresh the code knowledge index")
         print("    index find <text>          Search indexed project knowledge")
+        print()
+        print("  Goal Engine (planning only)")
+        print('    goal plan "<goal>"         Build a deterministic capability plan')
+        print('    goal explain "<goal>"      Explain classification and capability choices')
+        print('    goal preview "<goal>"      Preview stages and approval boundaries')
+        print('    goal capabilities "<goal>" Show registry-backed proposed capabilities')
+        print('    goal classify "<goal>"     Classify intent without execution')
+        print('    goal validate "<goal>"     Validate a complete plan read-only')
+        print('    goal proposal create "<goal>" Persist an expiring review proposal')
+        print("    goal proposal list         List persisted Goal Proposals")
+        print("    goal proposal show <id>    Inspect exact content and plan hash")
+        print("    goal proposal validate <id> Validate integrity and current context")
+        print("    goal proposal accept <id>  Confirm and dispatch at most one operation")
+        print("    goal proposal reject <id>  Permanently reject a pending proposal")
         print()
         print("  Command Center")
         print("    cc status                  Show organization, jobs, and health")
