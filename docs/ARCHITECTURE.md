@@ -19,21 +19,28 @@ service or provider objects. `CapabilityRegistry` publishes deterministic metada
 about a deliberately limited representative set of operations; definitions describe
 permissions, approval requirements, and schemas but never execute work.
 
-Command Center is the first command family to use this boundary. Its application
-handler parses the existing request syntax, coordinates `CommandCenterService` and
-the existing Team integration, and returns `ApplicationResult`. The compatibility CLI
-adapter sends that result to `orion/interfaces/cli/renderer.py`. This preserves both
-`cc` and `command-center` syntax while preventing business logic from depending on
-`print()`.
+Command Center and AI Team use this boundary. Command Center's application handler
+coordinates `CommandCenterService` and its Team integration. AI Team uses typed
+requests in `orion/application/commands/ai_team_commands.py`; its separate CLI adapter
+owns legacy syntax and interactive prompts. Both return `ApplicationResult` and use
+`orion/interfaces/cli/renderer.py`, preventing lifecycle services from depending on
+`print()` or terminal input.
 
 ```text
 CLI input
   -> core router
-  -> Command Center application handler
-  -> Command Center / Team domain services
+  -> Command Center or AI Team CLI adapter
+  -> application handler
+  -> Command Center / Team / Codex domain services
   -> ApplicationResult
   -> CLI renderer
 ```
+
+The complete runtime registers one `team_application` handler. Command Center launch
+uses its structured `TeamPlanRequest` rather than simulating a CLI command, then
+projects organization-facing state from authoritative Team records. Shared
+reconciliation is isolated in `orion/application/team_reconciliation.py`, avoiding
+handler recursion and circular imports.
 
 Future GUI, REST, voice, Discord, mobile, or server clients must call application
 commands or domain services and consume structured results; they must not scrape CLI

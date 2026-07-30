@@ -37,6 +37,35 @@ implementation, the configured Tester runs deterministic validation. The configu
 Documentation Reviewer then assesses applicable documentation before Orion renders the
 final human-review state, regardless of whether validation passed, warned, or failed.
 
+## Application-core boundary
+
+All Team CLI commands now pass through a thin adapter and the reusable
+`AiTeamApplicationHandler`:
+
+```text
+CLI -> AI Team CLI adapter -> AI Team application handler
+    -> Team/Codex/validation/documentation services
+    -> ApplicationResult -> shared CLI renderer
+```
+
+The handler accepts typed plan, task, approval, implementation, run, rollback, role,
+and synchronization requests. It returns JSON-safe semantic lifecycle data as well as
+the compatibility message shown in the terminal. A future local client can therefore
+inspect `team_task_id`, `run_id`, status, review stage, approval/hash state, workspace
+identity, agents/routes, validation and documentation outcomes, changed-file/test
+summaries, risks, timestamps, and next actions without parsing terminal text.
+
+Stable registered lifecycle capabilities are `team.list`, `team.show`, `team.plan`,
+`team.approve`, `team.implement`, `team.validate`,
+`team.documentation_review`, `team.rollback`, and `team.sync`. Approval, implement,
+and rollback metadata identifies their human-approval boundary. Validation and
+documentation review may persist bounded audit attempts but receive read-only
+workspace permissions.
+
+Team does not currently expose cancel, final-accept, or completion operations, so no
+aspirational capability IDs were added. `awaiting_review` with both bounded reviews
+present is projected as `final_review`; the next decision remains human.
+
 ## Commands
 
 ```text
@@ -56,6 +85,7 @@ team test last
 team docs <run-id>
 team docs last
 team docs show <run-id>
+team rollback <run-id>
 execution status
 task link-plan <project-task-id> <team-task-id>
 ```

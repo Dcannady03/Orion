@@ -18,6 +18,7 @@ from orion.core.config import ConfigManager
 from orion.core.paths import OrionPaths
 from orion.core.profile import ProfileManager
 from orion.core.router import CommandRouter
+from orion.application.commands.ai_team_commands import AiTeamApplicationHandler
 from orion.intelligence.factory import AIProviderFactory
 from orion.intelligence.brain import Brain
 from orion.agents import AgentManager, WorkspaceTeamDraftStore, built_in_agents
@@ -397,6 +398,10 @@ class Orion:
                 provider_factory=team_provider_factory,
             ),
         )
+        self.team_application = self.services.register(
+            "team_application",
+            AiTeamApplicationHandler(self),
+        )
         self.command_center_team = self.services.register(
             "command_center_team",
             CommandCenterTeamIntegrationService(
@@ -407,6 +412,7 @@ class Orion:
                 service_registry=self.services,
                 external_state_source=self.codex_bridge,
                 execution_engines=self.execution_engines,
+                team_application=self.team_application,
             ),
         )
         self.command_center.set_team_integration(self.command_center_team)

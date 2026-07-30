@@ -16,11 +16,11 @@ CLI parser
   -> CLI renderer
 ```
 
-Before this milestone, Command Center's terminal handler combined request parsing,
-service coordination, error mapping, and direct output. The router instantiated that
-terminal handler directly. The application handler now owns parsing and coordination,
-returns a structured result, and has no direct `print()` dependency. The terminal
-class remains as a compatibility adapter and renderer.
+Command Center and AI Team now use this boundary. AI Team terminal parsing lives in
+`ai_team_cli.py`; typed lifecycle coordination lives in
+`ai_team_commands.py`. The core router recognizes the `team` family and delegates it.
+The application handler has no direct `print()` or `input()` dependency. Interactive
+agent selection, Y/N/D approval, and rollback confirmation remain in the CLI adapter.
 
 ## Structured results
 
@@ -43,10 +43,43 @@ approval metadata, required permissions, and input/output schemas. Registration
 rejects duplicate or malformed IDs, listing is deterministic, and definitions execute
 nothing.
 
-The initial catalog intentionally covers the Command Center job family plus a small
-representative set of existing operations. It is not a claim that every CLI command
-has been migrated. Capability metadata never grants permission and never bypasses
-Vault, workspace, sandbox, validation, or approval controls.
+The catalog covers the Command Center job family, the extracted AI Team lifecycle,
+and a small representative set of other existing operations. The real Team capability
+IDs are:
+
+- `team.list` and `team.show` for read-only inspection;
+- `team.plan` for bounded provider-backed planning;
+- `team.approve` for explicit immutable-plan approval;
+- `team.implement` for approval-bound workspace execution;
+- `team.validate` for bounded read-only automatic validation;
+- `team.documentation_review` for bounded read-only documentation assessment;
+- `team.rollback` for explicitly confirmed safe restoration; and
+- `team.sync` for linked Command Center reconciliation.
+
+There is no `team.cancel`, `team.review`, or Team completion capability because the
+authoritative Team services do not implement those operations. Capability metadata
+never grants permission and never bypasses Vault, workspace, sandbox, validation, or
+approval controls.
+
+## AI Team lifecycle results
+
+Team task results include their task ID, persisted status/stage, goal, resolved agents,
+provider routes, approval state, risks, timestamps, and valid next actions. Run results
+include their run/task/approval IDs, immutable plan hash, workspace identity, persisted
+run status, projected review stage, implementation/validation/documentation status,
+changed-file and test summaries where present, risks, timestamps, and next actions.
+
+The persisted task states remain `planning`, `awaiting_approval`, and `failed`. Run
+states remain `executing`, `awaiting_review`, `failed`, and `rolled_back`. Within
+`awaiting_review`, the application result projects `validation`,
+`documentation_review`, or `final_review` without changing stored schemas. A final
+review is a human boundary; this milestone does not create an automatic accept command.
+
+Command Center receives the shared `TeamPlanRequest` boundary in the complete Orion
+runtime, then continues to reconcile its organization-facing job projection from
+authoritative Team, approval, run, validation, and documentation records. Isolated
+legacy service construction retains a direct Team fallback for compatibility. Neither
+path routes Command Center through terminal syntax.
 
 ## Command Center compatibility
 
@@ -64,9 +97,10 @@ scripts.
 ## Remaining work
 
 The core router still owns many unrelated command families and their interactive
-rendering. The next sensible extraction is the AI Team command family because it
-already exposes explicit plan, approve, implement, validate, document, review, and
-rollback stages.
+rendering. AI Team retains one `team_rollback()` compatibility wrapper for callers
+that invoked that router method directly; all current CLI dispatch uses the adapter.
+Large compatibility messages also remain application-result summaries while future
+renderers can consume the semantic payload instead.
 
 Before adding a REST API or GUI:
 

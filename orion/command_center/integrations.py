@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from orion.application.commands.ai_team_commands import TeamPlanRequest
 from orion.command_center.models import (
     ActivitySeverity,
     ActivitySourceType,
@@ -254,6 +255,7 @@ class CommandCenterTeamIntegrationService:
         service_registry=None,
         external_state_source=None,
         execution_engines=None,
+        team_application=None,
         now: Callable[[], str] | None = None,
     ) -> None:
         self.command_center = command_center
@@ -263,6 +265,7 @@ class CommandCenterTeamIntegrationService:
         self.service_registry = service_registry
         self.external_state_source = external_state_source
         self.execution_engines = execution_engines
+        self.team_application = team_application
         self._now = now or utc_now
 
     def validate_launch(
@@ -475,13 +478,28 @@ class CommandCenterTeamIntegrationService:
         )
 
         try:
-            task = self.team.plan(
-                job.goal,
-                selected_agents=list(preview.workflow.agent_ids),
-                provider="auto",
-                model="auto",
-                task_id=team_task_id,
-            )
+            if self.team_application is None:
+                task = self.team.plan(
+                    job.goal,
+                    selected_agents=list(preview.workflow.agent_ids),
+                    provider="auto",
+                    model="auto",
+                    task_id=team_task_id,
+                )
+            else:
+                result = self.team_application.plan(TeamPlanRequest(
+                    job.goal,
+                    selected_agents=tuple(preview.workflow.agent_ids),
+                    provider="auto",
+                    model="auto",
+                    task_id=team_task_id,
+                ))
+                if not result.ok:
+                    raise ValueError(result.message)
+                planned_task_id = str(
+                    result.data.get("team_task_id", team_task_id)
+                )
+                task = self.team.task(planned_task_id)
         except Exception as exc:
             try:
                 task = self.team.task(team_task_id)

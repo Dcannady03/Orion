@@ -126,6 +126,69 @@ def _definition(
     )
 
 
+def _team_definition(
+    capability_id: str,
+    description: str,
+    *,
+    mutates: bool,
+    approval: bool = False,
+    permissions: tuple[str, ...] = (),
+    properties: Mapping[str, object],
+    required: tuple[str, ...] = (),
+    output_required: tuple[str, ...] = (),
+    input_any_of: tuple[Mapping[str, object], ...] = (),
+) -> CapabilityDefinition:
+    lifecycle_properties = {
+        "run_id": {"type": "string"},
+        "team_task_id": {"type": "string"},
+        "status": {"type": "string"},
+        "stage": {"type": "string"},
+        "goal": {"type": "string"},
+        "workspace": {"type": "string"},
+        "workspace_mode": {"type": "string"},
+        "branch": {"type": "string"},
+        "commit": {"type": "string"},
+        "resolved_agents": {"type": "array", "items": {"type": "string"}},
+        "provider_routes": {"type": "array", "items": {"type": "object"}},
+        "approval_required": {"type": "boolean"},
+        "approval_status": {"type": "string"},
+        "approval_id": {"type": "string"},
+        "plan_sha256": {"type": "string"},
+        "implementation_status": {"type": "string"},
+        "validation_status": {"type": "string"},
+        "documentation_review_status": {"type": "string"},
+        "review_status": {"type": "string"},
+        "files_changed": {"type": "array", "items": {"type": "object"}},
+        "tests": {"type": "array", "items": {"type": "object"}},
+        "risks": {"type": "array", "items": {"type": "string"}},
+        "next_actions": {"type": "array", "items": {"type": "string"}},
+        "created_at": {"type": "string"},
+        "updated_at": {"type": "string"},
+    }
+    input_schema: dict[str, object] = {
+        "type": "object",
+        "properties": dict(properties),
+        "required": list(required),
+        "additionalProperties": False,
+    }
+    if input_any_of:
+        input_schema["anyOf"] = [dict(item) for item in input_any_of]
+    return CapabilityDefinition(
+        capability_id=capability_id,
+        description=description,
+        mutates_state=mutates,
+        requires_approval=approval,
+        required_permissions=permissions,
+        input_schema=input_schema,
+        output_schema={
+            "type": "object",
+            "properties": lifecycle_properties,
+            "required": list(output_required),
+            "additionalProperties": True,
+        },
+    )
+
+
 def default_capability_registry() -> CapabilityRegistry:
     """Build Orion's initial, intentionally representative capability catalog."""
     command_center = (
@@ -170,23 +233,138 @@ def default_capability_registry() -> CapabilityRegistry:
             required=("job_id",),
         ),
     )
+    team = (
+        _team_definition(
+            "team.list",
+            "List recent persisted AI Team planning tasks.",
+            mutates=False,
+            permissions=("team.read",),
+            properties={"limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+        ),
+        _team_definition(
+            "team.show",
+            "Inspect a persisted AI Team task or implementation run.",
+            mutates=False,
+            permissions=("team.read",),
+            properties={
+                "reference_id": {"type": "string"},
+                "kind": {"type": "string", "enum": ["task", "run"]},
+            },
+            required=("reference_id",),
+            output_required=("status", "stage"),
+        ),
+        _team_definition(
+            "team.plan",
+            "Create a bounded AI Team plan without implementing it.",
+            mutates=True,
+            permissions=("team.plan", "provider.invoke"),
+            properties={
+                "goal": {"type": "string", "minLength": 1, "maxLength": 4000},
+                "selected_agents": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 20,
+                },
+                "provider": {"type": "string"},
+                "model": {"type": "string"},
+                "task_id": {"type": "string"},
+            },
+            required=("goal",),
+            output_required=("team_task_id", "status", "stage"),
+        ),
+        _team_definition(
+            "team.approve",
+            "Record explicit approval of an immutable AI Team plan snapshot.",
+            mutates=True,
+            approval=True,
+            permissions=("team.approve", "workspace.inspect"),
+            properties={
+                "team_task_id": {"type": "string"},
+                "actor": {"type": "string"},
+                "plan_sha256": {"type": "string"},
+            },
+            required=("team_task_id",),
+            output_required=(
+                "team_task_id", "status", "approval_id", "plan_sha256",
+            ),
+        ),
+        _team_definition(
+            "team.implement",
+            "Run one approval-bound implementation in the active workspace.",
+            mutates=True,
+            approval=True,
+            permissions=(
+                "team.implement",
+                "workspace.write",
+                "execution.run",
+            ),
+            properties={
+                "team_task_id": {"type": "string"},
+                "approval_id": {"type": "string"},
+            },
+            required=("team_task_id", "approval_id"),
+            output_required=("run_id", "team_task_id", "status", "stage"),
+        ),
+        _team_definition(
+            "team.validate",
+            "Run bounded read-only automatic validation for an implementation run.",
+            mutates=True,
+            permissions=(
+                "team.validate",
+                "workspace.read",
+                "validation.run",
+            ),
+            properties={"run_id": {"type": "string"}},
+            required=("run_id",),
+            output_required=("run_id", "status", "stage", "validation_status"),
+        ),
+        _team_definition(
+            "team.documentation_review",
+            "Run bounded read-only documentation review for an implementation run.",
+            mutates=True,
+            permissions=(
+                "team.documentation_review",
+                "workspace.read",
+                "provider.invoke",
+            ),
+            properties={"run_id": {"type": "string"}},
+            required=("run_id",),
+            output_required=(
+                "run_id", "status", "stage", "documentation_review_status",
+            ),
+        ),
+        _team_definition(
+            "team.rollback",
+            "Restore a run's saved preimages after explicit confirmation.",
+            mutates=True,
+            approval=True,
+            permissions=("team.rollback", "workspace.write"),
+            properties={
+                "run_id": {"type": "string"},
+                "confirmed": {"type": "boolean"},
+            },
+            required=("run_id", "confirmed"),
+            output_required=("run_id", "status", "stage"),
+        ),
+        _team_definition(
+            "team.sync",
+            "Reconcile linked Command Center state from authoritative Team records.",
+            mutates=True,
+            permissions=("team.read", "command_center.write"),
+            properties={
+                "team_task_id": {"type": "string"},
+                "run_id": {"type": "string"},
+            },
+            output_required=(),
+            input_any_of=(
+                {"required": ["team_task_id"]},
+                {"required": ["run_id"]},
+            ),
+        ),
+    )
     representative = (
         _definition("agent.create", "Create an Orion agent.", mutates=True),
         _definition("agent.list", "List configured Orion agents."),
-        _definition("team.plan", "Create an AI Team plan.", mutates=True),
-        _definition(
-            "team.approve",
-            "Approve an AI Team plan.",
-            mutates=True,
-            approval=True,
-        ),
-        _definition(
-            "team.implement",
-            "Implement an approved AI Team plan.",
-            mutates=True,
-            approval=True,
-            permissions=("workspace.write",),
-        ),
         _definition("workspace.inspect", "Inspect the active workspace."),
         _definition(
             "image.generate",
@@ -203,4 +381,4 @@ def default_capability_registry() -> CapabilityRegistry:
             permissions=("application.launch",),
         ),
     )
-    return CapabilityRegistry(command_center + representative)
+    return CapabilityRegistry(command_center + team + representative)

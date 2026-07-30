@@ -65,6 +65,14 @@ synchronization, next-action guidance, cancellation checks, and integration doct
 diagnostics. Command Center owns organization-facing metadata; Team tasks, approvals,
 runs, validation, and documentation records remain authoritative for execution.
 
+The complete Orion runtime also supplies the shared `team_application` handler.
+Command Center launch sends it a typed `TeamPlanRequest`, never a terminal command,
+and reads the returned task identity before reconciliation. Directly constructed
+integration fixtures and older embedders retain the existing `TeamOrchestrator`
+fallback. Shared reconciliation is non-recursive: Team operations notify the
+Command Center integration, while Command Center continues to derive its job
+projection from authoritative persisted Team and Codex records.
+
 ## 5. Organization model
 
 The milestone supports one default personal organization:

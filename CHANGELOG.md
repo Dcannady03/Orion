@@ -1,5 +1,21 @@
 # Unreleased — Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
 
+- Extracted AI Team parsing and lifecycle coordination from the core router into a
+  thin CLI adapter and a reusable typed application handler returning immutable,
+  JSON-safe `ApplicationResult` values.
+- Added real stable capabilities for Team list/show, plan, approve, implement,
+  validation, documentation review, rollback, and Command Center synchronization;
+  intentionally omitted unsupported Team cancel, accept/review, and completion IDs.
+- Added semantic task/run state, immutable approval and plan-hash metadata, bounded
+  review outcomes, risks, changed files, tests, timestamps, and lifecycle-aware next
+  actions without changing persisted Team or Codex schemas.
+- Kept Y/N/D approval, agent selection, and rollback confirmation at the CLI boundary;
+  preserved single-use approvals, workspace confinement, execution-engine checks,
+  read-only validation/documentation controls, and rollback protections.
+- Made Command Center planning reuse the Team application request boundary in the
+  complete runtime, with a compatibility fallback for isolated service construction
+  and one shared non-recursive reconciliation helper.
+
 - Added a provider-neutral internal application layer with immutable JSON-safe
   `ApplicationResult` values and a deterministic capability registry. The initial
   catalog covers the Command Center job family and a representative set of existing
