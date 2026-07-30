@@ -1325,6 +1325,40 @@ Options:
                 bridge.execute("team-test-001", approval.approval_id)
             self.assertEqual(claim_path.read_text(encoding="utf-8"), document)
 
+    def test_task_run_inspection_scopes_before_loading_and_reports_matching_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge, _, _ = self.build(tmp)
+            unrelated_id = "run-historical-unrelated-001"
+            matching_id = "run-historical-matching-001"
+            for run_id, task_id in (
+                (unrelated_id, "team-historical-001"),
+                (matching_id, "team-test-001"),
+            ):
+                path = bridge.store.run_path(run_id)
+                path.parent.mkdir(parents=True)
+                path.write_text(
+                    json.dumps({
+                        "schema_version": 1,
+                        "run_id": run_id,
+                        "team_task_id": task_id,
+                        "started_at": "2026-07-18T13:00:00+00:00",
+                    }),
+                    encoding="utf-8",
+                )
+
+            inspection = bridge.inspect_runs_for_task("team-test-001")
+
+            self.assertEqual(inspection.runs, ())
+            self.assertEqual(
+                tuple(item.run_id for item in inspection.unresolved),
+                (matching_id,),
+            )
+            self.assertNotIn(
+                unrelated_id,
+                tuple(item.run_id for item in inspection.unresolved),
+            )
+            self.assertEqual(bridge.runs_for_task("team-test-001"), ())
+
     def test_local_runner_uses_no_shell_and_does_not_forward_secret_environment(self):
         completed = SimpleNamespace(returncode=0, stdout="ok", stderr="")
         environment = {

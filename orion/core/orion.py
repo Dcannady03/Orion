@@ -60,6 +60,7 @@ from orion.actions import ActionHistory, ActionService, PolicyDecision
 from orion.command_center import (
     CommandCenterJobUpdateAdapter,
     CommandCenterService,
+    CommandCenterTeamIntegrationService,
     FileCommandCenterRepository,
 )
 from orion.ui.console import Console
@@ -396,6 +397,19 @@ class Orion:
                 provider_factory=team_provider_factory,
             ),
         )
+        self.command_center_team = self.services.register(
+            "command_center_team",
+            CommandCenterTeamIntegrationService(
+                self.command_center,
+                self.team,
+                self.agents,
+                workspace_manager=self.workspace_manager,
+                service_registry=self.services,
+                external_state_source=self.codex_bridge,
+                execution_engines=self.execution_engines,
+            ),
+        )
+        self.command_center.set_team_integration(self.command_center_team)
 
         # Orion Connect unifies communication services behind one center.
         self.connect_service = self.services.register(

@@ -1,14 +1,33 @@
+# Python and development environments
 __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
-.orion/secrets.yaml
-.orion/*token*.json
-.orion/knowledge-index.json
-config/google-calendar-credentials.json
-config/google-gmail-credentials.json
-config/google-oauth-credentials.json
-.orion/oauth-state*.json
-.orion/vault.yaml
-.orion/vault.yaml.tmp
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE-local state
+.vs/
+.vscode/
+.idea/
+
+# Orion runtime data and generated workspace artifacts
+.orion/
 /vault/
+/config/profile.yaml
+
+# Secrets, credentials, tokens, and local environment overrides
+.env
+*.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*credentials*.json
+*token*.json
+oauth-state*.json
+vault.yaml
+vault.yaml.tmp

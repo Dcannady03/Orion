@@ -88,11 +88,11 @@ validation, routing-policy planning fallbacks, role metadata in immutable artifa
 and a complete living user/documentation process. Gatekeeper's approval, workspace,
 execution, review, and rollback protections remain intact.
 
-**Active milestone:** Orion v1.0 Command Center Foundation (unreleased), following the
+**Active milestone:** Orion v1.0 Command Center (unreleased), following the
 completed-but-unreleased Automatic Validation, Documentation Review, and Image Center
-milestones. It establishes persistent organization, departments, jobs, activity,
-snapshots, CLI, and diagnostics without claiming the deferred GUI or autonomous
-scheduler.
+milestones. It establishes persistent organization, departments, jobs, explicit AI
+Team launch, durable workflow tracking, activity, snapshots, CLI, and diagnostics
+without claiming the deferred GUI or autonomous scheduler.
 
 ## Unreleased — Orion v1.0 Command Center Foundation
 
@@ -107,8 +107,13 @@ scheduler.
 - [x] `command-center` / `cc` commands cover status, operations, and JSON output
 - [x] Read-only doctor detects malformed storage and invalid references
 - [x] A generic lifecycle adapter preserves existing Team approval/workspace boundaries
+- [x] Explicit `cc job launch` with a side-effect-free workflow and route dry-run
+- [x] Durable, versioned Command Center-to-Team task/run links and idempotent sync
+- [x] Workflow stages, active agents, approvals, next actions, failures, and reviews
+      are visible in CLI, activity, snapshots, and doctor
+- [x] Linked jobs cannot bypass authoritative Team, approval, or execution lifecycles
 - [x] Runtime data remains beneath `~/.orion/command-center/`
-- [ ] Explicit user-controlled linking to Project Tasks, AI Team plans, and reviewed runs
+- [ ] Explicit adoption/linking of independently created Project Tasks or Team runs
 - [ ] Local application API and event cursors
 - [ ] Desktop Command Center GUI
 - [ ] Scheduled automation and authenticated remote/mobile controls

@@ -305,7 +305,9 @@ class AutomaticValidationTests(unittest.TestCase):
             self.assertEqual(len(runner.calls), 2)
             self.assertTrue(all(item.exit_code == 0 for item in attempt.commands))
             self.assertIn("orion_validation_compile", runner.calls[0][0])
-            self.assertIn("tests.test_widget", runner.calls[1][0])
+            self.assertIn("discover", runner.calls[1][0])
+            self.assertIn("tests", runner.calls[1][0])
+            self.assertIn("test_widget.py", runner.calls[1][0])
             self.assertEqual(next(item for item in attempt.checks if item.check_id == "python_full_suite").status, "skipped")
 
     def test_python_full_suite_fallback_when_target_is_unknown(self):
@@ -708,7 +710,16 @@ class GuardTests(unittest.TestCase):
             temp_root = root / "validation-temp"
             temp_root.mkdir()
             result = BoundedValidationRunner().run(
-                (str(Path(__import__('sys').executable)), "-m", "unittest", "tests.test_guard"),
+                (
+                    str(Path(__import__("sys").executable)),
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "tests",
+                    "-p",
+                    "test_guard.py",
+                ),
                 cwd=workspace,
                 temp_root=temp_root,
                 timeout=30,
@@ -718,6 +729,59 @@ class GuardTests(unittest.TestCase):
             self.assertEqual((workspace / "source.txt").read_text(encoding="utf-8"), "original\n")
             self.assertFalse((root / "outside.txt").exists())
             self.assertEqual((workspace / "vault/vault.yaml").read_text(encoding="utf-8"), secret)
+
+    def test_validation_rejects_windows_and_posix_absolute_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp).resolve()
+            service = AutomaticValidationService(self.config)
+            for outside in (
+                r"C:\outside\secret.md",
+                "/outside/secret.md",
+                r"\\server\share\secret.md",
+            ):
+                with self.subTest(path=outside):
+                    with self.assertRaises(ValueError):
+                        service.markdown_checks(workspace, (outside,))
+
+    def test_runner_rejects_dotted_unittest_modules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            temp_root = root / "validation-temp"
+            workspace.mkdir()
+            temp_root.mkdir()
+            with self.assertRaisesRegex(
+                PermissionError,
+                "path-based unittest discovery",
+            ):
+                BoundedValidationRunner().run(
+                    (
+                        str(Path(__import__("sys").executable)),
+                        "-m",
+                        "unittest",
+                        "tests.test_guard",
+                    ),
+                    cwd=workspace,
+                    temp_root=temp_root,
+                    timeout=30,
+                    max_output_bytes=10_000,
+                )
+
+    def test_validation_rejects_symlink_path_traversal_when_supported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            outside = root / "outside.md"
+            workspace.mkdir()
+            outside.write_text("# Outside\n", encoding="utf-8")
+            link = workspace / "linked.md"
+            try:
+                link.symlink_to(outside)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"Symlink creation is unavailable: {exc}")
+            service = AutomaticValidationService(self.config)
+            with self.assertRaisesRegex(ValueError, "escapes"):
+                service.markdown_checks(workspace, ("linked.md",))
 
 
 class ValidationWorkflowTests(unittest.TestCase):

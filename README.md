@@ -18,6 +18,13 @@ roles reuse Orion's provider routing policy, implementation remains fail-closed 
 its engine is unavailable, and Gatekeeper's immutable approval, workspace sandbox,
 Awaiting Review, and rollback boundaries remain unchanged.
 
+## Current development branch
+
+The development branch contains unreleased Command Center, Agent System, Image Center,
+Automatic Validation, Documentation Review, and application-core stabilization work.
+These capabilities are tested development features; they are not part of the v0.7.0
+stable release.
+
 The unreleased Automatic Validation milestone turns the configured Tester into a real
 post-implementation stage. Orion deterministically selects relevant local checks,
 stores redacted immutable validation history, and still leaves every Keep Changes or
@@ -32,12 +39,27 @@ The unreleased Image Center milestone adds provider-neutral image generation wit
 initial OpenAI adapter, update-safe external artifacts, bounded sanitized history,
 approval-gated workspace copies, and opt-in restricted Discord image requests.
 
-The unreleased Orion v1.0 Command Center foundation adds one personal organization,
+The unreleased Orion v1.0 Command Center milestone adds one personal organization,
 department membership over existing agents, high-level job lifecycle state,
-append-only safe activity, a deterministic interface-neutral snapshot, a cohesive
-`command-center` / `cc` CLI, and read-only diagnostics. Job creation remains inert;
-existing approval, workspace, provider, AI Team, and execution boundaries remain
-authoritative.
+append-only safe activity, a deterministic interface-neutral snapshot, and a cohesive
+`command-center` / `cc` CLI. Job creation remains inert, while explicit `cc job
+launch` validates and links a job to the existing AI Team workflow. Command Center
+tracks planning, immutable approval, implementation, validation, documentation,
+review, failure, and cancellation without replacing the services that own those
+stages.
+
+The application-core stabilization milestone adds immutable structured results, a
+serializable capability registry, and a Command Center application handler shared
+through a small CLI renderer. The CLI remains the only completed local interactive
+client in this milestone.
+
+### Experimental and planned interfaces
+
+Discord support remains restricted and experimental. A desktop GUI, REST API, voice
+interface, mobile client, and always-on server are planned work; none is implemented
+by the application-core milestone. See
+[Application Core](docs/APPLICATION_CORE.md) for the boundary that future clients
+must reuse.
 
 Weather gives Orion live current conditions and forecasts through Open-Meteo, with no
 API key required. It also plugs into Morning Star through the provider architecture:
@@ -98,6 +120,10 @@ cc department create         Create or apply a department template
 cc templates                 Show recommended department roles
 cc jobs                      List high-level organization jobs
 cc job create                Create a job without executing it
+cc job launch <id> --dry-run Preview workflow, roles, routes, and workspace
+cc job launch <id>           Explicitly launch through the existing AI Team
+cc job sync <id>             Reconcile linked Team and execution state
+cc job show <id>             Show stage, link, approval, agent, and next action
 cc activity                  Show recent safe organization activity
 cc doctor                    Validate Command Center read-only
 agent list [--scope ...]     Show permanent or workspace AI agents
@@ -169,6 +195,8 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 - `orion/command_center` - organization, jobs, activity, snapshot, storage, and CLI
 
 - `orion/core` — runtime, configuration, profile, and routing
+- `orion/application` — structured results, capability metadata, and application commands
+- `orion/interfaces` — CLI rendering and other interface adapters
 - `orion/intelligence` — Brain, identity, intents, and AI providers
 - `orion/agents` — strict external agent definitions and registry
 - `orion/actions` — action models, policies, execution, and history
@@ -189,14 +217,19 @@ documentation, changelog updates, manual verification, and a final safety audit.
 python -m unittest discover -s tests -v
 ```
 
-The current codebase contains **509 passing tests**, with two platform-dependent
-Windows symlink tests skipped.
+Run the command above to obtain the exact pass and skip counts for the current
+checkout; test totals are intentionally not hard-coded in this document.
+
+Runtime state is kept out of the source tree. See
+[Runtime Data Boundaries](docs/RUNTIME_DATA.md) for the separation among application
+source, user data, workspace-generated state, and sanitized test fixtures.
 
 ## Roadmap
 
-The active development milestone is **Orion v1.0 Command Center Foundation**,
-building a persistent organization and job-control contract over the existing Agent
-System, AI Team, routing, workspace, and approval services.
+The active development work combines **Orion v1.0 Command Center** with incremental
+application-core stabilization: a persistent organization and explicit durable
+job-control workflow over the existing Agent System, AI Team, routing, workspace,
+immutable approval, validation, documentation, and execution services.
 See `docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish

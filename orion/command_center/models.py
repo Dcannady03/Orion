@@ -13,9 +13,12 @@ from orion.agents.models import normalize_agent_id
 
 
 COMMAND_CENTER_SCHEMA_VERSION = 1
+COMMAND_CENTER_SNAPSHOT_SCHEMA_VERSION = 2
+COMMAND_CENTER_TEAM_INTEGRATION_SCHEMA_VERSION = 1
 DEFAULT_ORGANIZATION_ID = "orion-organization"
 DEFAULT_ORGANIZATION_NAME = "Orion Organization"
 ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{1,79}")
+EXTERNAL_REFERENCE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{2,95}")
 EVENT_TYPE_PATTERN = re.compile(r"[a-z][a-z0-9_-]*(?:\.[a-z0-9_-]+)+")
 SECRET_KEY_PARTS = frozenset({
     "api_key", "apikey", "authorization", "credential", "oauth", "password",
@@ -229,6 +232,33 @@ class ApprovalState(str, Enum):
         except ValueError as exc:
             choices = ", ".join(item.value for item in cls)
             raise ValueError(f"Approval state must be one of: {choices}") from exc
+
+
+class WorkflowStage(str, Enum):
+    QUEUED = "queued"
+    PLANNING = "planning"
+    ARCHITECTURE = "architecture"
+    AWAITING_APPROVAL = "awaiting_approval"
+    IMPLEMENTATION = "implementation"
+    TESTING = "testing"
+    ENGINEERING_REVIEW = "engineering_review"
+    FINAL_REVIEW = "final_review"
+    DOCUMENTATION = "documentation"
+    AWAITING_REVIEW = "awaiting_review"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    PAUSED = "paused"
+
+    @classmethod
+    def parse(cls, value: Any) -> "WorkflowStage":
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(str(value).strip().lower().replace(" ", "_"))
+        except ValueError as exc:
+            choices = ", ".join(item.value for item in cls)
+            raise ValueError(f"Workflow stage must be one of: {choices}") from exc
 
 
 class ActivitySeverity(str, Enum):
@@ -719,6 +749,314 @@ class Job:
             "error_summary": self.error_summary,
             "metadata": dict(self.metadata),
             **self.extensions,
+        }
+
+
+@dataclass(frozen=True)
+class WorkflowAgentAssignment:
+    stage: WorkflowStage
+    agent_id: str
+    role: str
+
+    @classmethod
+    def from_value(cls, value: Any) -> "WorkflowAgentAssignment":
+        value = _mapping(value, "Workflow agent assignment")
+        if set(value) != {"stage", "agent_id", "role"}:
+            raise ValueError("Workflow agent assignment has an invalid schema.")
+        result = cls(
+            stage=WorkflowStage.parse(value["stage"]),
+            agent_id=normalize_agent_id(value["agent_id"]),
+            role=_text(
+                value["role"],
+                "Workflow agent role",
+                200,
+                multiline=False,
+            ),
+        )
+        validate_safe_value(result.to_dict(), "Workflow agent assignment")
+        return result
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "stage": self.stage.value,
+            "agent_id": self.agent_id,
+            "role": self.role,
+        }
+
+
+@dataclass(frozen=True)
+class TeamIntegrationLink:
+    integration_schema_version: int
+    team_task_id: str
+    team_run_id: str
+    workflow_id: str
+    linked_at: str
+    last_synced_at: str
+    execution_engine: str
+    external_status: str
+    approval_id: str
+    active_agent_id: str
+    next_action: str
+    synchronization_warnings: tuple[str, ...]
+    role_assignments: tuple[WorkflowAgentAssignment, ...]
+    active: bool
+
+    FIELDS = frozenset({
+        "integration_schema_version", "team_task_id", "team_run_id",
+        "workflow_id", "linked_at", "last_synced_at", "execution_engine",
+        "external_status", "approval_id", "active_agent_id", "next_action",
+        "synchronization_warnings", "role_assignments", "active",
+    })
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        team_task_id: str,
+        workflow_id: str,
+        linked_at: str,
+        role_assignments: tuple[WorkflowAgentAssignment, ...] = (),
+    ) -> "TeamIntegrationLink":
+        return cls.from_value({
+            "integration_schema_version":
+                COMMAND_CENTER_TEAM_INTEGRATION_SCHEMA_VERSION,
+            "team_task_id": team_task_id,
+            "team_run_id": "",
+            "workflow_id": workflow_id,
+            "linked_at": linked_at,
+            "last_synced_at": "",
+            "execution_engine": "",
+            "external_status": "linked",
+            "approval_id": "",
+            "active_agent_id": (
+                role_assignments[0].agent_id if role_assignments else ""
+            ),
+            "next_action": "AI Team planning is ready to start.",
+            "synchronization_warnings": [],
+            "role_assignments": [
+                item.to_dict() for item in role_assignments
+            ],
+            "active": True,
+        })
+
+    @classmethod
+    def from_value(cls, value: Any) -> "TeamIntegrationLink":
+        value = _mapping(value, "Command Center Team link")
+        if set(value) != cls.FIELDS:
+            raise ValueError("Command Center Team link has an invalid schema.")
+        version = value["integration_schema_version"]
+        if (
+            isinstance(version, bool)
+            or not isinstance(version, int)
+            or version != COMMAND_CENTER_TEAM_INTEGRATION_SCHEMA_VERSION
+        ):
+            raise ValueError(
+                "Unsupported Command Center Team integration schema version."
+            )
+        task_id = cls._reference(
+            value["team_task_id"], "Team task ID", required=True
+        )
+        run_id = cls._reference(value["team_run_id"], "Team run ID")
+        approval_id = cls._reference(value["approval_id"], "Approval ID")
+        raw_assignments = value["role_assignments"]
+        if not isinstance(raw_assignments, list) or len(raw_assignments) > 32:
+            raise ValueError(
+                "Command Center Team role assignments must be a bounded list."
+            )
+        assignments = tuple(
+            WorkflowAgentAssignment.from_value(item)
+            for item in raw_assignments
+        )
+        if len({item.stage for item in assignments}) != len(assignments):
+            raise ValueError("Workflow stages cannot contain duplicate assignments.")
+        if not isinstance(value["synchronization_warnings"], list):
+            raise ValueError("Synchronization warnings must be a list.")
+        warnings = tuple(
+            _text(
+                item,
+                "Synchronization warning",
+                500,
+                multiline=False,
+            )
+            for item in value["synchronization_warnings"]
+        )
+        if len(warnings) > 20:
+            raise ValueError("A Team link cannot contain more than 20 warnings.")
+        if not isinstance(value["active"], bool):
+            raise ValueError("Command Center Team link active must be boolean.")
+        active_agent = str(value["active_agent_id"]).strip()
+        result = cls(
+            integration_schema_version=version,
+            team_task_id=task_id,
+            team_run_id=run_id,
+            workflow_id=normalize_id(value["workflow_id"], "Workflow ID"),
+            linked_at=parse_timestamp(value["linked_at"], "Team link linked_at"),
+            last_synced_at=parse_timestamp(
+                value["last_synced_at"],
+                "Team link last_synced_at",
+                optional=True,
+            ),
+            execution_engine=_text(
+                value["execution_engine"],
+                "Team link execution engine",
+                100,
+                required=False,
+                multiline=False,
+            ),
+            external_status=_text(
+                value["external_status"],
+                "Team link external status",
+                100,
+                multiline=False,
+            ).lower(),
+            approval_id=approval_id,
+            active_agent_id=(
+                normalize_agent_id(active_agent) if active_agent else ""
+            ),
+            next_action=_text(
+                value["next_action"],
+                "Team link next action",
+                500,
+                required=False,
+                multiline=False,
+            ),
+            synchronization_warnings=warnings,
+            role_assignments=assignments,
+            active=value["active"],
+        )
+        validate_safe_value(result.to_dict(), "Command Center Team link")
+        return result
+
+    @staticmethod
+    def _reference(value: Any, label: str, *, required: bool = False) -> str:
+        text = _text(
+            value,
+            label,
+            100,
+            required=required,
+            multiline=False,
+        )
+        if text and not EXTERNAL_REFERENCE_PATTERN.fullmatch(text):
+            raise ValueError(f"{label} has an invalid format.")
+        return text
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "integration_schema_version": self.integration_schema_version,
+            "team_task_id": self.team_task_id,
+            "team_run_id": self.team_run_id,
+            "workflow_id": self.workflow_id,
+            "linked_at": self.linked_at,
+            "last_synced_at": self.last_synced_at,
+            "execution_engine": self.execution_engine,
+            "external_status": self.external_status,
+            "approval_id": self.approval_id,
+            "active_agent_id": self.active_agent_id,
+            "next_action": self.next_action,
+            "synchronization_warnings": list(self.synchronization_warnings),
+            "role_assignments": [
+                item.to_dict() for item in self.role_assignments
+            ],
+            "active": self.active,
+        }
+
+
+@dataclass(frozen=True)
+class JobTeamIntegration:
+    integration_schema_version: int
+    active_team_task_id: str
+    links: tuple[TeamIntegrationLink, ...]
+
+    FIELDS = frozenset({
+        "integration_schema_version", "active_team_task_id", "links",
+    })
+
+    @classmethod
+    def empty(cls) -> "JobTeamIntegration":
+        return cls(
+            COMMAND_CENTER_TEAM_INTEGRATION_SCHEMA_VERSION,
+            "",
+            (),
+        )
+
+    @classmethod
+    def from_job(cls, job: Job) -> "JobTeamIntegration":
+        value = job.metadata.get("team_integration")
+        if value is None:
+            return cls.empty()
+        return cls.from_value(value)
+
+    @classmethod
+    def from_value(cls, value: Any) -> "JobTeamIntegration":
+        value = _mapping(value, "Job Team integration")
+        if set(value) != cls.FIELDS:
+            raise ValueError("Job Team integration has an invalid schema.")
+        version = value["integration_schema_version"]
+        if (
+            isinstance(version, bool)
+            or not isinstance(version, int)
+            or version != COMMAND_CENTER_TEAM_INTEGRATION_SCHEMA_VERSION
+        ):
+            raise ValueError(
+                "Unsupported Command Center Team integration schema version."
+            )
+        raw_links = value["links"]
+        if not isinstance(raw_links, list) or len(raw_links) > 20:
+            raise ValueError("Job Team integration links must be a bounded list.")
+        links = tuple(TeamIntegrationLink.from_value(item) for item in raw_links)
+        task_ids = [item.team_task_id for item in links]
+        if len(set(task_ids)) != len(task_ids):
+            raise ValueError("Job Team integration cannot duplicate Team task links.")
+        active_id = TeamIntegrationLink._reference(
+            value["active_team_task_id"],
+            "Active Team task ID",
+        )
+        if active_id and active_id not in task_ids:
+            raise ValueError("Active Team task ID does not reference a stored link.")
+        if sum(item.active for item in links) > 1:
+            raise ValueError("A job cannot contain multiple active Team links.")
+        if active_id and not next(
+            item for item in links if item.team_task_id == active_id
+        ).active:
+            raise ValueError("Active Team task ID references an inactive link.")
+        result = cls(version, active_id, links)
+        validate_safe_value(result.to_dict(), "Job Team integration")
+        return result
+
+    @property
+    def active_link(self) -> TeamIntegrationLink | None:
+        if not self.active_team_task_id:
+            return None
+        return next(
+            item for item in self.links
+            if item.team_task_id == self.active_team_task_id
+        )
+
+    def with_link(self, link: TeamIntegrationLink) -> "JobTeamIntegration":
+        validated = TeamIntegrationLink.from_value(link.to_dict())
+        links = tuple(
+            validated if item.team_task_id == validated.team_task_id else item
+            for item in self.links
+        )
+        if not any(
+            item.team_task_id == validated.team_task_id for item in self.links
+        ):
+            links = (*links, validated)
+        active_id = validated.team_task_id if validated.active else (
+            "" if self.active_team_task_id == validated.team_task_id
+            else self.active_team_task_id
+        )
+        return JobTeamIntegration.from_value({
+            "integration_schema_version": self.integration_schema_version,
+            "active_team_task_id": active_id,
+            "links": [item.to_dict() for item in links],
+        })
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "integration_schema_version": self.integration_schema_version,
+            "active_team_task_id": self.active_team_task_id,
+            "links": [item.to_dict() for item in self.links],
         }
 
 

@@ -1,5 +1,16 @@
 # Unreleased — Command Center, Image Center, Automatic Validation, and Documentation Review
 
+- Added immutable structured application results, a deterministic capability
+  registry, a Command Center application handler, and a separate CLI renderer.
+- Kept existing `cc` and `command-center` syntax while moving request parsing and
+  service coordination out of the terminal adapter.
+- Made automatic validation test selection path-based and cross-platform, rejecting
+  dotted module imports, foreign absolute path formats, and symlink escapes without
+  weakening workspace, Vault, Git, process, or network boundaries.
+- Removed runtime/IDE/personal configuration records from source tracking without
+  deleting local copies, expanded ignore coverage, and documented source, user-data,
+  workspace-artifact, and fixture boundaries.
+
 - Added one registered provider-neutral `CommandCenterService` over the existing
   Agent System, provider routing, workspace, and service-registry architecture.
 - Added the default Orion Organization, departments, immutable recommended-role
@@ -14,6 +25,19 @@
 - Added the `command-center` / `cc` CLI, interactive and scripted creation, terminal
   status, JSON output, help/completion, comprehensive tests, and
   `ORION_V1_COMMAND_CENTER.md`.
+- Added explicit, validated job launch through the existing AI Team, with a no-write,
+  no-provider-call `--dry-run`, durable versioned Team task/run links, resolved
+  workflow roles, route summaries, and active-workspace enforcement.
+- Added idempotent lifecycle synchronization across Team planning, immutable
+  approvals, implementation, validation, documentation, review, failure, rollback,
+  cancellation, and explicit human completion. No approval or execution logic is
+  duplicated in Command Center.
+- Extended snapshots, activity, CLI views, completion, and doctor with safe workflow
+  stage, active-agent, next-action, approval, stale-link, and missing-reference data.
+- Corrected Codex Bridge task-run discovery to scope raw records by Team task before
+  full validation. Normal planning with no run remains healthy; genuinely unresolved
+  task-scoped references surface as idempotent provider-neutral warnings until a
+  valid later run supersedes them.
 
 - Added one provider-neutral Image Center service and registry, independently
   selectable from Orion's text AI provider, with an initial OpenAI GPT Image adapter.

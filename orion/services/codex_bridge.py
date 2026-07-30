@@ -978,6 +978,24 @@ class CodexRun:
         }
 
 
+@dataclass(frozen=True)
+class CodexRunReferenceIssue:
+    """Safe identity for a task-scoped run record that could not be loaded."""
+
+    run_id: str
+    started_at: str
+    category: str = "unresolved_run_record"
+
+
+@dataclass(frozen=True)
+class CodexTaskRunInspection:
+    """Task-scoped valid runs plus bounded unresolved record identities."""
+
+    team_task_id: str
+    runs: tuple[CodexRun, ...]
+    unresolved: tuple[CodexRunReferenceIssue, ...]
+
+
 class CodexBridgeStore:
     """Persist immutable approvals and bounded execution artifacts externally."""
 
@@ -1000,6 +1018,21 @@ class CodexBridgeStore:
         if approval.team_task_id != _team_task_id(team_task_id) or approval.approval_id != _approval_id(approval_id):
             raise ValueError("Plan approval identity does not match its path.")
         return approval
+
+    def approvals_for_task(self, team_task_id: str) -> tuple[PlanApproval, ...]:
+        normalized = _team_task_id(team_task_id)
+        root = self.root / "approvals" / normalized
+        if not root.exists():
+            return ()
+        approvals = [
+            self.load_approval(normalized, path.stem)
+            for path in sorted(root.glob("approval-*.json"))
+        ]
+        approvals.sort(
+            key=lambda item: (item.approved_at, item.approval_id),
+            reverse=True,
+        )
+        return tuple(approvals)
 
     def save_run(self, run: CodexRun) -> Path:
         validated = CodexRun.from_value(run.to_dict())
@@ -1091,6 +1124,60 @@ class CodexBridgeStore:
                 continue
         runs.sort(key=lambda item: (item.started_at, item.run_id), reverse=True)
         return tuple(runs[:limit])
+
+    def runs_for_task(self, team_task_id: str) -> tuple[CodexRun, ...]:
+        return self.inspect_runs_for_task(team_task_id).runs
+
+    def inspect_runs_for_task(self, team_task_id: str) -> CodexTaskRunInspection:
+        """Inspect only runs whose raw record names the requested Team task.
+
+        Historical runs may use an older or malformed schema. They must not prevent
+        an unrelated Team task from reporting that it has no implementation run.
+        Matching but unreadable records remain visible as safe unresolved identities.
+        """
+        normalized = _team_task_id(team_task_id)
+        selected: list[CodexRun] = []
+        unresolved: list[CodexRunReferenceIssue] = []
+        for path in (self.root / "runs").glob("*/run.json"):
+            try:
+                raw = self._read_json(path, "Codex run")
+            except (OSError, TypeError, ValueError):
+                continue
+            if not isinstance(raw, dict):
+                continue
+            try:
+                raw_task_id = _team_task_id(raw.get("team_task_id"))
+            except (TypeError, ValueError):
+                continue
+            if raw_task_id != normalized:
+                continue
+            try:
+                run_id = _run_id(path.parent.name)
+            except (TypeError, ValueError):
+                continue
+            started_at = raw.get("started_at", "")
+            safe_started_at = (
+                started_at[:80] if isinstance(started_at, str) else ""
+            )
+            try:
+                selected.append(self.load_run(run_id))
+            except (OSError, TypeError, ValueError):
+                unresolved.append(
+                    CodexRunReferenceIssue(run_id, safe_started_at)
+                )
+        selected.sort(
+            key=lambda item: (item.started_at, item.run_id),
+            reverse=True,
+        )
+        unresolved.sort(
+            key=lambda item: (item.started_at, item.run_id),
+            reverse=True,
+        )
+        return CodexTaskRunInspection(
+            normalized,
+            tuple(selected),
+            tuple(unresolved),
+        )
 
     def write_run_artifact(self, run_id: str, name: str, content: str) -> Path:
         normalized_run = _run_id(run_id)
@@ -1947,6 +2034,18 @@ class CodexBridge:
     def recent(self, limit: int = 10) -> tuple[CodexRun, ...]:
         return self.store.recent_runs(limit)
 
+    def approvals_for_task(self, team_task_id: str) -> tuple[PlanApproval, ...]:
+        """Expose immutable approval summaries for provider-neutral observers."""
+        return self.store.approvals_for_task(team_task_id)
+
+    def runs_for_task(self, team_task_id: str) -> tuple[CodexRun, ...]:
+        """Expose run records for provider-neutral lifecycle synchronization."""
+        return self.store.runs_for_task(team_task_id)
+
+    def inspect_runs_for_task(self, team_task_id: str) -> CodexTaskRunInspection:
+        """Expose task-scoped runs without hiding unresolved historical records."""
+        return self.store.inspect_runs_for_task(team_task_id)
+
     def documentation_status(self, run_id: str) -> CodexRun:
         """Load one complete run for bounded documentation display only."""
         with self._lock:
@@ -2121,6 +2220,7 @@ class CodexBridge:
                     request,
                     "documentation_review_error",
                     sanitized_documentation_error(exc),
+                    diagnostics=tuple(getattr(exc, "safe_diagnostics", ())),
                 )
             self.store.write_documentation_attempt(
                 attempt,

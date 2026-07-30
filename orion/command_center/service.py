@@ -9,6 +9,7 @@ from uuid import uuid4
 from orion.command_center.models import (
     ACTIVE_JOB_STATUSES,
     COMMAND_CENTER_SCHEMA_VERSION,
+    COMMAND_CENTER_SNAPSHOT_SCHEMA_VERSION,
     JOB_TRANSITIONS,
     TERMINAL_JOB_STATUSES,
     ActivityEvent,
@@ -19,7 +20,10 @@ from orion.command_center.models import (
     Job,
     JobPriority,
     JobStatus,
+    JobTeamIntegration,
     Organization,
+    TeamIntegrationLink,
+    WorkflowStage,
     normalize_id,
     parse_timestamp,
     utc_now,
@@ -55,10 +59,15 @@ class CommandCenterService:
         self.provider_manager = provider_manager
         self.routing_service = routing_service
         self.workspace_manager = workspace_manager
+        self.team_integration = None
         self._now = now or utc_now
         self._id_factory = id_factory or (
             lambda prefix: f"{prefix}-{uuid4().hex}"
         )
+
+    def set_team_integration(self, integration) -> None:
+        """Attach the optional Team integration after dependency wiring."""
+        self.team_integration = integration
 
     def ensure_default_organization(self) -> Organization:
         try:
@@ -266,6 +275,10 @@ class CommandCenterService:
         job = self.job(job_id)
         if job.status in TERMINAL_JOB_STATUSES:
             raise ValueError(f"Cannot assign a terminal job: {job.status.value}")
+        if JobTeamIntegration.from_job(job).active_link is not None:
+            raise ValueError(
+                "Cannot change assignments while an AI Team workflow is linked."
+            )
         agent = self._load_assignable_agent(agent_reference)
         if agent.agent_id in job.assigned_agent_ids:
             return job
@@ -300,6 +313,17 @@ class CommandCenterService:
         target = JobStatus.parse(status)
         if target == current.status:
             return current
+        linked = JobTeamIntegration.from_job(current)
+        linked_completion = (
+            linked.active_link is not None
+            and current.status == JobStatus.AWAITING_REVIEW
+            and target == JobStatus.COMPLETED
+        )
+        if linked.active_link is not None and not linked_completion:
+            raise PermissionError(
+                "Linked AI Team job status is authoritative; use cc job sync "
+                "or the existing Team workflow command."
+            )
         if target not in JOB_TRANSITIONS[current.status]:
             raise ValueError(
                 f"Invalid job transition: {current.status.value} -> {target.value}"
@@ -327,6 +351,21 @@ class CommandCenterService:
             started_at = timestamp
         completed_at = timestamp if target in TERMINAL_JOB_STATUSES else ""
         progress = 100 if target == JobStatus.COMPLETED else current.progress
+        metadata = dict(current.metadata)
+        if linked_completion:
+            active_link = linked.active_link
+            assert active_link is not None
+            completed_link = replace(
+                active_link,
+                last_synced_at=timestamp,
+                external_status="completed",
+                active_agent_id="",
+                next_action="No further action is required.",
+                active=False,
+            )
+            metadata["team_integration"] = linked.with_link(
+                completed_link
+            ).to_dict()
         updated = replace(
             current,
             status=target,
@@ -350,6 +389,7 @@ class CommandCenterService:
             started_at=started_at,
             completed_at=completed_at,
             updated_at=timestamp,
+            metadata=metadata,
         )
         updated = Job.from_value(updated.to_dict())
         self.repository.save_job(updated, overwrite=True)
@@ -388,6 +428,16 @@ class CommandCenterService:
                 department_id=updated.department_id,
                 message=f"Approval requested for job {updated.title}.",
             )
+        if linked_completion:
+            self.record_activity(
+                event_type="review.completed",
+                source_type=ActivitySourceType.TEAM,
+                source_id=updated.job_id,
+                job_id=updated.job_id,
+                department_id=updated.department_id,
+                message=f"Final human review completed for job {updated.title}.",
+                metadata={"stage": WorkflowStage.FINAL_REVIEW.value},
+            )
         return updated
 
     def update_job_progress(
@@ -400,6 +450,10 @@ class CommandCenterService:
         current = self.job(job_id)
         if current.status in TERMINAL_JOB_STATUSES:
             raise ValueError("Terminal job progress cannot be changed.")
+        if JobTeamIntegration.from_job(current).active_link is not None:
+            raise PermissionError(
+                "Linked AI Team job progress is authoritative; use cc job sync."
+            )
         if isinstance(progress, bool) or not isinstance(progress, int):
             raise ValueError("Job progress must be an integer.")
         if not 0 <= progress <= 100:
@@ -432,12 +486,127 @@ class CommandCenterService:
         )
         return updated
 
+    def synchronize_job(
+        self,
+        job_id: str,
+        *,
+        status: JobStatus | str,
+        current_stage: str,
+        progress: int,
+        approval_state: ApprovalState | str,
+        metadata: dict[str, Any],
+        workspace_reference: str | None = None,
+        result_summary: str | None = None,
+        error_summary: str | None = None,
+    ) -> Job:
+        """Persist one provider-neutral Team projection without CLI side effects."""
+        current = self.job(job_id)
+        target = JobStatus.parse(status)
+        approval = ApprovalState.parse(approval_state)
+        if current.status in TERMINAL_JOB_STATUSES and target != current.status:
+            raise ValueError("Terminal jobs cannot be synchronized to a new status.")
+        if not self._status_reachable(current.status, target):
+            raise ValueError(
+                f"AI Team state cannot map {current.status.value} to {target.value}."
+            )
+        if target == JobStatus.RUNNING and approval not in {
+            ApprovalState.NOT_REQUIRED,
+            ApprovalState.APPROVED,
+        }:
+            raise PermissionError(
+                "Authoritative approval must resolve before implementation runs."
+            )
+        if isinstance(progress, bool) or not isinstance(progress, int):
+            raise ValueError("Job progress must be an integer.")
+        if not 0 <= progress <= 100:
+            raise ValueError("Job progress must be between 0 and 100.")
+        if progress < current.progress:
+            progress = current.progress
+        if target == JobStatus.COMPLETED:
+            progress = 100
+        timestamp = self._timestamp()
+        completed_at = (
+            current.completed_at
+            if current.status in TERMINAL_JOB_STATUSES
+            else timestamp if target in TERMINAL_JOB_STATUSES else ""
+        )
+        started_at = current.started_at
+        if target in {
+            JobStatus.RUNNING,
+            JobStatus.AWAITING_REVIEW,
+            JobStatus.COMPLETED,
+        } and not started_at:
+            started_at = timestamp
+        workspace = (
+            current.workspace_reference
+            if workspace_reference is None
+            else str(workspace_reference).strip()
+        )
+        result = (
+            current.result_summary
+            if result_summary is None
+            else str(result_summary).strip()
+        )
+        error = (
+            current.error_summary
+            if error_summary is None
+            else str(error_summary).strip()
+        )
+        semantic = (
+            target,
+            str(current_stage).strip(),
+            progress,
+            approval,
+            metadata,
+            workspace,
+            result,
+            error,
+            started_at,
+            completed_at,
+        )
+        existing = (
+            current.status,
+            current.current_stage,
+            current.progress,
+            current.approval_state,
+            current.metadata,
+            current.workspace_reference,
+            current.result_summary,
+            current.error_summary,
+            current.started_at,
+            current.completed_at,
+        )
+        if semantic == existing:
+            return current
+        updated = replace(
+            current,
+            status=target,
+            current_stage=str(current_stage).strip(),
+            progress=progress,
+            approval_state=approval,
+            metadata=dict(metadata),
+            workspace_reference=workspace,
+            result_summary=result,
+            error_summary=error,
+            started_at=started_at,
+            completed_at=completed_at,
+            updated_at=timestamp,
+        )
+        updated = Job.from_value(updated.to_dict())
+        self.repository.save_job(updated, overwrite=True)
+        return updated
+
     def resolve_job_approval(
         self,
         job_id: str,
         state: ApprovalState | str,
     ) -> Job:
         current = self.job(job_id)
+        if JobTeamIntegration.from_job(current).active_link is not None:
+            raise PermissionError(
+                "Linked AI Team approvals are authoritative and cannot be "
+                "resolved through Command Center."
+            )
         target = ApprovalState.parse(state)
         if current.approval_state != ApprovalState.PENDING:
             raise ValueError("Job does not have a pending approval.")
@@ -466,6 +635,13 @@ class CommandCenterService:
         return updated
 
     def cancel_job(self, job_id: str) -> Job:
+        current = self.job(job_id)
+        if JobTeamIntegration.from_job(current).active_link is not None:
+            if self.team_integration is None:
+                raise ValueError(
+                    "AI Team integration is unavailable; linked job was not cancelled."
+                )
+            return self.team_integration.cancel(job_id)
         return self.update_job_status(job_id, JobStatus.CANCELLED)
 
     def record_activity(
@@ -571,6 +747,13 @@ class CommandCenterService:
                 resolved, key=lambda item: (item["name"].casefold(), item["id"])
             )
             department_jobs = jobs_by_department[department.department_id]
+            active_agent_ids = sorted({
+                link.active_agent_id
+                for item in department_jobs
+                if item.status not in TERMINAL_JOB_STATUSES
+                for link in [self._display_link(item, warnings)]
+                if link is not None and link.active_agent_id
+            })
             department_summaries.append({
                 "id": department.department_id,
                 "name": department.name,
@@ -588,6 +771,15 @@ class CommandCenterService:
                 "queued_job_count": sum(
                     item.status == JobStatus.QUEUED for item in department_jobs
                 ),
+                "awaiting_approval_count": sum(
+                    item.status == JobStatus.AWAITING_APPROVAL
+                    for item in department_jobs
+                ),
+                "awaiting_review_count": sum(
+                    item.status == JobStatus.AWAITING_REVIEW
+                    for item in department_jobs
+                ),
+                "active_agent_ids": active_agent_ids,
             })
 
         grouped["unassigned"] = sorted(
@@ -640,8 +832,27 @@ class CommandCenterService:
 
         provider_health = self._provider_health(warnings)
         workspace_summary = self._workspace_summary(warnings)
+        workflow_summary = {
+            "planning": sum(
+                item.status == JobStatus.PLANNING
+                for item in jobs
+            ),
+            "implementing": sum(
+                item.current_stage == WorkflowStage.IMPLEMENTATION.value
+                for item in jobs
+            ),
+            "testing": sum(
+                item.current_stage == WorkflowStage.TESTING.value
+                for item in jobs
+            ),
+            "awaiting_approval": len(approvals),
+            "awaiting_review": len(reviews),
+            "failed_requiring_attention": sum(
+                item.status == JobStatus.FAILED for item in jobs
+            ),
+        }
         result = {
-            "schema_version": COMMAND_CENTER_SCHEMA_VERSION,
+            "schema_version": COMMAND_CENTER_SNAPSHOT_SCHEMA_VERSION,
             "generated_at": self._timestamp(),
             "organization": (
                 {
@@ -671,6 +882,7 @@ class CommandCenterService:
             "jobs_awaiting_review": reviews,
             "recently_completed_jobs": completed,
             "recent_activity": recent_activity,
+            "workflow_summary": workflow_summary,
             "provider_health": provider_health,
             "workspace": workspace_summary,
             "warnings": sorted(set(warnings), key=str.casefold),
@@ -752,6 +964,7 @@ class CommandCenterService:
             events = self.repository.list_activity(1_000)
         except (OSError, PermissionError, ValueError):
             events = ()
+        integration_event_signatures: set[tuple[str, str, str, str]] = set()
         for event in events:
             if event.job_id and event.job_id not in job_ids:
                 diagnostics.append(RepositoryDiagnostic(
@@ -760,6 +973,35 @@ class CommandCenterService:
                     f"Activity {event.event_id} references missing job "
                     f"{event.job_id}.",
                     "activity.jsonl",
+                ))
+            if event.event_type.startswith((
+                "workflow.", "approval.", "execution.", "testing.", "review.",
+                "job.sync_",
+            )):
+                signature = (
+                    event.event_type,
+                    event.job_id,
+                    event.message,
+                    repr(event.metadata),
+                )
+                if signature in integration_event_signatures:
+                    diagnostics.append(RepositoryDiagnostic(
+                        "warning",
+                        "integration.duplicate_activity",
+                        f"Duplicate integration activity is detectable for "
+                        f"job {event.job_id or 'unknown'}.",
+                        "activity.jsonl",
+                    ))
+                integration_event_signatures.add(signature)
+        if self.team_integration is not None:
+            try:
+                diagnostics.extend(self.team_integration.doctor_issues(jobs))
+            except (OSError, PermissionError, RuntimeError, ValueError) as exc:
+                diagnostics.append(RepositoryDiagnostic(
+                    "error",
+                    "integration.doctor_unavailable",
+                    "AI Team integration health could not be inspected: "
+                    f"{self._safe_error(exc)}",
                 ))
             if event.department_id and event.department_id not in department_ids:
                 diagnostics.append(RepositoryDiagnostic(
@@ -851,6 +1093,15 @@ class CommandCenterService:
 
     @staticmethod
     def _job_summary(job: Job) -> dict[str, Any]:
+        link = None
+        integration_warning = ""
+        try:
+            integration = JobTeamIntegration.from_job(job)
+            link = integration.active_link
+            if link is None and integration.links:
+                link = integration.links[-1]
+        except ValueError:
+            integration_warning = "Team integration metadata is invalid."
         return {
             "id": job.job_id,
             "title": job.title,
@@ -867,7 +1118,47 @@ class CommandCenterService:
             "completed_at": job.completed_at,
             "result_summary": job.result_summary,
             "error_summary": job.error_summary,
+            "active_agent_id": link.active_agent_id if link else "",
+            "team_link": (
+                {
+                    "team_task_id": link.team_task_id,
+                    "team_run_id": link.team_run_id,
+                    "workflow_id": link.workflow_id,
+                    "external_status": link.external_status,
+                    "execution_engine": link.execution_engine,
+                    "last_synced_at": link.last_synced_at,
+                    "active": link.active,
+                }
+                if link is not None
+                else None
+            ),
+            "next_action": (
+                link.next_action
+                if link is not None
+                else "Launch the job when ready."
+            ),
+            "warnings": (
+                list(link.synchronization_warnings)
+                if link is not None
+                else [integration_warning] if integration_warning else []
+            ),
         }
+
+    @staticmethod
+    def _display_link(
+        job: Job,
+        warnings: list[str],
+    ) -> TeamIntegrationLink | None:
+        try:
+            integration = JobTeamIntegration.from_job(job)
+        except ValueError:
+            warnings.append(
+                f"Job {job.job_id} has invalid Team integration metadata."
+            )
+            return None
+        if integration.active_link is not None:
+            return integration.active_link
+        return integration.links[-1] if integration.links else None
 
     def _provider_health(self, warnings: list[str]) -> dict[str, Any]:
         if self.provider_manager is None:
@@ -938,6 +1229,22 @@ class CommandCenterService:
                 f"Workspace summary is unavailable: {type(exc).__name__}."
             )
             return {"available": False, "name": "", "mode": "", "is_git": False}
+
+    @staticmethod
+    def _status_reachable(current: JobStatus, target: JobStatus) -> bool:
+        if current == target:
+            return True
+        pending = [current]
+        visited = {current}
+        while pending:
+            status = pending.pop(0)
+            for candidate in JOB_TRANSITIONS[status]:
+                if candidate == target:
+                    return True
+                if candidate not in visited:
+                    visited.add(candidate)
+                    pending.append(candidate)
+        return False
 
     def _timestamp(self) -> str:
         return parse_timestamp(self._now(), "Command Center timestamp")

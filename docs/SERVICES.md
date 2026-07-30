@@ -16,6 +16,7 @@ stable interface.
 - `task_manager` → `TaskManager` (strict project work and progress events)
 - `command_center` → `CommandCenterService` (organization, jobs, activity, snapshot, and doctor)
 - `command_center_jobs` → `CommandCenterJobUpdateAdapter` (provider-neutral lifecycle reporting)
+- `command_center_team` → `CommandCenterTeamIntegrationService` (explicit Team launch and lifecycle synchronization)
 - `provider_manager` → `ProviderManager` (Ollama/OpenAI/Gemini federation and activation)
 - `vault` → `VaultService` (external credential verification and persistence)
 - `ai_routing` → `AIRoutingService` (provider-neutral routing profiles and fallback)
@@ -42,6 +43,7 @@ agents = orion.services.get("agents")
 tasks = orion.services.get("task_manager")
 command_center = orion.services.get("command_center")
 command_center_jobs = orion.services.get("command_center_jobs")
+command_center_team = orion.services.get("command_center_team")
 codex_bridge = orion.services.get("codex_bridge")
 execution_engines = orion.services.get("execution_engines")
 image = orion.services.get("image")
@@ -51,9 +53,12 @@ email = orion.services.get("email")
 `CommandCenterService` stores versioned organization state under
 `~/.orion/command-center/` and resolves department/job agent references through the
 existing `agents` service. Its snapshot contains plain display-safe values for CLI and
-future interfaces. `CommandCenterJobUpdateAdapter` reports lifecycle state only; it
-does not execute work, resolve an approval on its own, or alter workspace and
-permission enforcement.
+future interfaces. `CommandCenterTeamIntegrationService` validates explicit launch,
+creates durable Team task/run links, and reconciles authoritative Team, approval,
+validation, documentation, and execution records into the job lifecycle.
+`CommandCenterJobUpdateAdapter` remains available for provider-neutral reporting.
+Neither adapter grants permissions, resolves approvals on its own, or alters
+workspace enforcement.
 
 `ImageService` owns strict image requests/results, an independent image-provider
 registry, bounded concurrency, content validation, sanitized outcome history, and

@@ -5,7 +5,7 @@
 **Project:** Orion — Personal AI Operating System
 
 **Documentation baseline:** v0.7.0 — Conductor plus unreleased Automatic Validation,
-Documentation Review, Image Center, and Command Center Foundation
+Documentation Review, Image Center, and Command Center workflow integration
 
 Orion is a local-first personal intelligence operating system. It coordinates local
 and cloud AI providers, project knowledge, communication services, applications, and
@@ -436,6 +436,10 @@ cc department add-agent Engineering planner
 cc departments
 cc job create --title "Build plugin marketplace" --goal "Design and implement a secure marketplace" --department Engineering --workspace "C:\Projects\Orion" --priority high
 cc jobs
+cc job launch <job-id> --dry-run
+cc job launch <job-id>
+cc job show <job-id>
+cc job sync <job-id>
 cc job status <job-id> queued
 cc job progress <job-id> 25 --stage planning
 cc snapshot
@@ -448,12 +452,29 @@ departments; removing membership never deletes it. Templates recommend roles but
 not create agents.
 
 A new job begins in `draft` and starts no planning, provider call, tool, shell, or
-implementation. Lifecycle changes are explicit. If a job enters
-`awaiting_approval`, it cannot enter `running` until an existing Orion approval
-workflow resolves that pending approval. `cc snapshot` emits the safe versioned JSON
-contract for future interfaces; normal summaries omit full goals and absolute
-workspace paths. `cc doctor` validates records, references, timestamps, workspaces,
-and schemas without repairing or changing data.
+implementation. `cc job launch <job-id> --dry-run` validates its enabled department,
+active workspace, required Engineering roles, selected agents, configured routes, and
+workflow without writing records or contacting a provider model catalog. A real
+launch is always explicit and creates one durable link to the existing AI Team.
+
+AI Team still owns planning, Codex Bridge still owns immutable plan approval and
+execution, and the existing Tester and Documentation Reviewer own their stages.
+`cc job sync` safely reconciles those records when a manual refresh is useful; normal
+Team commands also request synchronization after lifecycle changes. Repeating sync
+does not duplicate transitions or activity.
+
+While a linked workflow is active, manual assignment, progress, approval, and status
+commands cannot bypass it. Active planning or execution cannot be cancelled unless
+the owning backend supports safe cancellation. Pending or review work can be
+cancelled without deleting Team, approval, run, validation, or documentation records.
+A human remains responsible for explicitly moving an `awaiting_review` linked job to
+`completed`.
+
+`cc job show` displays stage, active agent, safe Team task/run and approval IDs, next
+action, and warnings. `cc snapshot` emits the safe versioned JSON contract for future
+interfaces; normal summaries omit full goals and absolute workspace paths. `cc
+doctor` validates records, references, stale links, timestamps, workspaces, and
+schemas without repairing or changing data.
 
 See `ORION_V1_COMMAND_CENTER.md` for the complete storage, schema, lifecycle, snapshot,
 security, migration, and roadmap contract.

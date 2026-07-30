@@ -13,7 +13,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from threading import Lock, Thread
 from typing import Any, Callable, Iterable, Mapping
 
@@ -131,9 +131,15 @@ def _same_path(first: str | Path, second: str | Path) -> bool:
 
 
 def _relative_path(workspace: Path, value: str | Path) -> str:
-    relative = Path(value)
-    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+    text = str(value)
+    windows = PureWindowsPath(text)
+    posix = PurePosixPath(text)
+    if windows.is_absolute() or windows.drive or posix.is_absolute():
         raise ValueError("Validation file paths must remain inside the approved workspace.")
+    portable_parts = windows.parts if "\\" in text else posix.parts
+    if not portable_parts or ".." in portable_parts:
+        raise ValueError("Validation file paths must remain inside the approved workspace.")
+    relative = Path(*(part for part in portable_parts if part not in {"", "."}))
     if (
         any(part.casefold() in TESTER_DENIED_WORKSPACE_PARTS for part in relative.parts)
         or relative.name.casefold() in TESTER_DENIED_FILE_NAMES
@@ -514,6 +520,29 @@ class BoundedValidationRunner:
             raise PermissionError("Tester rejected a command outside the deterministic Python allowlist.")
         if argv[2] not in {"orion_validation_compile", "unittest"}:
             raise PermissionError("Tester rejected an unsupported validation module.")
+        if argv[2] == "unittest":
+            if (
+                len(argv) != 8
+                or argv[3] != "discover"
+                or argv[4] != "-s"
+                or argv[6] != "-p"
+            ):
+                raise PermissionError(
+                    "Tester requires path-based unittest discovery."
+                )
+            start = PurePosixPath(_relative_path(cwd, argv[5]))
+            pattern = argv[7]
+            if (
+                not start.parts
+                or start.parts[0].casefold() != "tests"
+                or "/" in pattern
+                or "\\" in pattern
+                or not pattern.startswith("test_")
+                or not pattern.endswith(".py")
+            ):
+                raise PermissionError(
+                    "Tester rejected unittest discovery outside workspace tests."
+                )
         environment = {
             name: value for name, value in os.environ.items()
             if name.upper() in self.SAFE_ENVIRONMENT_NAMES
@@ -1456,44 +1485,67 @@ class AutomaticValidationService:
                     python_files,
                 )
                 if test_files or full_suite:
-                    if full_suite:
-                        argv = (
-                            sys.executable,
-                            "-m",
-                            "unittest",
-                            "discover",
-                            "-s",
-                            "tests",
-                            "-p",
-                            "test_*.py",
-                        )
-                        display = "python -m unittest discover -s tests -p test_*.py"
-                        check_id = "python_full_tests"
-                        name = "Full Python test discovery"
-                    else:
-                        modules = tuple(
-                            Path(item).with_suffix("").as_posix().replace("/", ".")
+                    discoveries = [("tests", "test_*.py")]
+                    check_id = "python_full_tests"
+                    name = "Full Python test discovery"
+                    if not full_suite:
+                        discoveries = [
+                            (Path(item).parent.as_posix(), Path(item).name)
                             for item in test_files
-                        )
-                        argv = (sys.executable, "-m", "unittest", *modules)
-                        display = "python -m unittest " + " ".join(modules)
+                        ]
                         check_id = "python_targeted_tests"
                         name = "Targeted Python tests"
                         inspected.update(test_files)
-                    process = self._run_command(
-                        argv,
-                        display,
-                        workspace,
-                        temp_root,
+                    test_results = []
+                    for start_directory, pattern in discoveries:
+                        process = self._run_command(
+                            (
+                                sys.executable,
+                                "-m",
+                                "unittest",
+                                "discover",
+                                "-s",
+                                start_directory,
+                                "-p",
+                                pattern,
+                            ),
+                            (
+                                "python -m unittest discover "
+                                f"-s {start_directory} -p {pattern}"
+                            ),
+                            workspace,
+                            temp_root,
+                        )
+                        commands.append(process[0])
+                        test_results.append(process)
+                    test_status = (
+                        "error"
+                        if any(item[1] == "error" for item in test_results)
+                        else "failed"
+                        if any(item[1] == "failed" for item in test_results)
+                        else "passed"
                     )
-                    commands.append(process[0])
-                    summary = process[2]
-                    if process[3] is not None:
-                        summary = f"{process[3]} test(s); {summary}"
+                    test_count = sum(
+                        item[3] for item in test_results if item[3] is not None
+                    )
+                    summary = (
+                        next(
+                            item[2]
+                            for item in test_results
+                            if item[1] != "passed"
+                        )
+                        if test_status != "passed"
+                        else (
+                            f"Completed {len(test_results)} bounded discovery "
+                            "command(s)."
+                        )
+                    )
+                    if test_count:
+                        summary = f"{test_count} test(s); {summary}"
                     checks.append(ValidationCheck(
                         check_id,
                         name,
-                        process[1],
+                        test_status,
                         summary,
                         tuple(test_files),
                     ))

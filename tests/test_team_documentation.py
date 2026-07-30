@@ -77,6 +77,21 @@ class FakeProvider:
         return self.response
 
 
+class ScriptedProvider(FakeProvider):
+    def __init__(self, model, outcomes):
+        super().__init__(model, "")
+        self.outcomes = list(outcomes)
+
+    def chat(self, prompt, system_prompt=None):
+        self.calls.append((prompt, system_prompt))
+        if not self.outcomes:
+            raise AssertionError("Scripted provider received an unexpected call.")
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+
 class FakeProviderFactory:
     def __init__(self, providers):
         self.providers = providers
@@ -201,6 +216,7 @@ def finding(
     text="An example is stale.",
     *,
     blocks=True,
+    confidence=0.9,
 ):
     return {
         "severity": severity,
@@ -210,7 +226,7 @@ def finding(
         "finding": text,
         "implementation_evidence": "The bounded implementation summary uses different behavior.",
         "recommended_correction": "Update the example to match the current command.",
-        "confidence": 0.9,
+        "confidence": confidence,
         "blocks_passed": blocks,
     }
 
@@ -222,6 +238,18 @@ class DocumentationReviewerTests(unittest.TestCase):
             "codex", "Codex CLI", ENGINE_STATUS_INSTALLED, True, True, True,
             executable="codex.cmd",
         )
+
+    @staticmethod
+    def provider_diagnostics(attempt):
+        values = []
+        for item in attempt.safe_diagnostics:
+            try:
+                value = json.loads(item)
+            except json.JSONDecodeError:
+                continue
+            if value.get("kind") == "documentation_provider_attempt":
+                values.append(value)
+        return values
 
     @staticmethod
     def common_docs():
@@ -455,6 +483,257 @@ class DocumentationReviewerTests(unittest.TestCase):
             attempt = service.review(request)
             self.assertEqual(attempt.status, "failed")
             self.assertEqual(attempt.counts_by_severity["error"], 1)
+
+    def test_numeric_confidence_remains_canonical_without_normalization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, provider, _ = self.request(
+                tmp,
+                provider_response=model_response([
+                    finding(confidence=0.75),
+                ]),
+            )
+            attempt = service.review(request)
+            diagnostic = self.provider_diagnostics(attempt)[0]
+            self.assertEqual(attempt.findings[-1].confidence, 0.75)
+            self.assertIsInstance(attempt.to_dict()["findings"][-1]["confidence"], float)
+            self.assertEqual(len(provider.calls), 1)
+            self.assertFalse(diagnostic["normalization_attempted"])
+            self.assertFalse(diagnostic["normalization_applied"])
+
+    def test_openai_numeric_string_confidence_is_normalized_without_repair(self):
+        openai_finding = finding(confidence="0.8")
+        with self.assertRaisesRegex(
+            ValueError,
+            "Documentation finding confidence must be numeric",
+        ):
+            DocumentationFinding.from_value(openai_finding)
+        roles = DocumentationRoles(
+            self.engine,
+            candidates=[("openai", "gpt-4.1-mini", "")],
+        )
+        provider = FakeProvider(
+            "gpt-4.1-mini",
+            model_response([openai_finding]),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, _, _ = self.request(
+                tmp,
+                providers={"openai": provider},
+                roles=roles,
+            )
+            attempt = service.review(request)
+            diagnostic = self.provider_diagnostics(attempt)[0]
+            self.assertEqual(attempt.findings[-1].confidence, 0.8)
+            self.assertEqual(len(provider.calls), 1)
+            self.assertTrue(diagnostic["normalization_attempted"])
+            self.assertTrue(diagnostic["normalization_applied"])
+            self.assertEqual(diagnostic["confidence_shapes"], ["numeric_string"])
+            self.assertFalse(diagnostic["repair_attempted"])
+
+    def test_percentage_confidence_is_normalized_to_unit_interval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, provider, _ = self.request(
+                tmp,
+                provider_response=model_response([
+                    finding(confidence="80%"),
+                ]),
+            )
+            attempt = service.review(request)
+            diagnostic = self.provider_diagnostics(attempt)[0]
+            self.assertEqual(attempt.findings[-1].confidence, 0.8)
+            self.assertEqual(len(provider.calls), 1)
+            self.assertEqual(diagnostic["confidence_shapes"], ["percentage"])
+            self.assertTrue(diagnostic["normalization_applied"])
+
+    def test_confidence_labels_are_rejected_without_a_mapping_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service, _, _, _, _ = self.request(tmp)
+            for label in ("low", "medium", "high"):
+                with self.subTest(label=label), self.assertRaisesRegex(
+                    ValueError,
+                    "numeric value or percentage",
+                ):
+                    service._parse_model_review(model_response([
+                        finding(confidence=label),
+                    ]))
+
+    def test_out_of_range_nan_and_infinity_confidence_are_rejected(self):
+        values = (1.01, -0.01, float("nan"), float("inf"), float("-inf"))
+        with tempfile.TemporaryDirectory() as tmp:
+            service, _, _, _, _ = self.request(tmp)
+            for value in values:
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    service._parse_model_review(model_response([
+                        finding(confidence=value),
+                    ]))
+
+    def test_arbitrary_confidence_gets_one_repair_attempt_then_fails(self):
+        invalid = model_response([finding(confidence="very likely")])
+        provider = ScriptedProvider("review-model", [invalid, invalid])
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, _, _ = self.request(
+                tmp,
+                providers={"ollama": provider},
+            )
+            with self.assertRaises(RuntimeError) as captured:
+                service.review(request)
+            diagnostic = json.loads(captured.exception.safe_diagnostics[0])
+            self.assertEqual(len(provider.calls), 2)
+            self.assertEqual(diagnostic["failure_category"], "response_validation")
+            self.assertTrue(diagnostic["normalization_attempted"])
+            self.assertFalse(diagnostic["normalization_applied"])
+            self.assertTrue(diagnostic["repair_attempted"])
+            self.assertFalse(diagnostic["repair_succeeded"])
+
+    def test_structured_output_repair_retry_can_complete_review(self):
+        provider = ScriptedProvider(
+            "review-model",
+            [
+                model_response([finding(confidence="very likely")]),
+                model_response([finding(confidence=0.85)]),
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, _, _ = self.request(
+                tmp,
+                providers={"ollama": provider},
+            )
+            attempt = service.review(request)
+            diagnostic = self.provider_diagnostics(attempt)[0]
+            self.assertEqual(len(provider.calls), 2)
+            self.assertEqual(attempt.findings[-1].confidence, 0.85)
+            self.assertTrue(diagnostic["repair_attempted"])
+            self.assertTrue(diagnostic["repair_succeeded"])
+            self.assertEqual(diagnostic["outcome"], "success")
+
+    def test_failed_repair_falls_back_to_next_provider(self):
+        invalid = model_response([finding(confidence="unknown")])
+        first = ScriptedProvider("gpt-4.1-mini", [invalid, invalid])
+        second = FakeProvider(
+            "review-model",
+            model_response([finding(confidence=0.9)]),
+        )
+        roles = DocumentationRoles(
+            self.engine,
+            candidates=[
+                ("openai", "gpt-4.1-mini", ""),
+                ("ollama", "review-model", "Runtime fallback."),
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, _, factory = self.request(
+                tmp,
+                providers={"openai": first, "ollama": second},
+                roles=roles,
+            )
+            attempt = service.review(request)
+            diagnostics = self.provider_diagnostics(attempt)
+            self.assertEqual(factory.calls, ["openai", "ollama"])
+            self.assertEqual(len(first.calls), 2)
+            self.assertEqual(len(second.calls), 1)
+            self.assertEqual(attempt.provider, "ollama")
+            self.assertEqual(diagnostics[0]["failure_category"], "response_validation")
+            self.assertTrue(diagnostics[0]["repair_attempted"])
+            self.assertTrue(diagnostics[0]["fallback_occurred"])
+            self.assertTrue(diagnostics[1]["fallback_occurred"])
+
+    def test_timeout_falls_back_without_repairing_that_provider(self):
+        first = FakeProvider(
+            "slow-model",
+            "",
+            error=TimeoutError("timed out"),
+        )
+        second = FakeProvider("review-model", model_response())
+        roles = DocumentationRoles(
+            self.engine,
+            candidates=[
+                ("ollama", "slow-model", ""),
+                ("openai", "review-model", "Runtime fallback."),
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, _, _ = self.request(
+                tmp,
+                providers={"ollama": first, "openai": second},
+                roles=roles,
+            )
+            attempt = service.review(request)
+            diagnostics = self.provider_diagnostics(attempt)
+            self.assertEqual(len(first.calls), 1)
+            self.assertEqual(attempt.provider, "openai")
+            self.assertEqual(diagnostics[0]["failure_category"], "timeout")
+            self.assertFalse(diagnostics[0]["repair_attempted"])
+
+    def test_billing_failure_falls_back_without_repairing_that_provider(self):
+        first = FakeProvider(
+            "billing-model",
+            "",
+            error=ConnectionError("prepaid credits depleted"),
+        )
+        second = FakeProvider("review-model", model_response())
+        roles = DocumentationRoles(
+            self.engine,
+            candidates=[
+                ("gemini", "billing-model", ""),
+                ("ollama", "review-model", "Runtime fallback."),
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, _, _ = self.request(
+                tmp,
+                providers={"gemini": first, "ollama": second},
+                roles=roles,
+            )
+            attempt = service.review(request)
+            diagnostics = self.provider_diagnostics(attempt)
+            self.assertEqual(len(first.calls), 1)
+            self.assertEqual(attempt.provider, "ollama")
+            self.assertEqual(diagnostics[0]["failure_category"], "billing")
+            self.assertFalse(diagnostics[0]["repair_attempted"])
+
+    def test_all_providers_unavailable_preserves_safe_routing_diagnostics(self):
+        roles = DocumentationRoles(
+            self.engine,
+            candidates=[
+                ("ollama", "slow-model", ""),
+                ("gemini", "billing-model", ""),
+                ("openai", "offline-model", ""),
+            ],
+        )
+        providers = {
+            "ollama": FakeProvider(
+                "slow-model", "", error=TimeoutError("timed out")
+            ),
+            "gemini": FakeProvider(
+                "billing-model", "", error=ConnectionError("prepaid credits depleted")
+            ),
+            "openai": FakeProvider(
+                "offline-model", "", error=ConnectionError("network unavailable")
+            ),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            service, request, _, _, _ = self.request(
+                tmp,
+                providers=providers,
+                roles=roles,
+            )
+            with self.assertRaises(RuntimeError) as captured:
+                service.review(request)
+            attempt = service.error(
+                request,
+                "documentation_review_error",
+                sanitized_documentation_error(captured.exception),
+                diagnostics=captured.exception.safe_diagnostics,
+            )
+            diagnostics = self.provider_diagnostics(attempt)
+            payload = json.dumps(attempt.to_dict())
+            self.assertEqual(
+                [item["failure_category"] for item in diagnostics],
+                ["timeout", "billing", "connection"],
+            )
+            self.assertEqual(attempt.status, "error")
+            self.assertNotIn("prepaid credits depleted", payload)
+            self.assertNotIn("network unavailable", payload)
 
     def test_missing_user_guide_command_and_interactive_help_fail(self):
         before_console = 'BASE_COMMANDS = ("help",)\n'

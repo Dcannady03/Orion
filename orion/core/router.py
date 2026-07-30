@@ -13,7 +13,10 @@ import shlex
 
 from orion.agents import AgentDefinition, AgentPermissions
 from orion.agents.cli import AgentCommandHandler
-from orion.command_center.cli import CommandCenterCommandHandler
+from orion.command_center.cli import (
+    dispatch_command_center,
+    synchronize_command_center_team,
+)
 from orion.services.team import TeamPlanningError
 from orion.services.codex_bridge import CodexBridgeError, PlanSnapshot
 from orion.services.execution_engines import ExecutionEngineUnavailable
@@ -255,21 +258,8 @@ class CommandRouter:
         elif command_lower in {"benchmark models", "ai benchmark"}:
             self.benchmark_ai_models()
 
-        elif (
-            getattr(self.orion, "command_center", None) is not None
-            and (
-                command_lower in {"command-center", "cc"}
-                or command_lower.startswith(("command-center ", "cc "))
-            )
-        ):
-            prefix = (
-                "cc"
-                if command_lower == "cc" or command_lower.startswith("cc ")
-                else "command-center"
-            )
-            CommandCenterCommandHandler(self.orion.command_center).handle(
-                raw_command[len(prefix):].strip()
-            )
+        elif dispatch_command_center(self.orion, raw_command):
+            pass
 
         elif (
             getattr(getattr(self.orion, "agents", None), "is_production_agent_manager", False)
@@ -762,6 +752,9 @@ class CommandRouter:
         print("    cc templates               Show recommended department roles")
         print("    cc jobs                    List high-level organization jobs")
         print("    cc job create              Create a job without starting execution")
+        print("    cc job launch <id>         Explicitly launch AI Team planning")
+        print("    cc job sync <id>           Reconcile linked authoritative state")
+        print("    cc job show <id>           Show workflow, approval, and next action")
         print("    cc activity                Show recent safe activity summaries")
         print("    cc doctor                  Validate storage and references read-only")
         print()
@@ -2561,6 +2554,10 @@ class CommandRouter:
         except (FileNotFoundError, OSError, PermissionError, ValueError) as exc:
             print(f"Codex Bridge approval failed: {exc}")
             return None
+        synchronize_command_center_team(
+            self.orion,
+            team_task_id=approval.team_task_id,
+        )
         return approval
 
     @staticmethod
@@ -2646,12 +2643,15 @@ class CommandRouter:
                 self._render_no_execution_engine(engines)
                 if exc.run_id:
                     print(f"Saved run: {exc.run_id}")
+                    synchronize_command_center_team(self.orion, run_id=exc.run_id)
                 return None
             print(f"Codex Bridge execution failed: {exc}")
             run_id = getattr(exc, "run_id", "")
             if run_id:
                 print(f"Saved run: {run_id}")
+                synchronize_command_center_team(self.orion, run_id=run_id)
             return None
+        synchronize_command_center_team(self.orion, run_id=run.run_id)
         self._render_codex_run(run, self.orion.codex_bridge.store.run_directory(run.run_id))
         return run
 
@@ -2842,6 +2842,7 @@ class CommandRouter:
         except (FileNotFoundError, OSError, PermissionError, RuntimeError, ValueError) as exc:
             print(f"Automatic validation refused: {exc}")
             return None
+        synchronize_command_center_team(self.orion, run_id=run.run_id)
         self._render_codex_run(run, self.orion.codex_bridge.store.run_directory(run.run_id))
         return run
 
@@ -2863,6 +2864,7 @@ class CommandRouter:
         except (FileNotFoundError, OSError, PermissionError, RuntimeError, ValueError) as exc:
             print(f"Documentation Review refused: {exc}")
             return None
+        synchronize_command_center_team(self.orion, run_id=run.run_id)
         self._render_codex_run(run, self.orion.codex_bridge.store.run_directory(run.run_id))
         return run
 
@@ -2910,6 +2912,7 @@ class CommandRouter:
         except (FileNotFoundError, OSError, PermissionError, ValueError, WorkspaceRollbackError) as exc:
             print(f"Team rollback refused: {exc}")
             return
+        synchronize_command_center_team(self.orion, run_id=rolled_back.run_id)
         print(f"[OK] Run {rolled_back.run_id} was rolled back without Git reset or checkout.")
 
     @staticmethod

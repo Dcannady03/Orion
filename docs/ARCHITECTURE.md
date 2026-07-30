@@ -4,9 +4,41 @@ Orion is organized around a small core, a shared Service Registry, explicit serv
 
 ## Dependency flow
 
-`Orion Core -> Service Registry -> Services/Skills -> Providers`
+`Interface -> Application Command -> Domain Service -> Provider or Execution Engine`
 
-The core initializes shared components. Consumers discover them through the registry rather than globals.
+The core initializes shared components. Consumers discover domain services through the
+service registry rather than globals. Interfaces do not call providers or execution
+engines directly.
+
+## Internal application layer
+
+`orion/application/` is the reusable boundary between clients and Orion's existing
+domain services. `ApplicationResult` carries a status, human-readable message,
+immutable JSON-safe data, warnings, errors, and next actions. It contains no live
+service or provider objects. `CapabilityRegistry` publishes deterministic metadata
+about a deliberately limited representative set of operations; definitions describe
+permissions, approval requirements, and schemas but never execute work.
+
+Command Center is the first command family to use this boundary. Its application
+handler parses the existing request syntax, coordinates `CommandCenterService` and
+the existing Team integration, and returns `ApplicationResult`. The compatibility CLI
+adapter sends that result to `orion/interfaces/cli/renderer.py`. This preserves both
+`cc` and `command-center` syntax while preventing business logic from depending on
+`print()`.
+
+```text
+CLI input
+  -> core router
+  -> Command Center application handler
+  -> Command Center / Team domain services
+  -> ApplicationResult
+  -> CLI renderer
+```
+
+Future GUI, REST, voice, Discord, mobile, or server clients must call application
+commands or domain services and consume structured results; they must not scrape CLI
+text. Those interfaces are not implemented in this milestone. See
+`APPLICATION_CORE.md` for the current contract and remaining extraction work.
 
 ## First Contact onboarding
 
@@ -87,17 +119,35 @@ deleting an agent or rewriting user data.
 
 The validated job transition graph separates creation, queueing, planning, approval,
 running, review, completion, failure, pause, and cancellation. Creating a job invokes
-nothing. Entering Awaiting Approval records a pending state; Running is rejected until
-the existing Orion approval has explicitly resolved it. The registered
-`command_center_jobs` adapter lets AI Team and future engines report state through the
-same service without importing provider, Codex, or terminal types.
+nothing. `CommandCenterTeamIntegrationService`, registered as
+`command_center_team`, is the explicit orchestration adapter: it validates the active
+workspace, department, referenced agents, Engineering role coverage, and configured
+routes before reserving one Team task ID and calling the existing
+`TeamOrchestrator.plan`. Its dry-run path is read-only and does not construct a
+provider, query a live model catalog, invoke an engine, create an approval, or write
+storage.
 
-The v1 snapshot is a detached JSON-safe dictionary with organization and department
+Each launched job carries a versioned integration envelope and append-only link
+history. The active link stores Team task/run IDs, workflow ID, resolved role
+assignments, execution-engine label, approval ID, external status, stage agent,
+warnings, and next action. Existing jobs without the envelope remain valid and
+unlinked. Unsupported link versions are retained and reported rather than rewritten.
+
+AI Team, Codex Bridge, Automatic Validation, and Documentation Review remain
+authoritative for their own records. The integration reads those records and
+idempotently projects their state into Command Center; runtime lifecycle hooks only
+request the same reconciliation. Linked-job manual assignment, progress, approval,
+and lifecycle changes are blocked, except that a human may explicitly complete an
+Awaiting Review job. Cancellation refuses active planning or execution unless the
+owning backend exposes a safe cancellation path.
+
+The v2 snapshot is a detached JSON-safe dictionary with organization and department
 summaries, agent grouping/counts, active/queued/approval/review/completed jobs, recent
-safe activity, optional local provider/routing health, an optional path-minimized
-workspace summary, and sorted reference warnings. Full goals and absolute workspace
-paths are omitted from job summaries. Future interfaces must consume this service
-contract rather than parse storage.
+safe activity, workflow stage counts, active agents, next actions, link identifiers,
+optional local provider/routing health, an optional path-minimized workspace summary,
+and sorted reference warnings. Full goals and absolute workspace paths are omitted
+from job summaries. Future interfaces must consume this service contract rather than
+parse storage.
 
 See `ORION_V1_COMMAND_CENTER.md` for schemas, lifecycle, CLI, security, migration, and
 the staged roadmap to a desktop and remote Command Center.

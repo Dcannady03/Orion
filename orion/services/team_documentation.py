@@ -31,6 +31,9 @@ DOCUMENTATION_ID_PATTERN = re.compile(r"documentation-[0-9]{4}")
 RUN_ID_PATTERN = re.compile(r"run-[a-z0-9-]{6,95}")
 TEAM_TASK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{2,80}")
 APPROVAL_ID_PATTERN = re.compile(r"approval-[a-z0-9-]{6,95}")
+CONFIDENCE_NUMBER_PATTERN = re.compile(
+    r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+)
 DOCUMENTATION_STATUSES = frozenset({
     "passed", "warnings", "failed", "not_required", "unavailable", "error",
 })
@@ -146,6 +149,33 @@ def sanitized_documentation_error(exc: BaseException) -> str:
         maximum=1_000,
         required=True,
     )
+
+
+class _DocumentationResponseValidationError(ValueError):
+    """A provider response that may be regenerated without changing review scope."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        normalization_attempted: bool = False,
+        normalization_applied: bool = False,
+        confidence_shapes: tuple[str, ...] = (),
+        repairable: bool = True,
+    ) -> None:
+        super().__init__(message)
+        self.normalization_attempted = normalization_attempted
+        self.normalization_applied = normalization_applied
+        self.confidence_shapes = confidence_shapes
+        self.repairable = repairable
+
+
+class _DocumentationProviderRoutingError(RuntimeError):
+    """Provider-neutral routing failure with bounded artifact-safe diagnostics."""
+
+    def __init__(self, message: str, safe_diagnostics: tuple[str, ...]) -> None:
+        super().__init__(message)
+        self.safe_diagnostics = safe_diagnostics
 
 
 def _bounded_strings(
@@ -670,6 +700,17 @@ class _ModelReview:
     classification_decision: str
     classification_reason: str
     findings: tuple[DocumentationFinding, ...]
+    normalization_attempted: bool = False
+    normalization_applied: bool = False
+    confidence_shapes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _NormalizedConfidence:
+    value: float
+    attempted: bool
+    applied: bool
+    shape: str
 
 
 class DocumentationReviewService:
@@ -688,8 +729,15 @@ finding, implementation_evidence, recommended_correction, confidence, blocks_pas
 Allowed severities: info, warning, error. Allowed categories: missing, inaccurate, stale,
 inconsistent, broken-link, undocumented-command, help-mismatch, configuration, safety,
 architecture, changelog, versioning, example, coverage.
+For every finding, confidence must be a finite JSON number from 0.0 through 1.0, not
+a string, percentage, or label, and blocks_passed must be a JSON boolean.
 Use error only for material user-facing, safety, setup, command, configuration, or
 developer-contract gaps. Return an empty findings array when coverage is complete."""
+    REPAIR_INSTRUCTION = """
+This is the one permitted structured-output repair attempt. Regenerate the review from
+the same bounded evidence. Return only the required JSON object, with every confidence
+as a finite JSON number from 0.0 through 1.0. Do not quote confidence values, use
+percentages or labels, add fields, or discuss the correction."""
 
     def __init__(
         self,
@@ -804,7 +852,9 @@ developer-contract gaps. Return an empty findings array when coverage is complet
             "documentation",
             f"Documentation review for {request.plan_goal}",
         )
-        model_review, selected, usage, failures = self._run_provider(prompt, candidates)
+        model_review, selected, usage, failures, provider_diagnostics = (
+            self._run_provider(prompt, candidates)
+        )
         findings.extend(model_review.findings)
         if model_review.classification_decision == "challenge_not_required":
             findings.append(DocumentationFinding(
@@ -893,6 +943,7 @@ developer-contract gaps. Return an empty findings array when coverage is complet
             started_wall,
             started,
             usage=usage,
+            diagnostics=tuple(provider_diagnostics),
         )
 
     def error(
@@ -900,6 +951,8 @@ developer-contract gaps. Return an empty findings array when coverage is complet
         request: DocumentationRequest,
         category: str,
         message: str,
+        *,
+        diagnostics: tuple[str, ...] = (),
     ) -> DocumentationAttempt:
         started = self._timestamp()
         try:
@@ -931,7 +984,13 @@ developer-contract gaps. Return an empty findings array when coverage is complet
             started,
             time.monotonic(),
             safe_error_category=_safe_text(category, maximum=80, required=True),
-            diagnostics=(_safe_text(message, maximum=1_000, required=True),),
+            diagnostics=tuple(dict.fromkeys((
+                _safe_text(message, maximum=1_000, required=True),
+                *(
+                    _safe_text(item, maximum=1_000, required=True)
+                    for item in diagnostics[:49]
+                ),
+            ))),
         )
 
     def classify(
@@ -1365,9 +1424,23 @@ developer-contract gaps. Return an empty findings array when coverage is complet
         self,
         prompt: str,
         candidates: tuple[ResolvedTeamRole, ...],
-    ) -> tuple[_ModelReview, ResolvedTeamRole, DocumentationUsage, list[str]]:
+    ) -> tuple[
+        _ModelReview,
+        ResolvedTeamRole,
+        DocumentationUsage,
+        list[str],
+        list[str],
+    ]:
         failures: list[str] = []
-        for candidate in candidates:
+        diagnostics: list[str] = []
+        for index, candidate in enumerate(candidates):
+            normalization_attempted = False
+            normalization_applied = False
+            confidence_shapes: set[str] = set()
+            repair_attempted = False
+            repair_succeeded = False
+            request_material: list[str] = []
+            response_material: list[str] = []
             try:
                 provider = self.provider_factory.create(candidate.provider)
                 current_model = str(getattr(provider, "model", ""))
@@ -1385,19 +1458,77 @@ developer-contract gaps. Return an empty findings array when coverage is complet
                         "The Orion role contract and no-tools safety boundary override agent instructions."
                     )
                 raw = provider.chat(prompt, system_prompt=system)
+                request_material.append(system + "\n" + prompt)
+                response_material.append(str(raw))
                 if len(str(raw)) > self.MAX_PROVIDER_RESPONSE_CHARS:
-                    raise ValueError("Documentation Reviewer response exceeded its bounded limit.")
-                review = self._parse_model_review(raw)
+                    raise _DocumentationResponseValidationError(
+                        "Documentation Reviewer response exceeded its bounded limit.",
+                        repairable=False,
+                    )
+                try:
+                    review = self._parse_model_review(raw)
+                except _DocumentationResponseValidationError as initial_error:
+                    normalization_attempted = initial_error.normalization_attempted
+                    normalization_applied = initial_error.normalization_applied
+                    confidence_shapes.update(initial_error.confidence_shapes)
+                    if not initial_error.repairable:
+                        raise
+                    repair_attempted = True
+                    repair_system = system + self.REPAIR_INSTRUCTION
+                    repaired_raw = provider.chat(prompt, system_prompt=repair_system)
+                    request_material.append(repair_system + "\n" + prompt)
+                    response_material.append(str(repaired_raw))
+                    if len(str(repaired_raw)) > self.MAX_PROVIDER_RESPONSE_CHARS:
+                        raise _DocumentationResponseValidationError(
+                            "Documentation Reviewer repair response exceeded its bounded limit.",
+                            normalization_attempted=normalization_attempted,
+                            normalization_applied=normalization_applied,
+                            confidence_shapes=tuple(sorted(confidence_shapes)),
+                            repairable=False,
+                        )
+                    review = self._parse_model_review(repaired_raw)
+                    repair_succeeded = True
+                normalization_attempted = (
+                    normalization_attempted or review.normalization_attempted
+                )
+                normalization_applied = (
+                    normalization_applied or review.normalization_applied
+                )
+                confidence_shapes.update(review.confidence_shapes)
+                review = _ModelReview(
+                    review.classification_decision,
+                    review.classification_reason,
+                    review.findings,
+                    normalization_attempted,
+                    normalization_applied,
+                    tuple(sorted(confidence_shapes)),
+                )
                 actual_model = str(getattr(provider, "model", candidate.model))
-                input_tokens = self._estimate_tokens(system + "\n" + prompt)
-                output_tokens = self._estimate_tokens(str(raw))
+                input_tokens = sum(
+                    self._estimate_tokens(item) for item in request_material
+                )
+                output_tokens = sum(
+                    self._estimate_tokens(item) for item in response_material
+                )
+                diagnostics.append(self._provider_diagnostic(
+                    candidate,
+                    outcome="success",
+                    failure_category="",
+                    detail="",
+                    normalization_attempted=normalization_attempted,
+                    normalization_applied=normalization_applied,
+                    confidence_shapes=tuple(sorted(confidence_shapes)),
+                    repair_attempted=repair_attempted,
+                    repair_succeeded=repair_succeeded,
+                    fallback_occurred=index > 0,
+                ))
                 return review, candidate, DocumentationUsage(
                     candidate.provider,
                     actual_model,
                     input_tokens,
                     output_tokens,
                     self._estimate_cost(candidate.provider, input_tokens, output_tokens),
-                ), failures
+                ), failures, diagnostics
             except (
                 ConnectionError,
                 KeyError,
@@ -1407,12 +1538,37 @@ developer-contract gaps. Return an empty findings array when coverage is complet
                 TypeError,
                 ValueError,
             ) as exc:
-                failures.append(
-                    f"{candidate.actual_assignment} "
-                    f"({type(exc).__name__}: {_safe_exception_detail(exc)})"
+                if isinstance(exc, _DocumentationResponseValidationError):
+                    normalization_attempted = (
+                        normalization_attempted or exc.normalization_attempted
+                    )
+                    normalization_applied = (
+                        normalization_applied or exc.normalization_applied
+                    )
+                    confidence_shapes.update(exc.confidence_shapes)
+                category = self._provider_failure_category(exc)
+                detail = self._provider_failure_detail(exc, category)
+                fallback_occurred = (
+                    index > 0 or index < max(0, len(candidates) - 1)
                 )
+                diagnostics.append(self._provider_diagnostic(
+                    candidate,
+                    outcome="failure",
+                    failure_category=category,
+                    detail=detail,
+                    normalization_attempted=normalization_attempted,
+                    normalization_applied=normalization_applied,
+                    confidence_shapes=tuple(sorted(confidence_shapes)),
+                    repair_attempted=repair_attempted,
+                    repair_succeeded=False,
+                    fallback_occurred=fallback_occurred,
+                ))
+                failures.append(f"{candidate.actual_assignment} ({category}: {detail})")
         categories = ", ".join(failures) or "no available provider"
-        raise RuntimeError(f"Documentation Reviewer provider routing failed: {categories}.")
+        raise _DocumentationProviderRoutingError(
+            f"Documentation Reviewer provider routing failed: {categories}.",
+            tuple(diagnostics),
+        )
 
     def _parse_model_review(self, raw: str) -> _ModelReview:
         text = str(raw).strip()
@@ -1424,22 +1580,218 @@ developer-contract gaps. Return an empty findings array when coverage is complet
         try:
             value = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise ValueError("Documentation Reviewer returned invalid JSON.") from exc
-        value = _exact_mapping(
-            value,
-            {"classification_decision", "classification_reason", "findings"},
-            "Documentation Reviewer output",
-        )
-        decision = _safe_text(value["classification_decision"], maximum=40, required=True).lower()
-        if decision not in {"confirm_required", "challenge_not_required", "challenge_required"}:
-            raise ValueError("Documentation Reviewer classification decision is invalid.")
-        findings_value = value["findings"]
-        if not isinstance(findings_value, list) or len(findings_value) > self._max_findings():
-            raise ValueError("Documentation Reviewer findings exceeded the configured bound.")
-        return _ModelReview(
-            decision,
-            _safe_text(value["classification_reason"], maximum=1_000, required=True),
-            tuple(DocumentationFinding.from_value(item) for item in findings_value),
+            raise _DocumentationResponseValidationError(
+                "Documentation Reviewer returned invalid JSON."
+            ) from exc
+        normalization_attempted = False
+        normalization_applied = False
+        confidence_shapes: set[str] = set()
+        try:
+            value = _exact_mapping(
+                value,
+                {"classification_decision", "classification_reason", "findings"},
+                "Documentation Reviewer output",
+            )
+            decision = _safe_text(
+                value["classification_decision"], maximum=40, required=True
+            ).lower()
+            if decision not in {
+                "confirm_required",
+                "challenge_not_required",
+                "challenge_required",
+            }:
+                raise ValueError(
+                    "Documentation Reviewer classification decision is invalid."
+                )
+            findings_value = value["findings"]
+            if (
+                not isinstance(findings_value, list)
+                or len(findings_value) > self._max_findings()
+            ):
+                raise ValueError(
+                    "Documentation Reviewer findings exceeded the configured bound."
+                )
+            findings: list[DocumentationFinding] = []
+            for item in findings_value:
+                normalized_item = item
+                if isinstance(item, dict) and "confidence" in item:
+                    normalized = self._normalize_provider_confidence(
+                        item["confidence"]
+                    )
+                    normalization_attempted = (
+                        normalization_attempted or normalized.attempted
+                    )
+                    normalization_applied = (
+                        normalization_applied or normalized.applied
+                    )
+                    confidence_shapes.add(normalized.shape)
+                    normalized_item = {**item, "confidence": normalized.value}
+                findings.append(DocumentationFinding.from_value(normalized_item))
+            return _ModelReview(
+                decision,
+                _safe_text(
+                    value["classification_reason"], maximum=1_000, required=True
+                ),
+                tuple(findings),
+                normalization_attempted,
+                normalization_applied,
+                tuple(sorted(confidence_shapes)),
+            )
+        except _DocumentationResponseValidationError as exc:
+            raise _DocumentationResponseValidationError(
+                str(exc),
+                normalization_attempted=(
+                    normalization_attempted or exc.normalization_attempted
+                ),
+                normalization_applied=(
+                    normalization_applied or exc.normalization_applied
+                ),
+                confidence_shapes=tuple(sorted(
+                    confidence_shapes.union(exc.confidence_shapes)
+                )),
+                repairable=exc.repairable,
+            ) from exc
+        except (TypeError, ValueError) as exc:
+            raise _DocumentationResponseValidationError(
+                str(exc),
+                normalization_attempted=normalization_attempted,
+                normalization_applied=normalization_applied,
+                confidence_shapes=tuple(sorted(confidence_shapes)),
+            ) from exc
+
+    @staticmethod
+    def _normalize_provider_confidence(value: Any) -> _NormalizedConfidence:
+        if isinstance(value, bool):
+            raise _DocumentationResponseValidationError(
+                "Documentation finding confidence must be numeric.",
+                confidence_shapes=("boolean",),
+            )
+        if isinstance(value, (int, float)):
+            confidence = float(value)
+            if not math.isfinite(confidence):
+                raise _DocumentationResponseValidationError(
+                    "Documentation finding confidence must be finite.",
+                    confidence_shapes=("non_finite_number",),
+                )
+            if not 0 <= confidence <= 1:
+                raise _DocumentationResponseValidationError(
+                    "Documentation finding confidence must be between zero and one.",
+                    confidence_shapes=("out_of_range_number",),
+                )
+            return _NormalizedConfidence(
+                confidence,
+                False,
+                False,
+                "number",
+            )
+        if not isinstance(value, str):
+            raise _DocumentationResponseValidationError(
+                "Documentation finding confidence must be numeric.",
+                confidence_shapes=("non_numeric_json",),
+            )
+
+        text = value.strip()
+        lowered = text.casefold()
+        if lowered in {"low", "medium", "high"}:
+            shape = "label"
+        elif text.endswith("%"):
+            shape = "percentage"
+        else:
+            shape = "numeric_string" if CONFIDENCE_NUMBER_PATTERN.fullmatch(text) else "string"
+
+        numeric_text = text[:-1].strip() if shape == "percentage" else text
+        if not numeric_text or not CONFIDENCE_NUMBER_PATTERN.fullmatch(numeric_text):
+            raise _DocumentationResponseValidationError(
+                "Documentation finding confidence must be a numeric value or percentage.",
+                normalization_attempted=True,
+                confidence_shapes=(shape,),
+            )
+        confidence = float(numeric_text)
+        if shape == "percentage":
+            confidence /= 100.0
+        if not math.isfinite(confidence):
+            raise _DocumentationResponseValidationError(
+                "Documentation finding confidence must be finite.",
+                normalization_attempted=True,
+                confidence_shapes=(shape,),
+            )
+        if not 0 <= confidence <= 1:
+            raise _DocumentationResponseValidationError(
+                "Documentation finding confidence must be between zero and one.",
+                normalization_attempted=True,
+                confidence_shapes=(shape,),
+            )
+        return _NormalizedConfidence(confidence, True, True, shape)
+
+    @staticmethod
+    def _provider_failure_category(exc: BaseException) -> str:
+        if isinstance(exc, _DocumentationResponseValidationError):
+            return "response_validation"
+        name = type(exc).__name__.casefold()
+        detail = str(exc).casefold()
+        if isinstance(exc, TimeoutError) or "timeout" in name:
+            return "timeout"
+        if (
+            "billing" in detail
+            or "prepaid" in detail
+            or "credit" in detail
+            or "payment" in detail
+            or "insufficient_quota" in detail
+        ):
+            return "billing"
+        if isinstance(exc, ConnectionError) or "connection" in name:
+            return "connection"
+        if isinstance(exc, (KeyError, ValueError)):
+            return "provider_configuration"
+        if isinstance(exc, OSError):
+            return "transport"
+        return "provider_error"
+
+    @staticmethod
+    def _provider_failure_detail(exc: BaseException, category: str) -> str:
+        if category == "timeout":
+            return "Provider request timed out."
+        if category == "billing":
+            return "Provider reported billing or quota exhaustion."
+        if category == "connection":
+            return "Provider connection failed."
+        if category == "transport":
+            return "Provider transport failed."
+        return _safe_exception_detail(exc)
+
+    @staticmethod
+    def _provider_diagnostic(
+        candidate: ResolvedTeamRole,
+        *,
+        outcome: str,
+        failure_category: str,
+        detail: str,
+        normalization_attempted: bool,
+        normalization_applied: bool,
+        confidence_shapes: tuple[str, ...],
+        repair_attempted: bool,
+        repair_succeeded: bool,
+        fallback_occurred: bool,
+    ) -> str:
+        payload = {
+            "kind": "documentation_provider_attempt",
+            "provider": _safe_text(candidate.provider, maximum=50, required=True),
+            "model": _safe_text(candidate.model, maximum=200, required=True),
+            "outcome": outcome,
+            "failure_category": failure_category,
+            "normalization_attempted": normalization_attempted,
+            "normalization_applied": normalization_applied,
+            "confidence_shapes": list(confidence_shapes[:10]),
+            "repair_attempted": repair_attempted,
+            "repair_succeeded": repair_succeeded,
+            "fallback_occurred": fallback_occurred,
+        }
+        if detail:
+            payload["detail"] = _safe_text(detail, maximum=500, required=True)
+        return _safe_text(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")),
+            maximum=1_000,
+            required=True,
         )
 
     def _attempt(

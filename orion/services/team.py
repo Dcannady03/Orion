@@ -480,6 +480,9 @@ class TeamTaskStore:
             raise ValueError(f"AI Team task identity does not match its filename: {task_id}")
         return task
 
+    def exists(self, task_id: str) -> bool:
+        return self._path(task_id).is_file()
+
     def recent(self, limit: int = 10) -> list[TeamTask]:
         if limit <= 0:
             return []
@@ -550,6 +553,7 @@ risks (array of concise risks), next_action (string)."""
         selected_agents: list[str] | tuple[str, ...] | None = None,
         provider: str = "auto",
         model: str = "auto",
+        task_id: str | None = None,
     ) -> TeamTask:
         if not bool(self.config.get("team.enabled", True)):
             raise ValueError("AI Team is disabled in configuration.")
@@ -564,6 +568,7 @@ risks (array of concise risks), next_action (string)."""
                 selected_agents,
                 provider=provider,
                 model=model,
+                task_id=task_id,
             )
 
         # Validate both active planning assignments before task persistence or a
@@ -577,7 +582,7 @@ risks (array of concise risks), next_action (string)."""
 
         timestamp = self._timestamp()
         task = TeamTask(
-            task_id=self._id_factory(),
+            task_id=self._resolved_task_id(task_id),
             goal=normalized,
             status=TEAM_STATUS_PLANNING,
             role_assignments=assignment_snapshots,
@@ -667,6 +672,7 @@ risks (array of concise risks), next_action (string)."""
         *,
         provider: str,
         model: str,
+        task_id: str | None,
     ) -> TeamTask:
         if self.agents is None or not hasattr(self.agents, "resolution_candidates"):
             raise ValueError("The production Agent System is not available.")
@@ -707,7 +713,7 @@ risks (array of concise risks), next_action (string)."""
         ]
         timestamp = self._timestamp()
         task = TeamTask(
-            task_id=self._id_factory(),
+            task_id=self._resolved_task_id(task_id),
             goal=goal,
             status=TEAM_STATUS_PLANNING,
             role_assignments=[],
@@ -808,6 +814,26 @@ risks (array of concise risks), next_action (string)."""
 
     def roles(self) -> tuple[ResolvedTeamRole, ...]:
         return self.role_registry.roles()
+
+    def reserve_task_id(self) -> str:
+        """Return an unused task ID without persisting a Team record."""
+        for _attempt in range(10):
+            task_id = str(self._id_factory()).strip()
+            if not TASK_ID_PATTERN.fullmatch(task_id):
+                raise ValueError("AI Team task ID factory returned an invalid ID.")
+            if not self.store.exists(task_id):
+                return task_id
+        raise RuntimeError("AI Team could not reserve a unique task ID.")
+
+    def _resolved_task_id(self, requested: str | None) -> str:
+        if requested is None:
+            return self.reserve_task_id()
+        task_id = str(requested).strip()
+        if not TASK_ID_PATTERN.fullmatch(task_id):
+            raise ValueError("Invalid AI Team task ID.")
+        if self.store.exists(task_id):
+            raise FileExistsError(f"AI Team task already exists: {task_id}")
+        return task_id
 
     def _run_role(
         self,

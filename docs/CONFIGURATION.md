@@ -8,6 +8,8 @@ compatibility.
 
 Do not put API keys, OAuth tokens, or service secrets in either configuration file.
 Orion Vault and the external token stores remain the only credential locations.
+See `RUNTIME_DATA.md` for the complete boundary between repository source, global
+user state, workspace-generated artifacts, and sanitized test fixtures.
 
 ## Image Center
 

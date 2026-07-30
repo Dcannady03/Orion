@@ -1,5 +1,26 @@
 # Unreleased — Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
 
+- Added a provider-neutral internal application layer with immutable JSON-safe
+  `ApplicationResult` values and a deterministic capability registry. The initial
+  catalog covers the Command Center job family and a representative set of existing
+  agent, team, workspace, image, email, calendar, and application operations.
+- Moved Command Center request parsing and service coordination into
+  `orion/application/commands/`; retained `orion/command_center/cli.py` as a small
+  backward-compatible renderer adapter for both `cc` and `command-center`.
+- Added a dependency-free CLI result renderer with consistent messages, warnings,
+  errors, structured details, and next actions.
+- Replaced dotted `tests.*` validation imports with allowlisted path-based unittest
+  discovery. This avoids collisions with unrelated installed `tests` packages on
+  Linux and strengthens the child runner to reject discovery outside workspace tests.
+- Normalized Windows, POSIX, and UNC path checks before validation access, with
+  regression coverage for absolute paths and symlink traversal while retaining vault,
+  network, Git, nested-process, and read-only workspace protections.
+- Stopped tracking repository-local Orion runtime records, IDE state, and the legacy
+  personal profile while preserving local copies. Expanded ignore rules and added a
+  sanitized `tests/fixtures/` boundary.
+- Documented the application core, runtime-data separation, validation finding, and
+  remaining work before any REST, GUI, voice, mobile, or always-on server interface.
+
 - Added the Orion v1.0 Command Center application layer with one default personal
   organization, departments, multi-department agent membership, high-level jobs,
   validated lifecycle transitions, progress, approval state, and safe summaries.
@@ -19,6 +40,19 @@
 - Added a provider- and engine-neutral job lifecycle adapter for existing AI Team and
   future runners. It cannot execute jobs, grant permissions, create approvals, or
   bypass the existing workspace and immutable approval services.
+- Added explicit `cc job launch`, including a strictly read-only `--dry-run`, durable
+  versioned Command Center-to-Team links, validated workflow/role resolution, and
+  provider-catalog-free route previews.
+- Added idempotent `cc job sync` and runtime lifecycle hooks for planning,
+  architecture, immutable approval, implementation, automatic validation,
+  documentation review, Awaiting Review, completion, denial, failure, and rollback.
+- Added safe linked-job cancellation rules, human final-completion control,
+  workflow-aware list/show/status/snapshot output, lifecycle activity events, and
+  read-only integration diagnostics for stale or broken references.
+- Fixed task-scoped run synchronization so unrelated legacy or malformed historical
+  runs cannot abort a planning-only Command Center job. Matching unresolved run
+  references now produce one provider-neutral warning and are superseded safely when
+  a valid implementation run appears.
 - Added architecture, README, roadmap, User Guide, help, completion, storage,
   lifecycle, snapshot, CLI, doctor, integration, and regression coverage.
 
@@ -40,8 +74,7 @@
   eligibility only and cannot bypass approvals or run tools during planning.
 - Added Agent System architecture, schema, storage, command, workflow, routing,
   permissions, safety, troubleshooting, compatibility, CLI, persistence, prompt, and
-  manifest coverage. The complete suite now passes 473 tests with two
-  platform-dependent Windows symlink tests skipped.
+  manifest coverage.
 
 - Added one provider-neutral Image Center service and registry, independently
   selectable from Orion's text AI provider, with an initial OpenAI GPT Image adapter.

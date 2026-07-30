@@ -292,6 +292,7 @@ class AgentManager:
         goal: str,
         provider: str = "auto",
         model: str = "auto",
+        _check_model_catalog: bool = True,
     ) -> tuple[AgentResolution, ...]:
         job_provider = str(provider or "auto").strip().lower()
         job_model = str(model or "auto").strip()
@@ -332,7 +333,11 @@ class AgentManager:
                 and (requested_provider == "auto" and index == 0 or provider_key == requested_provider)
                 else str(self.config.get(f"providers.{provider_key}.model", "")).strip()
             )
-            reason = self._unavailable_reason(provider_key, selected_model)
+            reason = self._unavailable_reason(
+                provider_key,
+                selected_model,
+                check_model_catalog=_check_model_catalog,
+            )
             if reason:
                 failures.append(reason)
                 continue
@@ -358,6 +363,23 @@ class AgentManager:
                 f"No provider/model is available for agent {agent.agent_id}: {detail}"
             )
         return tuple(results)
+
+    def preview_resolution_candidates(
+        self,
+        agent: ManagedAgentDefinition,
+        *,
+        goal: str,
+        provider: str = "auto",
+        model: str = "auto",
+    ) -> tuple[AgentResolution, ...]:
+        """Resolve configured routes without constructing or calling providers."""
+        return self.resolution_candidates(
+            agent,
+            goal=goal,
+            provider=provider,
+            model=model,
+            _check_model_catalog=False,
+        )
 
     def test(self, identifier: str) -> AgentTestResult:
         agent = self.load(identifier)
@@ -474,7 +496,13 @@ class AgentManager:
             return bool(getattr(self.routing, "enabled", True))
         return bool(self.config.get("ai.routing.enabled", True))
 
-    def _unavailable_reason(self, provider: str, model: str) -> str:
+    def _unavailable_reason(
+        self,
+        provider: str,
+        model: str,
+        *,
+        check_model_catalog: bool = True,
+    ) -> str:
         if not provider:
             return "provider is empty"
         if not model:
@@ -491,6 +519,8 @@ class AgentManager:
             return f"provider is disabled: {provider}"
         if not status.configured:
             return f"provider is not configured: {provider}"
+        if not check_model_catalog:
+            return ""
         try:
             models = tuple(str(item).casefold() for item in self.provider_manager.models(provider))
         except Exception as exc:

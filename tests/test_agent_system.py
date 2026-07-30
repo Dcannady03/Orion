@@ -182,6 +182,27 @@ class AgentSystemTests(unittest.TestCase):
             self.assertIn("role", value)
             self.assertIn("execution", value)
 
+    def test_preview_resolution_does_not_call_provider_model_catalog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            providers = FakeProviderManager()
+            manager = self.manager(
+                tmp,
+                provider_manager=providers,
+                routing=FakeRouting(),
+            )
+            selected = self.create(manager)
+            with patch.object(
+                providers,
+                "models",
+                side_effect=AssertionError("provider model catalog was called"),
+            ):
+                routes = manager.preview_resolution_candidates(
+                    selected,
+                    goal="Preview a Command Center launch",
+                )
+            self.assertTrue(routes)
+            self.assertEqual(routes[0].provider, "openai")
+
     def test_workspace_agents_are_isolated_and_work_without_git(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
