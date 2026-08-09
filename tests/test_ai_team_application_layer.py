@@ -10,7 +10,10 @@ from orion.application.capabilities import (
     CapabilityRegistry,
     default_capability_registry,
 )
-from orion.application.commands.ai_team_cli import AiTeamCliAdapter
+from orion.application.commands.ai_team_cli import (
+    AiTeamCliAdapter,
+    dispatch_ai_team,
+)
 from orion.application.commands.ai_team_commands import (
     AiTeamApplicationHandler,
     TeamApprovalRequest,
@@ -22,8 +25,10 @@ from orion.application.commands.ai_team_commands import (
     team_run_lifecycle_data,
     team_run_next_actions,
     team_run_stage,
+    team_task_interface_actions,
     team_task_next_actions,
 )
+from orion.application.interface_actions import cli_command_for_action
 from orion.application.results import ApplicationResult
 from orion.core.router import CommandRouter
 from orion.services.team import TeamTask
@@ -254,7 +259,14 @@ class AiTeamHandlerTests(unittest.TestCase):
         self.assertEqual(result.data["status"], "awaiting_approval")
         self.assertEqual(result.data["stage"], "awaiting_approval")
         self.assertTrue(result.data["approval_required"])
-        self.assertIn("team.approve team-application-001", result.next_actions)
+        self.assertIn("team approve team-application-001", result.next_actions)
+        self.assertIn("team status team-application-001", result.next_actions)
+        self.assertNotIn("team.approve", " ".join(result.next_actions))
+        self.assertNotIn("team.show", " ".join(result.next_actions))
+        self.assertEqual(
+            [item["capability_id"] for item in result.data["interface_actions"]],
+            ["team.approve", "team.show"],
+        )
         json.loads(result.to_json())
         self.assertEqual(team.plan_calls, [("Prepare Orion for release", {})])
 
@@ -390,15 +402,20 @@ class AiTeamLifecycleTests(unittest.TestCase):
     def test_task_next_actions_follow_persisted_status(self):
         self.assertEqual(
             team_task_next_actions(make_task("planning")),
-            ("team.show team-application-001",),
+            ("team status team-application-001",),
         )
         self.assertEqual(
             team_task_next_actions(make_task("awaiting_approval"))[0],
-            "team.approve team-application-001",
+            "team approve team-application-001",
         )
         self.assertNotIn(
-            "team.implement",
+            "team implement",
             " ".join(team_task_next_actions(make_task("failed"))),
+        )
+        semantic = team_task_interface_actions(make_task("awaiting_approval"))
+        self.assertEqual(
+            tuple(action.capability_id for action in semantic),
+            ("team.approve", "team.show"),
         )
 
     def test_run_stage_and_next_actions_cover_review_transitions(self):
@@ -424,16 +441,122 @@ class AiTeamLifecycleTests(unittest.TestCase):
         rolled_back = cases[-1][0]
         self.assertEqual(
             team_run_next_actions(rolled_back),
-            ("team.show run-application-001",),
+            ("team run run-application-001",),
         )
         failed = make_run("failed", changes=SimpleNamespace())
         self.assertIn(
-            "team.rollback run-application-001",
+            "team rollback run-application-001",
             team_run_next_actions(failed),
         )
 
+    def test_review_next_actions_are_supported_cli_commands(self):
+        actions = team_run_next_actions(make_run())
+        self.assertEqual(actions, (
+            "team run run-application-001",
+            "team test run-application-001",
+            "team docs run-application-001",
+            "team rollback run-application-001",
+        ))
+        self.assertFalse(any("team." in action for action in actions))
+
+    def test_capability_to_cli_mapping_is_explicit_and_context_aware(self):
+        cases = (
+            ("team.list", {}, "team"),
+            ("team.show", {"team_task_id": "team-example"}, "team status team-example"),
+            ("team.show", {"run_id": "run-example"}, "team run run-example"),
+            ("team.plan", {}, 'team plan "<goal>"'),
+            ("team.approve", {"team_task_id": "team-example"}, "team approve team-example"),
+            (
+                "team.implement",
+                {"team_task_id": "team-example", "approval_id": "approval-example"},
+                "team implement team-example approval-example",
+            ),
+            ("team.validate", {"run_id": "run-example"}, "team test run-example"),
+            (
+                "team.documentation_review",
+                {"run_id": "run-example"},
+                "team docs run-example",
+            ),
+            ("team.rollback", {"run_id": "run-example"}, "team rollback run-example"),
+            ("team.sync", {"team_task_id": "team-example"}, None),
+        )
+        for capability_id, context, expected in cases:
+            with self.subTest(capability_id=capability_id, context=context):
+                self.assertEqual(
+                    cli_command_for_action(capability_id, context),
+                    expected,
+                )
+
+    def test_final_plan_display_normalizes_generated_numbering_only(self):
+        task = make_task()
+        task.final_plan = [
+            "1. Audit current code",
+            "2) Implement cleanup",
+            "3 - Run tests",
+            "Step 4: Document boundary",
+            "",
+        ]
+        numbered = AiTeamApplicationHandler(
+            SimpleNamespace(team=FakeTeam(task))
+        ).show_task(TeamTaskRequest(task.task_id)).message
+        self.assertIn("  1. Audit current code", numbered)
+        self.assertIn("  2. Implement cleanup", numbered)
+        self.assertIn("  3. Run tests", numbered)
+        self.assertIn("  4. Document boundary", numbered)
+        self.assertIn("  5. (empty step)", numbered)
+        self.assertNotIn("1. 1.", numbered)
+        self.assertNotIn("2. 2)", numbered)
+
+        task.final_plan = ["Audit current code", "Run tests"]
+        unnumbered = AiTeamApplicationHandler(
+            SimpleNamespace(team=FakeTeam(task))
+        ).show_task(TeamTaskRequest(task.task_id)).message
+        self.assertIn("  1. Audit current code", unnumbered)
+        self.assertIn("  2. Run tests", unnumbered)
+
 
 class AiTeamBoundaryTests(unittest.TestCase):
+    def test_mapped_next_actions_are_recognized_by_the_team_cli_parser(self):
+        application = Mock()
+        ok = ApplicationResult.success("recognized")
+        for name in (
+            "list",
+            "plan",
+            "show_task",
+            "approve",
+            "implement",
+            "show_run",
+            "validate",
+            "documentation_review",
+            "rollback_preview",
+        ):
+            getattr(application, name).return_value = ok
+        runtime = SimpleNamespace(team_application=application)
+        adapter = AiTeamCliAdapter(
+            runtime,
+            input_provider=lambda _prompt: "n",
+            output_provider=lambda _line: None,
+        )
+        commands = (
+            "team",
+            'team plan "goal"',
+            "team status team-example",
+            "team approve team-example",
+            "team implement team-example approval-example",
+            "team run run-example",
+            "team test run-example",
+            "team docs run-example",
+            "team rollback run-example",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                payload = command[len("team"):].strip()
+                result = adapter.handle(payload)
+                self.assertNotIn("not recognized", result.message.lower())
+
+        self.assertFalse(dispatch_ai_team(runtime, "team.show team-example"))
+        self.assertFalse(dispatch_ai_team(runtime, "team.approve team-example"))
+
     def test_cli_adapter_preserves_manual_plan_syntax_without_prompting(self):
         output = []
         adapter = AiTeamCliAdapter(

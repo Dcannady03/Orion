@@ -51,6 +51,28 @@ state.
 rejects live services, provider clients, paths, or other non-JSON objects so a future
 API cannot accidentally serialize internal process state.
 
+### Capability IDs and interface actions
+
+A capability ID is not CLI syntax. The application core keeps stable semantic IDs,
+while an explicit interface-action mapping supplies a label and an optional command
+that the current CLI actually accepts. For example:
+
+```text
+Capability ID:      team.show
+CLI representation: team status <task-id>
+```
+
+The mapping is explicit rather than derived by replacing dots with spaces because a
+Team run uses `team run <run-id>`, validation uses `team test <run-id>`, and some
+internal capabilities such as `team.sync` have no public CLI representation. Team
+results expose structured `interface_actions` in `data`; compatibility
+`next_actions` contain only valid CLI strings. The shared result renderer remains
+domain-neutral and prints those strings without interpreting capability IDs.
+
+Another interface could label or present the same capability differently (for
+example, a graphical interface could label `team.show` as “View Team”). This only
+documents the separation; no additional interface or API is implemented here.
+
 ## Capability registry
 
 `orion/application/capabilities.py` describes stable capability IDs, mutation and
@@ -125,6 +147,35 @@ A successful downstream result makes the proposal `consumed`; a downstream failu
 makes it terminal `failed`. An `accepted` record after interruption blocks replay.
 Goal Proposal acceptance does not create AI Team implementation approval. See
 `GOAL_PROPOSALS.md`.
+
+## Event observation boundary
+
+v0.8.4 adds a parallel observation path after authoritative application transitions:
+
+```text
+application or lifecycle handler
+  ├── ApplicationResult
+  └── explicit OrionEvent
+        -> Event Bus
+        -> external append-only Event Store
+        -> observation-only subscribers
+```
+
+`orion/application/events/` owns the immutable event model, allowlisted factory,
+synchronous bus, JSONL store, diagnostic subscriber, publishing helper, and read-only
+application handler. The Event Bus contains no application requests or domain
+services. Subscribers receive `EventDelivery` and their return values are ignored.
+
+With storage enabled, publication validates, persists, and `fsync`s before taking an
+ordered subscriber snapshot. Subscriber failures are isolated. An event-store failure
+does not roll back the already successful domain operation; the original
+`ApplicationResult` receives an observability warning instead.
+
+The only initial publishers are successful Goal Plan creation, Goal Proposal
+lifecycle transitions, and successful AI Team plan creation. Proposal acceptance
+passes correlation and causation through the typed `TeamPlanRequest` without
+changing approval semantics. `event_cli.py` exposes history only and has no arbitrary
+publish command. See `EVENT_BUS.md`.
 
 ## AI Team lifecycle results
 

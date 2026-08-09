@@ -88,13 +88,39 @@ validation, routing-policy planning fallbacks, role metadata in immutable artifa
 and a complete living user/documentation process. Gatekeeper's approval, workspace,
 execution, review, and rollback protections remain intact.
 
-**Active milestones:** Orion v0.8.2 Goal Engine, Orion v0.8.3 Goal Proposals, and Orion v1.0 Command Center
+**Active milestones:** Orion v0.8.2 Goal Engine, Orion v0.8.3 Goal Proposals,
+Orion v0.8.4 Event Bus, and Orion v1.0 Command Center
 (unreleased), following the completed-but-unreleased Automatic Validation,
 Documentation Review, and Image Center milestones. Goal Engine establishes
 deterministic outcome classification and registry-backed previews without execution.
+Event Bus adds immutable lifecycle observation and append-only history without
+reactions or workflow progression.
 Command Center establishes persistent organization, departments, jobs, explicit AI
 Team launch, durable workflow tracking, activity, snapshots, CLI, and diagnostics
 without claiming the deferred GUI or autonomous scheduler.
+
+## Unreleased — Orion v0.8.4 Event Bus
+
+- [x] Immutable, defensively copied, schema-versioned JSON event models
+- [x] Stable event IDs, UTC timestamps, severities, correlation, and causation
+- [x] Explicit public event type contracts for Goal, Proposal, and Team planning
+- [x] Synchronous persist-before-deliver Event Bus with ordered subscriber snapshots
+- [x] Duplicate subscription rejection, failure isolation, and recursion prevention
+- [x] External append-only daily JSONL Event Store under `~/.orion/events/`
+- [x] Cross-process append locks, `fsync`, permissions, symlink and size guards
+- [x] Safe partial-final-line recovery and malformed-record warnings
+- [x] Bounded newest-first history with type, correlation, subject, source, severity,
+      and time filters
+- [x] Observation-only replay preserving original identity without repersistence
+- [x] Diagnostic logger and bounded in-memory observer
+- [x] Goal Plan, Goal Proposal lifecycle, and successful Team Plan integration
+- [x] Read-only `events` CLI and structured Event application handler
+- [x] Event failures preserve domain results and surface observability warnings
+- [x] No arbitrary publishing, reactions, workers, workflow advancement, or Mission
+      Engine
+- [ ] Explicit maintenance command or reviewed retention policy
+- [ ] Additional domain events after separate boundary reviews
+- [ ] Orion v0.8.5 Mission Engine Phase 1 with observation only
 
 ## Unreleased — Orion v0.8.3 Goal Proposals
 
@@ -114,7 +140,7 @@ without claiming the deferred GUI or autonomous scheduler.
 - [x] Create, show, list, validate, accept, and reject CLI with Y/N/D confirmation
 - [x] Explicit supersession preserves both versions and blocks the old proposal
 - [x] No automatic continuation, retries, Mission Engine, worker, REST, GUI, or voice
-- [ ] Cross-process transactional storage or database migration
+- [x] Cross-process transition locks with fail-closed stale-lock handling
 - [ ] Additional typed translations after separate safety reviews
 - [ ] Mission Engine only after proposal acceptance and recovery are stable
 

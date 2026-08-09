@@ -20,9 +20,9 @@ Awaiting Review, and rollback boundaries remain unchanged.
 
 ## Current development branch
 
-The development branch contains unreleased Goal Engine and Goal Proposals, Command
-Center, Agent System, Image Center, Automatic Validation, Documentation Review, and
-application-core stabilization work.
+The development branch contains the unreleased Goal Engine, Goal Proposals, Event
+Bus, Command Center, Agent System, Image Center, Automatic Validation, Documentation
+Review, and application-core stabilization work.
 These capabilities are tested development features; they are not part of the v0.7.0
 stable release.
 
@@ -67,6 +67,13 @@ Y/N/D acceptance is single-use and may dispatch only the first allowlisted opera
 The initial allowlist translates `team.plan` into the existing `TeamPlanRequest` and
 stops; Team implementation still requires its separate immutable approval. See
 [Goal Proposals](docs/GOAL_PROPOSALS.md).
+
+The unreleased v0.8.4 Event Bus adds immutable typed events, synchronous
+persist-before-deliver subscribers, external append-only daily JSONL history,
+bounded filtering and replay, and a read-only `events` CLI. Initial events cover Goal
+Plans, Goal Proposal lifecycle transitions, and successful AI Team plan creation.
+Subscribers observe facts only and cannot advance workflows. See
+[Event Bus](docs/EVENT_BUS.md).
 
 ### Experimental and planned interfaces
 
@@ -140,6 +147,13 @@ goal proposal list           List persisted proposal history
 goal proposal validate <id>  Validate integrity and current context
 goal proposal accept <id>    Confirm and dispatch at most one operation
 goal proposal reject <id>    Permanently reject a pending proposal
+events status                Show observation-only Event Bus status
+events list                  Read bounded newest-first event history
+events show <event-id>       Inspect one immutable event
+events correlation <id>      Read one correlated activity
+events subject <id>          Read events for one subject
+events types                 List stable event type contracts
+events subscribers           List registered observer names
 cc status                    Show the personal AI organization
 cc snapshot                  Emit the versioned JSON snapshot contract
 cc departments               List organization departments
@@ -222,7 +236,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 - `orion/command_center` - organization, jobs, activity, snapshot, storage, and CLI
 
 - `orion/core` — runtime, configuration, profile, and routing
-- `orion/application` — structured results, Goal Engine, capability metadata, and application commands
+- `orion/application` — structured results, Goal Engine, Event Bus, capability metadata, and application commands
 - `orion/interfaces` — CLI rendering and other interface adapters
 - `orion/intelligence` — Brain, identity, intents, and AI providers
 - `orion/agents` — strict external agent definitions and registry
@@ -254,11 +268,11 @@ source, user data, workspace-generated state, and sanitized test fixtures.
 ## Roadmap
 
 The active development work combines the **v0.8.2 Goal Engine**, **v0.8.3 Goal
-Proposals**, and **Orion v1.0 Command Center** with incremental application-core
-stabilization: deterministic planning, an explicit single-operation trust bridge,
-and a persistent organization/job-control workflow over the existing Agent System,
-AI Team, routing, workspace, immutable approval, validation, documentation, and
-execution services.
+Proposals**, **v0.8.4 Event Bus**, and **Orion v1.0 Command Center** with incremental
+application-core stabilization: deterministic planning, an explicit single-operation
+trust bridge, observation-only lifecycle facts, and a persistent organization/job
+control workflow over the existing Agent System, AI Team, routing, workspace,
+immutable approval, validation, documentation, and execution services.
 See `docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish

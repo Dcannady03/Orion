@@ -20,6 +20,14 @@ from orion.core.profile import ProfileManager
 from orion.core.router import CommandRouter
 from orion.application.commands.ai_team_commands import AiTeamApplicationHandler
 from orion.application.capabilities import default_capability_registry
+from orion.application.events import (
+    DiagnosticEventLogger,
+    EventApplicationHandler,
+    EventBus,
+    EventFactory,
+    EventPublisher,
+    EventStore,
+)
 from orion.application.goals import (
     GoalApplicationHandler,
     GoalEngine,
@@ -112,6 +120,64 @@ class Orion:
 
         # Shared service registry
         self.services = ServiceRegistry()
+        events_enabled = bool(self.config_manager.get("events.enabled", True))
+        store_enabled = bool(self.config_manager.get(
+            "events.store_enabled",
+            True,
+        ))
+        max_event_bytes = int(self.config_manager.get(
+            "events.max_event_bytes",
+            65_536,
+        ))
+        self.event_factory = self.services.register(
+            "event_factory",
+            EventFactory(max_event_bytes=max_event_bytes),
+        )
+        self.event_store = (
+            self.services.register(
+                "event_store",
+                EventStore(
+                    self.paths.events,
+                    forbidden_root=self.paths.install_root,
+                    max_event_bytes=max_event_bytes,
+                    history_default_limit=int(self.config_manager.get(
+                        "events.history_default_limit",
+                        100,
+                    )),
+                    history_max_limit=int(self.config_manager.get(
+                        "events.history_max_limit",
+                        1_000,
+                    )),
+                ),
+            )
+            if store_enabled
+            else None
+        )
+        self.event_bus = self.services.register(
+            "event_bus",
+            EventBus(self.event_store),
+        )
+        if bool(self.config_manager.get("events.diagnostic_logging", True)):
+            self.event_bus.subscribe(
+                DiagnosticEventLogger(),
+                name="diagnostic_logger",
+            )
+        self.event_publisher = self.services.register(
+            "event_publisher",
+            EventPublisher(
+                self.event_factory,
+                self.event_bus,
+                enabled=events_enabled,
+            ),
+        )
+        self.event_application = self.services.register(
+            "event_application",
+            EventApplicationHandler(
+                self.event_bus,
+                self.event_store,
+                enabled=events_enabled,
+            ),
+        )
 
         # Phase 2 services and skills
         workspace_root = self.config_manager.get("workspace.default_path", ".")
@@ -440,7 +506,10 @@ class Orion:
         )
         self.goal_application = self.services.register(
             "goal_application",
-            GoalApplicationHandler(self.goal_engine),
+            GoalApplicationHandler(
+                self.goal_engine,
+                event_publisher=self.event_publisher,
+            ),
         )
         self.goal_proposal_repository = self.services.register(
             "goal_proposal_repository",
@@ -471,6 +540,7 @@ class Orion:
                     "goals.proposals.max_expiry_hours",
                     168,
                 )),
+                event_publisher=self.event_publisher,
             ),
         )
         self.goal_proposal_application = self.services.register(
@@ -478,6 +548,7 @@ class Orion:
             GoalProposalApplicationHandler(
                 self.goal_engine,
                 self.goal_proposals,
+                event_publisher=self.event_publisher,
             ),
         )
 

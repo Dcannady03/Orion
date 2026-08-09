@@ -145,6 +145,13 @@ goals:
   proposals:
     default_expiry_hours: 24
     max_expiry_hours: 168
+events:
+  enabled: true
+  store_enabled: true
+  max_event_bytes: 65536
+  history_default_limit: 100
+  history_max_limit: 1000
+  diagnostic_logging: true
 codex_bridge:
   enabled: true
   timeout_seconds: 1800

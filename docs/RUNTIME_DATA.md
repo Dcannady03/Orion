@@ -18,7 +18,8 @@ User-owned application state belongs under:
 
 This includes configuration overrides, profiles, Vault data, OAuth caches, permanent
 agents, Command Center records, Team tasks, Codex artifacts, image artifacts, caches,
-logs, Goal Proposals, and approval artifacts. `ORION_USER_DATA` may explicitly override this root. A
+logs, Goal Proposals, Event Bus history, and approval artifacts.
+`ORION_USER_DATA` may explicitly override this root. A
 repository-local `.orion/` directory is never used as the global user-data root.
 
 Goal Proposal records use:
@@ -33,6 +34,19 @@ safe dispatch summaries. They contain no Vault values, provider credentials, raw
 Python objects, stack traces, or workspace file content. Proposal records use atomic
 replacement and owner-only permissions where supported. Rejected, expired, invalid,
 superseded, consumed, and failed records remain as audit history.
+
+Event Bus records use:
+
+```text
+~/.orion/events/YYYY-MM-DD.jsonl
+```
+
+Each valid line is one canonical, bounded, schema-versioned event. Appends use a
+per-day cross-process lock, a single append, flush, `fsync`, owner-only permissions
+where supported, and symlink guards. A malformed crash-truncated final line is
+reported and ignored; the next append separates it before writing another valid
+event. Event data contains selected IDs and lifecycle summaries, never Vault values,
+raw provider prompts, environment dumps, stack traces, or arbitrary file content.
 
 ## Workspace-generated state
 

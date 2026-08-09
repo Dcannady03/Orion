@@ -1,7 +1,7 @@
 """Explicit allowlisted translation from proposal steps to typed requests."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from orion.application.commands.ai_team_commands import TeamPlanRequest
 from orion.application.goals.proposals.models import GoalProposalStep
@@ -31,7 +31,13 @@ class GoalProposalTranslator:
     def request_type(cls, capability_id: str) -> str:
         return cls.TEAM_PLAN_REQUEST if cls.supports(capability_id) else ""
 
-    def translate(self, step: GoalProposalStep) -> GoalProposalTranslation:
+    def translate(
+        self,
+        step: GoalProposalStep,
+        *,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> GoalProposalTranslation:
         if not isinstance(step, GoalProposalStep):
             raise TypeError("Goal Proposal translation requires a proposal step.")
         if step.capability_id != self.TEAM_PLAN:
@@ -53,11 +59,34 @@ class GoalProposalTranslator:
             raise GoalProposalTranslationError(
                 "team.plan proposal requires a resolved goal."
             )
-        request = TeamPlanRequest(goal=" ".join(goal.split()))
+        request = TeamPlanRequest(
+            goal=" ".join(goal.split()),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
         return GoalProposalTranslation(
             capability_id=self.TEAM_PLAN,
             application_request_type=self.TEAM_PLAN_REQUEST,
             request=request,
+        )
+
+    def bind_causation(
+        self,
+        translation: GoalProposalTranslation,
+        event_id: str | None,
+    ) -> GoalProposalTranslation:
+        """Bind an observed cause only to the explicit team.plan request."""
+        if (
+            not isinstance(translation, GoalProposalTranslation)
+            or translation.capability_id != self.TEAM_PLAN
+            or not isinstance(translation.request, TeamPlanRequest)
+        ):
+            raise GoalProposalTranslationError(
+                "Only an allowlisted team.plan translation can bind causation."
+            )
+        return replace(
+            translation,
+            request=replace(translation.request, causation_id=event_id),
         )
 
     def dispatch(

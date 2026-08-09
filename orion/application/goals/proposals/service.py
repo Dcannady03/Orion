@@ -8,6 +8,11 @@ from typing import Callable, Mapping
 from uuid import uuid4
 
 from orion.application.capabilities import CapabilityRegistry
+from orion.application.events import (
+    EventPublication,
+    EventPublisher,
+    EventTypes,
+)
 from orion.application.goals.models import GoalPlan
 from orion.application.goals.proposals.integrity import (
     proposal_plan_hash,
@@ -39,6 +44,7 @@ class GoalProposalDispatch:
 
     proposal: GoalProposal
     application_result: ApplicationResult
+    event_publications: tuple[EventPublication, ...] = ()
 
 
 class GoalProposalError(ValueError):
@@ -66,6 +72,7 @@ class GoalProposalService:
         max_expiry_hours: int = 168,
         now: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
+        event_publisher: EventPublisher | None = None,
     ) -> None:
         if not isinstance(repository, GoalProposalRepository):
             raise TypeError("Goal Proposal service requires a repository.")
@@ -73,6 +80,11 @@ class GoalProposalService:
             raise TypeError("Goal Proposal service requires a CapabilityRegistry.")
         if not isinstance(translator, GoalProposalTranslator):
             raise TypeError("Goal Proposal service requires an allowlisted translator.")
+        if event_publisher is not None and not isinstance(
+            event_publisher,
+            EventPublisher,
+        ):
+            raise TypeError("Goal Proposal event publisher must be EventPublisher.")
         self.repository = repository
         self.capability_registry = capability_registry
         self.translator = translator
@@ -80,6 +92,7 @@ class GoalProposalService:
         self.workspace_manager = workspace_manager
         self.project_context = project_context
         self.command_center = command_center
+        self.event_publisher = event_publisher
         self.default_expiry_hours = self._expiry_hours(
             default_expiry_hours,
             maximum=max_expiry_hours,
@@ -429,7 +442,10 @@ class GoalProposalService:
         proposal = self.repository.get(proposal.proposal_id)
         current = proposal.current
         try:
-            translation = self.translator.translate(current)
+            translation = self.translator.translate(
+                current,
+                correlation_id=proposal.goal_id,
+            )
         except GoalProposalTranslationError as exc:
             raise GoalProposalError("translation_unsupported", str(exc)) from exc
 
@@ -456,6 +472,31 @@ class GoalProposalService:
                 "proposal_already_used",
                 "Goal Proposal acceptance is single-use and its state changed.",
             ) from exc
+
+        publications: list[EventPublication] = []
+        accepted_publication = EventPublication()
+        if self.event_publisher is not None:
+            accepted_publication = self.event_publisher.publish_lifecycle_event(
+                event_type=EventTypes.GOAL_PROPOSAL_ACCEPTED,
+                source="goal_proposals",
+                severity="notice",
+                correlation_id=proposal.goal_id,
+                subject_id=proposal.proposal_id,
+                data={
+                    "proposal_id": proposal.proposal_id,
+                    "goal_id": proposal.goal_id,
+                    "version": proposal.version,
+                    "status": GoalProposalStatus.ACCEPTED.value,
+                    "capability_id": current.capability_id,
+                    "requires_approval": current.requires_approval,
+                    "mutates_state": current.mutates_state,
+                },
+            )
+            publications.append(accepted_publication)
+        translation = self.translator.bind_causation(
+            translation,
+            accepted_publication.event_id or None,
+        )
 
         try:
             result = self.translator.dispatch(
@@ -522,7 +563,34 @@ class GoalProposalService:
                     "non-replayable and requires inspection."
                 ),
             ) from exc
-        return GoalProposalDispatch(terminal, result)
+        if self.event_publisher is not None:
+            terminal_publication = self.event_publisher.publish_lifecycle_event(
+                event_type=(
+                    EventTypes.GOAL_PROPOSAL_CONSUMED
+                    if terminal.status is GoalProposalStatus.CONSUMED
+                    else EventTypes.GOAL_PROPOSAL_FAILED
+                ),
+                source="goal_proposals",
+                severity=(
+                    "notice"
+                    if terminal.status is GoalProposalStatus.CONSUMED
+                    else "error"
+                ),
+                correlation_id=proposal.goal_id,
+                causation_id=accepted_publication.event_id or None,
+                subject_id=proposal.proposal_id,
+                data={
+                    "proposal_id": proposal.proposal_id,
+                    "goal_id": proposal.goal_id,
+                    "version": proposal.version,
+                    "status": terminal.status.value,
+                    "capability_id": current.capability_id,
+                    "downstream_status": result.status,
+                    "retry_eligible": False,
+                },
+            )
+            publications.append(terminal_publication)
+        return GoalProposalDispatch(terminal, result, tuple(publications))
 
     def reject(self, rejection: GoalProposalRejection) -> GoalProposal:
         if not isinstance(rejection, GoalProposalRejection):

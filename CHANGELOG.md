@@ -1,4 +1,27 @@
-# Unreleased — Goal Engine, Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
+# Unreleased — Event Bus, Goal Engine, Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
+
+- Separated stable capability IDs from human-facing CLI next actions. AI Team task,
+  approval, implementation, validation, documentation, rollback, and Goal Proposal
+  results now suggest only syntax accepted by the existing CLI while preserving
+  semantic action metadata. Final Plan rendering also removes duplicated generated
+  step markers, and provider routing output labels the requested assignment and
+  selected route separately without changing routing behavior.
+- Added Orion v0.8.4 Event Bus with frozen, defensively copied, schema-versioned
+  `OrionEvent` records, stable lowercase event types, UTC IDs/timestamps, severity,
+  correlation, causation, subject IDs, and strict bounded JSON payload validation.
+- Added synchronous persist-before-deliver subscription semantics, stable subscriber
+  identities, failure isolation, recursion prevention, deterministic delivery
+  snapshots, and bounded observation-only replay.
+- Added external append-only UTC daily JSONL storage under `~/.orion/events/` with
+  canonical UTF-8 lines, cross-process append locks, `fsync`, permissions, symlink
+  guards, partial-final-line recovery, malformed-record warnings, filtering, and
+  bounded newest-first history.
+- Added `goal.plan.created`, Goal Proposal lifecycle, and `team.plan.created`
+  publication at authoritative application transitions. Proposal-to-Team correlation
+  and causation propagate without weakening Team approval.
+- Added read-only `events status/list/show/correlation/subject/types/subscribers`
+  commands, diagnostic logging, structured results, configuration, focused safety
+  coverage, and no arbitrary event publishing or automatic reactions.
 
 - Added Orion v0.8.3 Goal Proposals as immutable, versioned, expiring review records
   stored in strict JSON under external `~/.orion/goals/proposals/`.

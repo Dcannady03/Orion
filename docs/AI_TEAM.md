@@ -76,6 +76,24 @@ to the proposal's later steps. Proposal `consumed` means the accepted planning
 operation returned successfully; it does not mean the goal or implementation is
 complete. See `GOAL_PROPOSALS.md`.
 
+## Event Bus relationship
+
+After a Team Plan has actually been created and persisted,
+`AiTeamApplicationHandler.plan` publishes `team.plan.created`. The event contains the
+Team task ID, persisted status, approval requirement, selected-agent count, and
+explicit correlation fields; it does not copy the goal prompt, provider secrets,
+artifacts, or workspace contents.
+
+When planning came from an accepted Goal Proposal, `goal_id` is preserved as
+correlation and the `goal.proposal.accepted` event ID is preserved as causation.
+Standalone Team planning uses the Team task ID as correlation. A planning failure
+emits no success event.
+
+The Event Bus observes the existing Team result only. It cannot approve the plan,
+invoke implementation, launch Codex, run validation or Documentation Review, retry,
+or progress the Team workflow. An Event Store failure leaves the Team task intact
+and adds a bounded observability warning. See `EVENT_BUS.md`.
+
 The handler accepts typed plan, task, approval, implementation, run, rollback, role,
 and synchronization requests. It returns JSON-safe semantic lifecycle data as well as
 the compatibility message shown in the terminal. A future local client can therefore
@@ -89,6 +107,26 @@ Stable registered lifecycle capabilities are `team.list`, `team.show`, `team.pla
 and rollback metadata identifies their human-approval boundary. Validation and
 documentation review may persist bounded audit attempts but receive read-only
 workspace permissions.
+
+Capability IDs remain application semantics and are not executable commands. Team
+results preserve them in structured `interface_actions` and render the following
+explicit CLI representations in `next_actions`:
+
+| Capability ID | Current CLI representation |
+| --- | --- |
+| `team.list` | `team` |
+| `team.show` (task) | `team status <task-id>` |
+| `team.show` (run) | `team run <run-id>` |
+| `team.plan` | `team plan "<goal>"` |
+| `team.approve` | `team approve <task-id>` |
+| `team.implement` | `team implement <task-id> <approval-id>` |
+| `team.validate` | `team test <run-id>` |
+| `team.documentation_review` | `team docs <run-id>` |
+| `team.rollback` | `team rollback <run-id>` |
+| `team.sync` | no public CLI representation |
+
+The mapping follows the existing Team CLI adapter and does not add commands, aliases,
+workflow transitions, or approval behavior.
 
 Team does not currently expose cancel, final-accept, or completion operations, so no
 aspirational capability IDs were added. `awaiting_review` with both bounded reviews

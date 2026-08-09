@@ -145,6 +145,19 @@ Planning commands accept optional `--workspace`, `--department`, `--priority`,
 
 None is an execution command.
 
+## Event observation
+
+A successful `goal plan` application command publishes `goal.plan.created` only
+after `GoalEngine` returns a complete valid plan. The event uses `goal_id` as both
+subject and correlation and includes classification, resolved context, capability
+count, approval prediction, and `planning_only: true`. It does not include the raw
+goal prompt, attachments, provider preferences, secrets, or domain objects.
+
+The event does not persist the Goal Plan itself and cannot invoke a capability. Other
+read-only Goal views do not claim that another plan was created. A planning failure
+emits no success event. If Event Bus persistence fails, the valid Goal result remains
+authoritative and carries a bounded observability warning. See `EVENT_BUS.md`.
+
 ## Safety boundary
 
 The Goal Engine must never:
@@ -174,8 +187,9 @@ background agents, LLM reasoning loops, and mission execution remain out of scop
 
 ## Recommended next milestone
 
-Goal Proposals now provide the versioned, expiring review and single-operation bridge.
-The next milestone may investigate a Mission Engine only after acceptance, failure,
-crash-recovery, and migration behavior is proven stable. A Mission must preserve
-separate capability and implementation approvals and must not reinterpret proposal
-acceptance as authorization for automatic multi-step execution.
+Goal Proposals now provide the versioned, expiring review and single-operation bridge,
+and Event Bus provides observation-only lifecycle facts. Orion v0.8.5 may investigate
+Mission Engine Phase 1 only after acceptance, failure, crash-recovery, event schema,
+and migration behavior is proven stable. A Mission must preserve separate capability
+and implementation approvals and must not reinterpret either proposal acceptance or
+an observed event as authorization for automatic multi-step execution.

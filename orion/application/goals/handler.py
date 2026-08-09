@@ -1,6 +1,7 @@
 """Application-layer boundary for deterministic Goal Engine operations."""
 from __future__ import annotations
 
+from orion.application.events import EventPublisher, EventTypes
 from orion.application.goals.engine import GoalEngine, GoalPlanningError
 from orion.application.goals.models import GoalRequest
 from orion.application.results import ApplicationResult
@@ -9,10 +10,21 @@ from orion.application.results import ApplicationResult
 class GoalApplicationHandler:
     """Return portable application results without executing proposed work."""
 
-    def __init__(self, engine: GoalEngine) -> None:
+    def __init__(
+        self,
+        engine: GoalEngine,
+        *,
+        event_publisher: EventPublisher | None = None,
+    ) -> None:
         if not isinstance(engine, GoalEngine):
             raise TypeError("Goal application handler requires a GoalEngine.")
+        if event_publisher is not None and not isinstance(
+            event_publisher,
+            EventPublisher,
+        ):
+            raise TypeError("Goal event publisher must be an EventPublisher.")
         self.engine = engine
+        self.event_publisher = event_publisher
 
     def plan(self, request: GoalRequest) -> ApplicationResult:
         return self._planned(request, view="plan")
@@ -106,12 +118,31 @@ class GoalApplicationHandler:
             ))
         else:
             message = self._plan_message(plan)
-        return ApplicationResult.success(
+        result = ApplicationResult.success(
             message,
             data=data,
             warnings=plan.warnings,
             next_actions=plan.next_actions,
         )
+        if view != "plan" or self.event_publisher is None:
+            return result
+        publication = self.event_publisher.publish_lifecycle_event(
+            event_type=EventTypes.GOAL_PLAN_CREATED,
+            source="goal_engine",
+            severity="info",
+            correlation_id=plan.goal_id,
+            subject_id=plan.goal_id,
+            data={
+                "goal_id": plan.goal_id,
+                "classification": plan.classification,
+                "workspace": plan.context.workspace,
+                "department_id": plan.context.department_id,
+                "capability_count": len(plan.capability_steps),
+                "approval_required": plan.approval_required,
+                "planning_only": True,
+            },
+        )
+        return self.event_publisher.attach(result, publication)
 
     @staticmethod
     def _plan_message(plan) -> str:

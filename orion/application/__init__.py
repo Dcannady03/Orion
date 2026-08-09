@@ -6,6 +6,14 @@ from orion.application.capabilities import (
     default_capability_registry,
 )
 from orion.application.results import ApplicationResult
+from orion.application.events import (
+    EventApplicationHandler,
+    EventBus,
+    EventFactory,
+    EventPublisher,
+    EventStore,
+    OrionEvent,
+)
 from orion.application.goals import (
     CapabilityStep,
     GoalApplicationHandler,
@@ -22,6 +30,12 @@ from orion.application.goals import (
 
 __all__ = [
     "ApplicationResult",
+    "EventApplicationHandler",
+    "EventBus",
+    "EventFactory",
+    "EventPublisher",
+    "EventStore",
+    "OrionEvent",
     "CapabilityDefinition",
     "CapabilityRegistry",
     "CapabilityStep",
