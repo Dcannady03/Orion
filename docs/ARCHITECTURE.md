@@ -19,8 +19,9 @@ service or provider objects. `CapabilityRegistry` publishes deterministic metada
 about a deliberately limited representative set of operations; definitions describe
 permissions, approval requirements, and schemas but never execute work.
 
-Command Center, AI Team, and the Goal Engine use this boundary. Command Center's application handler
-coordinates `CommandCenterService` and its Team integration. AI Team uses typed
+Command Center, AI Team, the Goal Engine, Event Bus, and Mission Engine use this
+boundary. Command Center's application handler coordinates `CommandCenterService`
+and its Team integration. AI Team uses typed
 requests in `orion/application/commands/ai_team_commands.py`; its separate CLI adapter
 owns legacy syntax and interactive prompts. Both return `ApplicationResult` and use
 `orion/interfaces/cli/renderer.py`, preventing lifecycle services from depending on
@@ -29,9 +30,10 @@ owns legacy syntax and interactive prompts. Both return `ApplicationResult` and 
 ```text
 CLI input
   -> core router
-  -> Goal, Event, Command Center, or AI Team CLI adapter
+  -> Goal, Event, Mission, Command Center, or AI Team CLI adapter
   -> application handler
-  -> Goal planner, read-only Event Store, or Command Center / Team / Codex services
+  -> Goal planner, read-only Event Store / Mission projection,
+     or Command Center / Team / Codex services
   -> ApplicationResult
   -> CLI renderer
 ```
@@ -41,6 +43,19 @@ uses its structured `TeamPlanRequest` rather than simulating a CLI command, then
 projects organization-facing state from authoritative Team records. Shared
 reconciliation is isolated in `orion/application/team_reconciliation.py`, avoiding
 handler recursion and circular imports.
+
+Mission Engine Phase 1 is a projection boundary, not another workflow engine:
+
+```text
+Goal -> Goal Proposal -> Mission
+                         ^
+                         |
+                 correlated Event Store facts
+```
+
+It persists restart-safe state under external user data and rebuilds it only on an
+explicit create or reconcile. It does not subscribe to events, publish reaction
+events, or call any mutation handler. See [Mission Engine](MISSION_ENGINE.md).
 
 Future GUI, REST, voice, Discord, mobile, or server clients must call application
 commands or domain services and consume structured results; they must not scrape CLI

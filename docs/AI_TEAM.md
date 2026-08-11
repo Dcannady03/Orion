@@ -37,6 +37,17 @@ implementation, the configured Tester runs deterministic validation. The configu
 Documentation Reviewer then assesses applicable documentation before Orion renders the
 final human-review state, regardless of whether validation passed, warned, or failed.
 
+## Mission observation boundary
+
+Mission Engine Phase 1 may observe the existing `team.plan.created` event and link its
+authoritative Team task ID. When that event explicitly reports an approval
+requirement, the Mission can recommend the mapped `team approve <task-id>` and
+read-only `team status <task-id>` commands. It never calls the Team application
+handler, creates or consumes an approval, starts implementation, or runs validation
+or Documentation Review. Current Team events do not expose run, implementation,
+validation, documentation, review, rollback, or completion facts to Missions, so
+those Mission stages remain unset. See [Mission Engine](MISSION_ENGINE.md).
+
 ## Application-core boundary
 
 All Team CLI commands now pass through a thin adapter and the reusable

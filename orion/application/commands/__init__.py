@@ -15,12 +15,14 @@ from orion.application.commands.command_center_commands import (
 )
 from orion.application.commands.goal_cli import GoalCliAdapter, dispatch_goal
 from orion.application.commands.event_cli import EventCliAdapter, dispatch_events
+from orion.application.commands.mission_cli import MissionCliAdapter, dispatch_mission
 
 __all__ = [
     "AiTeamApplicationHandler",
     "CommandCenterApplicationHandler",
     "EventCliAdapter",
     "GoalCliAdapter",
+    "MissionCliAdapter",
     "TeamApprovalRequest",
     "TeamImplementationRequest",
     "TeamPlanRequest",
@@ -29,5 +31,6 @@ __all__ = [
     "TeamTaskRequest",
     "dispatch_events",
     "dispatch_goal",
+    "dispatch_mission",
     "synchronize_command_center_team",
 ]

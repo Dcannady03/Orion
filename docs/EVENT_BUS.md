@@ -17,9 +17,11 @@ An event means that something happened. It is never permission to execute anothe
 operation. The bus has no capability registry, provider, approval, job, agent,
 workspace, execution-engine, Git, subprocess, or application-handler dependency.
 
-There are no asynchronous workers, automatic reactions, Mission Engine hooks,
-external streams, REST endpoints, WebSockets, Discord notifications, email
-notifications, or voice notifications in v0.8.4.
+There are no asynchronous workers, automatic reactions, external streams, REST
+endpoints, WebSockets, Discord notifications, email notifications, or voice
+notifications in v0.8.4. Mission Engine Phase 1 later reads persisted Event Store
+history through bounded queries; it is not a live subscriber and does not publish
+reaction events. See [Mission Engine](MISSION_ENGINE.md).
 
 ## Event model
 

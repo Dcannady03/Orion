@@ -24,6 +24,15 @@ No provider, application handler, agent, job, approval, or execution engine appe
 on the planning path. Existing application handlers remain the only future execution
 boundaries, after an explicit user decision.
 
+## Relationship to Missions
+
+The Goal Engine decides what should happen; it does not track what happened. A Goal
+Plan may become a reviewed Goal Proposal. After that proposal is explicitly accepted
+or consumed, the user may create one durable Mission for that exact proposal version.
+The Mission Engine copies safe Goal context and observes correlated Event Bus facts,
+but never asks the Goal Engine to re-plan and never automatically dispatches a plan.
+See [Mission Engine Phase 1](MISSION_ENGINE.md).
+
 ## Models
 
 All public models are frozen dataclasses and expose ordinary JSON-safe dictionaries.

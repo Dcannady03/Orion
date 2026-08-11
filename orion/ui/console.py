@@ -54,6 +54,8 @@ BASE_COMMANDS = (
     "events", "events status", "events list", "events show",
     "events correlation", "events subject", "events types",
     "events subscribers",
+    "mission", "mission create", "mission show", "mission list",
+    "mission history", "mission validate", "mission reconcile",
     "command-center", "command-center status", "command-center snapshot",
     "command-center departments", "command-center department show",
     "command-center department create", "command-center department add-agent",

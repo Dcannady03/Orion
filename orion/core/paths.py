@@ -69,6 +69,10 @@ class OrionPaths:
     def events(self) -> Path:
         return self.user_root / "events"
 
+    @property
+    def missions(self) -> Path:
+        return self.user_root / "missions"
+
     def ensure(self) -> None:
         for path in (
             self.user_root,

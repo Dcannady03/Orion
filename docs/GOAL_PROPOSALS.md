@@ -22,6 +22,15 @@ Proposal creation, showing, listing, and validation execute no capabilities. An
 acceptance can dispatch at most one operation and never continues to later plan
 steps.
 
+## Relationship to Missions
+
+A Proposal records the exact plan and the user's acceptance decision. A Mission is a
+separate observation-only projection of the lifecycle that follows. `mission create`
+accepts only an integrity-valid `accepted` or `consumed` Proposal, binds permanently
+to its ID and version, copies only safe context and existing downstream IDs, and does
+not dispatch any Proposal step. Repeated creation returns the same Mission identity.
+See [Mission Engine Phase 1](MISSION_ENGINE.md).
+
 ## Persistence
 
 Proposal records live outside the application repository:

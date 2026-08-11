@@ -22,6 +22,7 @@ from orion.application.commands.ai_team_cli import (
 )
 from orion.application.commands.goal_cli import dispatch_goal
 from orion.application.commands.event_cli import dispatch_events
+from orion.application.commands.mission_cli import dispatch_mission
 from orion.services.email import redact_email_text
 
 
@@ -266,6 +267,9 @@ class CommandRouter:
             pass
 
         elif dispatch_events(self.orion, raw_command):
+            pass
+
+        elif dispatch_mission(self.orion, raw_command):
             pass
 
         elif (
@@ -683,6 +687,14 @@ class CommandRouter:
         print("    events subject <id>        Filter events for one subject")
         print("    events types               List stable event type contracts")
         print("    events subscribers         List observer names without objects")
+        print()
+        print("  Mission Engine (observation only)")
+        print("    mission create <proposal-id> Persist one Mission projection")
+        print("    mission show <mission-id>    Load persisted Mission state")
+        print("    mission list                 List persisted Missions")
+        print("    mission history <mission-id> Read correlated Event Bus facts")
+        print("    mission validate <mission-id> Validate without repair")
+        print("    mission reconcile <mission-id> Rebuild Mission projection only")
         print()
         print("  Command Center")
         print("    cc status                  Show organization, jobs, and health")

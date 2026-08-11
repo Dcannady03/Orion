@@ -5,8 +5,8 @@
 **Project:** Orion — Personal AI Operating System
 
 **Documentation baseline:** v0.7.0 — Conductor plus unreleased Goal Engine, Goal
-Proposals, Event Bus, Automatic Validation, Documentation Review, Image Center, and
-Command Center workflow integration
+Proposals, Event Bus, Mission Engine Phase 1, Automatic Validation, Documentation
+Review, Image Center, and Command Center workflow integration
 
 Orion is a local-first personal intelligence operating system. It coordinates local
 and cloud AI providers, project knowledge, communication services, applications, and
@@ -560,6 +560,31 @@ Subscribers observe events synchronously after persistence; they cannot return
 actions, consume approvals, launch agents or jobs, invoke providers, change
 workspaces, or advance Goal Proposals or AI Team. Replay is an internal bounded
 observer API that preserves original IDs and never republishes. See `EVENT_BUS.md`.
+
+### Mission Engine
+
+Create one durable observation record after a Goal Proposal is accepted or consumed:
+
+```text
+mission create <proposal-id>
+mission show <mission-id>
+mission list --status awaiting_approval
+mission history <mission-id>
+mission validate <mission-id>
+mission reconcile <mission-id>
+```
+
+Missions live under `~/.orion/missions/` and remain bound to the exact Goal Proposal
+ID and version. Creation verifies the proposal hash and catches up from already
+persisted events. Reconciliation deterministically rebuilds status, stage, fixed
+progress, Team task links, and recommended commands from strictly correlated Event
+Store facts.
+
+Phase 1 is observation-only. Mission commands never accept proposals, plan or approve
+Team work, start implementation, launch agents or jobs, invoke providers, run Git or
+subprocesses, or modify a workspace. Only create and reconcile write, and they write
+Mission JSON exclusively. Current events stop at Team planning/approval visibility;
+Missions cannot yet report implementation or completion. See `MISSION_ENGINE.md`.
 
 ## 7. Memory, conversations, search, and knowledge
 
@@ -1702,6 +1727,20 @@ continues automatically. `goal validate "<goal>"` validates an ephemeral Goal Pl
 `events list` supports `--type`, `--correlation`, `--subject`, `--source`,
 `--severity`, `--start`, `--end`, and `--limit`. It cannot publish, replay, subscribe,
 or execute anything from the CLI.
+
+### Mission Engine
+
+| Command | Purpose |
+| --- | --- |
+| `mission create <proposal-id>` | Create or return one Mission and reconcile existing events |
+| `mission show <mission-id>` | Load persisted restart-safe projection state |
+| `mission list [--status ...] [--goal ...] [--proposal ...]` | List bounded Mission summaries |
+| `mission history <mission-id> [--limit n]` | Read relevant events newest first without replay |
+| `mission validate <mission-id>` | Check identity, storage, cursor, and projection without repair |
+| `mission reconcile <mission-id>` | Explicitly rebuild and persist Mission projection only |
+
+No Mission command executes a recommended next action. Current progress is a fixed
+5–30% mapping over proposal and Team-plan facts; no completion signal exists.
 
 ### AI Team
 

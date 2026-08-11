@@ -36,6 +36,11 @@ from orion.application.goals import (
     GoalProposalService,
     GoalProposalTranslator,
 )
+from orion.application.missions import (
+    MissionApplicationHandler,
+    MissionRepository,
+    MissionService,
+)
 from orion.intelligence.factory import AIProviderFactory
 from orion.intelligence.brain import Brain
 from orion.agents import AgentManager, WorkspaceTeamDraftStore, built_in_agents
@@ -550,6 +555,33 @@ class Orion:
                 self.goal_proposals,
                 event_publisher=self.event_publisher,
             ),
+        )
+        self.mission_repository = self.services.register(
+            "mission_repository",
+            MissionRepository(
+                self.paths.missions,
+                forbidden_root=self.paths.install_root,
+                max_record_bytes=int(self.config_manager.get(
+                    "missions.max_record_bytes",
+                    1_048_576,
+                )),
+            ),
+        )
+        self.missions = self.services.register(
+            "missions",
+            MissionService(
+                self.mission_repository,
+                self.goal_proposal_repository,
+                self.event_store,
+                history_limit=int(self.config_manager.get(
+                    "missions.history_limit",
+                    1_000,
+                )),
+            ),
+        )
+        self.mission_application = self.services.register(
+            "mission_application",
+            MissionApplicationHandler(self.missions),
         )
 
         # Orion Connect unifies communication services behind one center.

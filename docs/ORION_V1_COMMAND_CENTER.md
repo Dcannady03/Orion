@@ -37,7 +37,16 @@ agents, not processes owned by Command Center.
 8. Invalid or newer records fail clearly and are never silently reset.
 9. Codex and every other execution engine are optional.
 10. The first implementation favors explicit, inspectable lifecycle changes over
-    speculative autonomous behavior.
+speculative autonomous behavior.
+
+## 3.1 Mission Engine boundary
+
+Mission Engine Phase 1 does not depend on Command Center internals and does not create,
+launch, synchronize, or cancel jobs. It can recognize a Command Center job link type,
+but current Event Bus coverage has no authoritative Command Center lifecycle event
+from which to populate that link or project a Mission state. Those fields therefore
+remain unset. Future integration must use stable persisted IDs or reviewed event
+contracts, never inferred text. See [Mission Engine](MISSION_ENGINE.md).
 
 ## 4. Orion as central coordinator
 

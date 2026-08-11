@@ -89,12 +89,14 @@ and a complete living user/documentation process. Gatekeeper's approval, workspa
 execution, review, and rollback protections remain intact.
 
 **Active milestones:** Orion v0.8.2 Goal Engine, Orion v0.8.3 Goal Proposals,
-Orion v0.8.4 Event Bus, and Orion v1.0 Command Center
+Orion v0.8.4 Event Bus, Orion v0.8.5 Mission Engine Phase 1, and Orion v1.0 Command Center
 (unreleased), following the completed-but-unreleased Automatic Validation,
 Documentation Review, and Image Center milestones. Goal Engine establishes
 deterministic outcome classification and registry-backed previews without execution.
 Event Bus adds immutable lifecycle observation and append-only history without
 reactions or workflow progression.
+Mission Engine Phase 1 adds durable, restart-safe observation of accepted Goal
+Proposals without automatic advancement.
 Command Center establishes persistent organization, departments, jobs, explicit AI
 Team launch, durable workflow tracking, activity, snapshots, CLI, and diagnostics
 without claiming the deferred GUI or autonomous scheduler.
@@ -116,11 +118,33 @@ without claiming the deferred GUI or autonomous scheduler.
 - [x] Goal Plan, Goal Proposal lifecycle, and successful Team Plan integration
 - [x] Read-only `events` CLI and structured Event application handler
 - [x] Event failures preserve domain results and surface observability warnings
-- [x] No arbitrary publishing, reactions, workers, workflow advancement, or Mission
-      Engine
+- [x] No arbitrary publishing, reactions, workers, workflow advancement, or built-in
+      Mission reactions
+- [x] Bounded Event Store history contract consumed by Mission Engine Phase 1
 - [ ] Explicit maintenance command or reviewed retention policy
 - [ ] Additional domain events after separate boundary reviews
-- [ ] Orion v0.8.5 Mission Engine Phase 1 with observation only
+
+## Unreleased — Orion v0.8.5 Mission Engine Phase 1
+
+- [x] Immutable strict JSON-safe Mission, link, event-reference, projection, and
+      validation models with schema version 1
+- [x] Stable Mission identity permanently bound to one Goal Proposal ID and version
+- [x] One-Mission-per-Proposal duplicate protection
+- [x] External atomic owner-restricted persistence under `~/.orion/missions/`
+- [x] Repository-location, symlink, malformed-record, future-schema, and size guards
+- [x] Accepted/consumed Proposal integrity validation without capability dispatch
+- [x] Deterministic projection of existing Proposal and Team-plan events
+- [x] Strict Goal, Proposal, version, Team subject, and causation correlation
+- [x] Fixed 5–30% progress mapping with no invented implementation/completion state
+- [x] Interface-mapped Team approval/status recommendations without execution
+- [x] Bounded newest-first read-only Mission history and stored event references
+- [x] Explicit restart-safe reconciliation that writes Mission projection only
+- [x] Read-only identity, path, hash, cursor, link, and projection validation
+- [x] Thin `mission create/show/list/history/validate/reconcile` CLI and router branch
+- [x] Focused safety, persistence, correlation, replay, restart, handler, and CLI tests
+- [x] No subscribers, Mission events, automatic progression, retries, workers, GUI,
+      REST, voice, agents, jobs, providers, Git, subprocesses, or workspace mutation
+- [ ] Orion v0.8.6 Mission Coordinator design and reviewed progression contracts
 
 ## Unreleased — Orion v0.8.3 Goal Proposals
 

@@ -1,4 +1,21 @@
-# Unreleased — Event Bus, Goal Engine, Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
+# Unreleased — Mission Engine, Event Bus, Goal Engine, Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
+
+- Added Orion v0.8.5 Mission Engine Phase 1 with immutable schema-versioned Mission,
+  identity-link, event-reference, projection, and validation models permanently bound
+  to one accepted or consumed Goal Proposal version.
+- Added strict external `~/.orion/missions/` JSON persistence with atomic replacement,
+  owner-restricted permissions where supported, cross-process locking, duplicate
+  protection, bounded records, malformed/future-schema failure, and repository and
+  symlink rejection.
+- Added deterministic replay of existing Goal Proposal and Team-plan events using
+  strict Goal, Proposal, version, subject, and causation correlation; fixed progress
+  stops at 30% because no implementation or completion event is currently available.
+- Added restart-safe explicit reconciliation, read-only validation and newest-first
+  history, structured application results, and thin
+  `mission create/show/list/history/validate/reconcile` CLI delegation.
+- Kept the Mission boundary observation-only: no automatic progression, subscribers,
+  Mission events, capability execution, approval consumption, Team/Command Center
+  mutations, agent/job/provider launch, Git, subprocess, or workspace changes.
 
 - Separated stable capability IDs from human-facing CLI next actions. AI Team task,
   approval, implementation, validation, documentation, rollback, and Goal Proposal

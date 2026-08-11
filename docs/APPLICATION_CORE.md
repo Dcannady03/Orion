@@ -37,6 +37,21 @@ application handler. Its CLI adapter only parses the `goal` command family and u
 the shared renderer. It never calls a capability or domain service that can mutate
 state.
 
+Mission Engine Phase 1 adds a second observation-only application flow:
+
+```text
+Accepted Goal Proposal + correlated Event Store facts
+  -> deterministic Mission projection
+  -> external Mission JSON
+  -> ApplicationResult
+```
+
+`orion/application/missions/` owns strict models, persistence, projection,
+reconciliation, validation, and history selection. The Mission handler never calls
+Goal Proposal acceptance, AI Team, Command Center, providers, or execution engines.
+Only explicit create and reconcile operations may write, and they write Mission
+persistence exclusively. See [Mission Engine](MISSION_ENGINE.md).
+
 ## Structured results
 
 `orion/application/results.py` defines an immutable result with:
