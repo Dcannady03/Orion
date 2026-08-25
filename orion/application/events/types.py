@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 class EventTypes:
-    """Names emitted by Orion v0.8.4 application boundaries."""
+    """Names emitted by stable Orion application boundaries."""
 
     GOAL_PLAN_CREATED = "goal.plan.created"
     GOAL_PROPOSAL_CREATED = "goal.proposal.created"
@@ -14,6 +14,7 @@ class EventTypes:
     GOAL_PROPOSAL_CONSUMED = "goal.proposal.consumed"
     GOAL_PROPOSAL_FAILED = "goal.proposal.failed"
     TEAM_PLAN_CREATED = "team.plan.created"
+    TEAM_PLAN_APPROVED = "team.plan.approved"
 
 
 KNOWN_EVENT_TYPES = (
@@ -26,4 +27,5 @@ KNOWN_EVENT_TYPES = (
     EventTypes.GOAL_PROPOSAL_CONSUMED,
     EventTypes.GOAL_PROPOSAL_FAILED,
     EventTypes.TEAM_PLAN_CREATED,
+    EventTypes.TEAM_PLAN_APPROVED,
 )

@@ -695,6 +695,8 @@ class CommandRouter:
         print("    mission history <mission-id> Read correlated Event Bus facts")
         print("    mission validate <mission-id> Validate without repair")
         print("    mission reconcile <mission-id> Rebuild Mission projection only")
+        print("    mission next <mission-id>     Preview one eligible operation")
+        print("    mission advance <mission-id>  Confirm and dispatch exactly one operation")
         print()
         print("  Command Center")
         print("    cc status                  Show organization, jobs, and health")

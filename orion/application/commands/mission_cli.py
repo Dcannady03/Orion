@@ -1,10 +1,11 @@
-"""Thin CLI adapter for Mission Engine Phase 1."""
+"""Thin CLI adapter for Mission Engine and human-confirmed coordination."""
 from __future__ import annotations
 
 import shlex
 from typing import Callable
 
 from orion.application.missions import (
+    MissionAdvanceRequest,
     MissionApplicationHandler,
     MissionHistoryRequest,
     MissionListRequest,
@@ -22,12 +23,14 @@ class MissionCliAdapter:
         runtime,
         *,
         output_provider: Callable[[str], None] | None = None,
+        input_provider: Callable[[str], str] | None = None,
     ) -> None:
         application = getattr(runtime, "mission_application", None)
         if application is None:
             raise ValueError("Mission application is not available.")
         self.application: MissionApplicationHandler = application
         self.renderer = ApplicationResultRenderer(output_provider)
+        self.input = input_provider or input
 
     def handle(self, payload: str) -> ApplicationResult:
         try:
@@ -47,6 +50,10 @@ class MissionCliAdapter:
             return self._render(self.application.create(args[0]))
         if command == "show":
             return self._reference(command, args, self.application.show)
+        if command == "next":
+            return self._reference(command, args, self.application.next)
+        if command == "advance":
+            return self._advance(args)
         if command == "validate":
             return self._reference(command, args, self.application.validate)
         if command == "reconcile":
@@ -85,8 +92,58 @@ class MissionCliAdapter:
             )))
         return self._usage(
             "Mission command not recognized. Use: mission create | show | list | "
-            "history | validate | reconcile"
+            "history | validate | reconcile | next | advance"
         )
+
+    def _advance(self, args: list[str]) -> ApplicationResult:
+        if len(args) != 1:
+            return self._usage("Usage: mission advance <mission-id>")
+        mission_id = args[0]
+        preview = self.application.next(MissionReferenceRequest(mission_id))
+        self.renderer.render(preview)
+        if not preview.ok or preview.data.get("blocked") is True:
+            return preview
+        token = str(preview.data.get("advance_token", "")).strip()
+        if not token:
+            return self._render(ApplicationResult.failure(
+                "Mission advancement failed: preview did not issue a token.",
+                errors=("Mission preview token is unavailable.",),
+            ))
+        while True:
+            self.renderer.output(
+                "\nAdvance this Mission by exactly one operation? [Y/N/D]:"
+            )
+            try:
+                answer = self.input("> ").strip().lower()
+            except KeyboardInterrupt:
+                return self._cancelled(mission_id)
+            if answer in {"", "n", "no"}:
+                return self._cancelled(mission_id)
+            if answer in {"d", "details"}:
+                self.renderer.render(preview)
+                continue
+            if answer in {"y", "yes"}:
+                return self._render(self.application.advance(MissionAdvanceRequest(
+                    mission_id=mission_id,
+                    advance_token=token,
+                    confirmed=True,
+                    actor="user",
+                )))
+            self.renderer.output(
+                "Please enter Y, N, or D. No Mission operation was dispatched."
+            )
+
+    def _cancelled(self, mission_id: str) -> ApplicationResult:
+        return self._render(ApplicationResult.success(
+            "Mission advancement cancelled. No operation was dispatched.",
+            data={
+                "command": "advance",
+                "mission_id": mission_id,
+                "confirmed": False,
+                "operation_dispatched": False,
+            },
+            next_actions=(f"mission next {mission_id}",),
+        ))
 
     def _reference(self, command: str, args: list[str], handler) -> ApplicationResult:
         if len(args) != 1:

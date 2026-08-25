@@ -42,11 +42,22 @@ final human-review state, regardless of whether validation passed, warned, or fa
 Mission Engine Phase 1 may observe the existing `team.plan.created` event and link its
 authoritative Team task ID. When that event explicitly reports an approval
 requirement, the Mission can recommend the mapped `team approve <task-id>` and
-read-only `team status <task-id>` commands. It never calls the Team application
-handler, creates or consumes an approval, starts implementation, or runs validation
-or Documentation Review. Current Team events do not expose run, implementation,
-validation, documentation, review, rollback, or completion facts to Missions, so
-those Mission stages remain unset. See [Mission Engine](MISSION_ENGINE.md).
+read-only `team status <task-id>` commands.
+
+Mission Coordinator v0.8.6 may dispatch that approval only after a fresh preview,
+exact state-token verification, and explicit user confirmation. It uses
+`approval_details()` read-only to bind the persisted plan SHA-256 and detect an
+existing approval, then translates only to `TeamApprovalRequest` and calls
+`AiTeamApplicationHandler.approve()`. AI Team still validates the plan hash and
+creates the approval; Mission never manufactures or consumes it. The Coordinator
+stops after approval and does not implement, validate, review documentation, or
+continue automatically.
+
+Successful approval publishes `team.plan.approved`, allowing Mission projection to
+reach `approved / implementation` at 35%. Current Team events still do not expose
+run, implementation, validation, documentation, review, rollback, or completion
+facts to Missions. See [Mission Engine](MISSION_ENGINE.md) and
+[Mission Coordinator](MISSION_COORDINATOR.md).
 
 ## Application-core boundary
 
@@ -70,9 +81,9 @@ Documentation Review.
 
 Approval prediction simply copies the registry's flags. A predicted
 `team.implement` boundary does not satisfy AI Team's immutable plan-hash, workspace,
-actor, and single-use approval checks. Future acceptance of a Goal Proposal must
-still enter the existing typed AI Team application boundary and preserve its
-interactive approval and execution safeguards. See `GOAL_ENGINE.md`.
+actor, and single-use approval checks. Goal Proposal acceptance and Mission
+confirmation must still enter existing typed AI Team application boundaries and
+preserve approval and execution safeguards. See `GOAL_ENGINE.md`.
 
 v0.8.3 Goal Proposals add one narrow bridge to AI Team. The only supported
 translation is `team.plan` to the existing immutable `TeamPlanRequest`, dispatched
@@ -99,6 +110,12 @@ When planning came from an accepted Goal Proposal, `goal_id` is preserved as
 correlation and the `goal.proposal.accepted` event ID is preserved as causation.
 Standalone Team planning uses the Team task ID as correlation. A planning failure
 emits no success event.
+
+After `AiTeamApplicationHandler.approve` has successfully created the existing
+immutable approval, it publishes `team.plan.approved` with the Team task, approval
+ID, approved state, and exact plan SHA-256. A failed approval publishes no success
+event. The event observes the transition and does not grant permission to implement
+or consume the approval.
 
 The Event Bus observes the existing Team result only. It cannot approve the plan,
 invoke implementation, launch Codex, run validation or Documentation Review, retry,

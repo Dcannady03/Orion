@@ -89,14 +89,16 @@ and a complete living user/documentation process. Gatekeeper's approval, workspa
 execution, review, and rollback protections remain intact.
 
 **Active milestones:** Orion v0.8.2 Goal Engine, Orion v0.8.3 Goal Proposals,
-Orion v0.8.4 Event Bus, Orion v0.8.5 Mission Engine Phase 1, and Orion v1.0 Command Center
-(unreleased), following the completed-but-unreleased Automatic Validation,
+Orion v0.8.4 Event Bus, Orion v0.8.5 Mission Engine Phase 1, Orion v0.8.6 Mission
+Coordinator, and Orion v1.0 Command Center (unreleased), following the completed-but-unreleased Automatic Validation,
 Documentation Review, and Image Center milestones. Goal Engine establishes
 deterministic outcome classification and registry-backed previews without execution.
 Event Bus adds immutable lifecycle observation and append-only history without
 reactions or workflow progression.
 Mission Engine Phase 1 adds durable, restart-safe observation of accepted Goal
 Proposals without automatic advancement.
+Mission Coordinator adds explicit preview, exact-state confirmation, and one
+allowlisted Team approval operation before reconciliation and a mandatory stop.
 Command Center establishes persistent organization, departments, jobs, explicit AI
 Team launch, durable workflow tracking, activity, snapshots, CLI, and diagnostics
 without claiming the deferred GUI or autonomous scheduler.
@@ -144,7 +146,27 @@ without claiming the deferred GUI or autonomous scheduler.
 - [x] Focused safety, persistence, correlation, replay, restart, handler, and CLI tests
 - [x] No subscribers, Mission events, automatic progression, retries, workers, GUI,
       REST, voice, agents, jobs, providers, Git, subprocesses, or workspace mutation
-- [ ] Orion v0.8.6 Mission Coordinator design and reviewed progression contracts
+- [x] Orion v0.8.6 Mission Coordinator design and reviewed progression contracts
+
+## Unreleased — Orion v0.8.6 Mission Coordinator
+
+- [x] Frozen JSON-safe next-operation, preview, advance-request, result, and audit models
+- [x] Deterministic authoritative-state rule supporting only `team.approve`
+- [x] Preview-only `mission next` with internal capability and valid CLI separation
+- [x] CLI-only Y/N/D confirmation and exact canonical advance-token verification
+- [x] Explicit `team.approve -> TeamApprovalRequest -> AiTeamApplicationHandler.approve`
+      translator without reflection, dynamic imports, or CLI dispatch
+- [x] Existing Team plan SHA-256, approval identity, and application handler preserved
+- [x] Exactly one downstream operation, one post-result reconciliation, and stop
+- [x] External bounded atomic coordination audit with per-Mission cross-process lock
+- [x] Duplicate, stale-lock, restart, and uncertain-dispatch replay protection
+- [x] Successful `team.plan.approved` event and deterministic 35% Mission projection
+- [x] Blocked unsupported states, including implementation and final review/completion
+- [x] Thin `mission next/advance` CLI and unchanged single Mission router delegation
+- [x] No subscriber reaction, retries, workers, autonomy, provider/agent/Git/subprocess
+      access, workspace mutation, server, GUI, REST, voice, or mobile functionality
+- [ ] Mission Coordinator Phase 2: reviewed lifecycle observability and typed
+      operations for post-approval stages before considering Orion Server
 
 ## Unreleased — Orion v0.8.3 Goal Proposals
 

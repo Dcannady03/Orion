@@ -21,7 +21,7 @@ class InterfaceAction:
         }
 
 
-_TEAM_ACTION_LABELS = {
+_ACTION_LABELS = {
     "team.list": "List AI Team tasks",
     "team.show": "Show AI Team status",
     "team.plan": "Plan an AI Team goal",
@@ -31,6 +31,10 @@ _TEAM_ACTION_LABELS = {
     "team.documentation_review": "Run AI Team documentation review",
     "team.rollback": "Rollback the AI Team run",
     "team.sync": "Synchronize linked Command Center state",
+    "mission.next": "Preview the next Mission operation",
+    "mission.advance": "Advance the Mission by one confirmed operation",
+    "mission.show": "Show Mission state",
+    "mission.reconcile": "Reconcile Mission projection",
 }
 
 
@@ -44,6 +48,7 @@ def cli_command_for_action(
     task_id = str(values.get("team_task_id", "")).strip()
     run_id = str(values.get("run_id", "")).strip()
     approval_id = str(values.get("approval_id", "")).strip()
+    mission_id = str(values.get("mission_id", "")).strip()
 
     if capability == "team.list":
         return "team"
@@ -69,6 +74,14 @@ def cli_command_for_action(
         return f"team rollback {run_id}" if run_id else None
     if capability == "team.sync":
         return None
+    if capability == "mission.next":
+        return f"mission next {mission_id}" if mission_id else None
+    if capability == "mission.advance":
+        return f"mission advance {mission_id}" if mission_id else None
+    if capability == "mission.show":
+        return f"mission show {mission_id}" if mission_id else None
+    if capability == "mission.reconcile":
+        return f"mission reconcile {mission_id}" if mission_id else None
     return None
 
 
@@ -80,7 +93,7 @@ def interface_action(
     capability = str(capability_id).strip()
     return InterfaceAction(
         capability_id=capability,
-        label=_TEAM_ACTION_LABELS.get(capability, capability),
+        label=_ACTION_LABELS.get(capability, capability),
         cli_command=cli_command_for_action(capability, context),
     )
 

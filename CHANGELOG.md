@@ -1,4 +1,20 @@
-# Unreleased — Mission Engine, Event Bus, Goal Engine, Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
+# Unreleased — Mission Coordinator, Mission Engine, Event Bus, Goal Engine, Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
+
+- Added Orion v0.8.6 Mission Coordinator with frozen JSON-safe previews, exact
+  canonical advance tokens, deterministic blocked/eligible rules, and preview-only
+  `mission next` plus CLI-confirmed `mission advance` commands.
+- Added an explicit allowlist supporting only
+  `team.approve -> TeamApprovalRequest -> AiTeamApplicationHandler.approve`, with no
+  reflection, CLI invocation, approval fabrication, or automatic continuation.
+- Added bounded external coordination audit records, per-Mission cross-process locks,
+  pre-dispatch reservations, duplicate protection, restart-safe state verification,
+  and fail-closed uncertain-dispatch replay handling.
+- Added successful `team.plan.approved` observation after the existing plan-hash-bound
+  approval transition and deterministic Mission projection to
+  `approved / implementation` at 35%; approval failure emits no success event.
+- Preserved the one-confirmation/one-operation/reconcile/stop boundary and blocked
+  implementation, final review, unsupported stages, retries, workers, providers,
+  agents, Git, subprocesses, workspace mutation, server, GUI, REST, and autonomy.
 
 - Added Orion v0.8.5 Mission Engine Phase 1 with immutable schema-versioned Mission,
   identity-link, event-reference, projection, and validation models permanently bound

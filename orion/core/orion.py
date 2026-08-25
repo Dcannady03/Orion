@@ -38,6 +38,8 @@ from orion.application.goals import (
 )
 from orion.application.missions import (
     MissionApplicationHandler,
+    MissionCoordinationRepository,
+    MissionCoordinator,
     MissionRepository,
     MissionService,
 )
@@ -579,9 +581,32 @@ class Orion:
                 )),
             ),
         )
+        self.mission_coordination_repository = self.services.register(
+            "mission_coordination_repository",
+            MissionCoordinationRepository(
+                self.paths.missions / "coordination",
+                forbidden_root=self.paths.install_root,
+                max_record_bytes=int(self.config_manager.get(
+                    "missions.coordination_max_record_bytes",
+                    65_536,
+                )),
+                lock_timeout_seconds=float(self.config_manager.get(
+                    "missions.coordination_lock_timeout_seconds",
+                    2.0,
+                )),
+            ),
+        )
+        self.mission_coordinator = self.services.register(
+            "mission_coordinator",
+            MissionCoordinator(
+                self.missions,
+                self.team_application,
+                self.mission_coordination_repository,
+            ),
+        )
         self.mission_application = self.services.register(
             "mission_application",
-            MissionApplicationHandler(self.missions),
+            MissionApplicationHandler(self.missions, self.mission_coordinator),
         )
 
         # Orion Connect unifies communication services behind one center.

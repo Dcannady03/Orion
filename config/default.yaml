@@ -155,6 +155,8 @@ events:
 missions:
   max_record_bytes: 1048576
   history_limit: 1000
+  coordination_max_record_bytes: 65536
+  coordination_lock_timeout_seconds: 2.0
 codex_bridge:
   enabled: true
   timeout_seconds: 1800

@@ -4,7 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from orion.application.interface_actions import interface_action
-from orion.application.missions.models import Mission
+from orion.application.missions.coordination_models import MissionAdvanceRequest
+from orion.application.missions.coordinator import MissionCoordinator
+from orion.application.missions.models import Mission, MissionStatus
 from orion.application.missions.service import MissionService
 from orion.application.results import ApplicationResult
 
@@ -29,10 +31,15 @@ class MissionHistoryRequest:
 
 
 class MissionApplicationHandler:
-    """Return structured Mission results without printing or executing domains."""
+    """Return structured Mission results and delegate one confirmed operation."""
 
-    def __init__(self, service: MissionService) -> None:
+    def __init__(
+        self,
+        service: MissionService,
+        coordinator: MissionCoordinator | None = None,
+    ) -> None:
         self.service = service
+        self.coordinator = coordinator
 
     def create(self, proposal_id: str) -> ApplicationResult:
         try:
@@ -195,6 +202,105 @@ class MissionApplicationHandler:
             next_actions=self._next_actions(mission),
         )
 
+    def next(self, request: MissionReferenceRequest) -> ApplicationResult:
+        try:
+            coordinator = self._require_coordinator()
+            preview = coordinator.preview(self._reference(request))
+        except self._expected_errors() as exc:
+            return self._failure("Mission next-operation preview failed", exc)
+        operation = preview.operation
+        lines = [
+            "Mission Next Operation",
+            "-" * 72,
+            f"Mission    : {preview.mission_id}",
+            f"Status     : {preview.status.replace('_', ' ').title()}",
+            f"Stage      : {preview.stage}",
+            f"Progress   : {preview.progress}%",
+        ]
+        if operation.blocked:
+            lines.extend([
+                "Capability : None",
+                f"Blocked    : {operation.blocked_reason}",
+                "No capability has been executed.",
+            ])
+            warnings = tuple(dict.fromkeys((
+                *preview.warnings,
+                operation.blocked_reason,
+            )))
+            return ApplicationResult.success(
+                "\n".join(lines),
+                data={"command": "next", **preview.to_dict()},
+                warnings=warnings,
+                next_actions=(
+                    f"mission show {preview.mission_id}",
+                    f"mission reconcile {preview.mission_id}",
+                ),
+            )
+        lines.extend([
+            f"Capability : {operation.capability_id}",
+            f"Action     : {operation.reason}",
+            f"Target     : {operation.subject_id}",
+            f"Mutates    : {'YES' if operation.mutates_state else 'NO'}",
+            (
+                "Downstream approval boundary: "
+                f"{'YES' if operation.requires_downstream_approval else 'NO'}"
+            ),
+            "",
+            "CLI:",
+            f"  {operation.cli_representation}",
+            "",
+            "No capability has been executed.",
+            "Advance token:",
+            f"  {preview.advance_token}",
+        ])
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={"command": "next", **preview.to_dict()},
+            warnings=preview.warnings,
+            next_actions=(f"mission advance {preview.mission_id}",),
+        )
+
+    def advance(self, request: MissionAdvanceRequest) -> ApplicationResult:
+        try:
+            coordinator = self._require_coordinator()
+            result = coordinator.advance(request)
+        except self._expected_errors() as exc:
+            return self._failure("Mission advancement failed", exc)
+        downstream = dict(result.downstream_result)
+        data = {"command": "advance", **result.to_dict()}
+        lines = [
+            "Mission Advanced by One Operation",
+            "-" * 72,
+            f"Mission    : {result.mission_id}",
+            f"Capability : {result.capability_id}",
+            f"Downstream : {downstream.get('status', 'unknown')}",
+            f"Previous   : {result.previous_status}",
+            f"Current    : {result.new_status}",
+            f"Stage      : {result.new_stage}",
+            f"Progress   : {result.new_progress}%",
+            "Reconciled after exactly one application operation.",
+            "Coordinator stopped; no continuation was attempted.",
+        ]
+        next_actions = (
+            f"mission show {result.mission_id}",
+            f"mission next {result.mission_id}",
+        )
+        if downstream.get("status") == "failure":
+            errors = tuple(str(item) for item in downstream.get("errors", ()))
+            return ApplicationResult.failure(
+                "\n".join(lines),
+                data=data,
+                warnings=result.warnings,
+                errors=errors or ("The downstream application operation failed.",),
+                next_actions=next_actions,
+            )
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data=data,
+            warnings=result.warnings,
+            next_actions=next_actions,
+        )
+
     @staticmethod
     def _mission_data(mission: Mission) -> dict[str, object]:
         data = mission.to_dict()
@@ -216,6 +322,8 @@ class MissionApplicationHandler:
     @staticmethod
     def _next_actions(mission: Mission) -> tuple[str, ...]:
         commands: list[str] = []
+        if mission.status is MissionStatus.AWAITING_APPROVAL:
+            commands.append(f"mission next {mission.mission_id}")
         if mission.next_action:
             commands.append(mission.next_action)
         task = mission.link("team_task")
@@ -253,6 +361,11 @@ class MissionApplicationHandler:
             lines.extend(["", "Next:", f"  None — {mission.next_action_reason}"])
         lines.append("Observation only; no capability was executed.")
         return "\n".join(lines)
+
+    def _require_coordinator(self) -> MissionCoordinator:
+        if self.coordinator is None:
+            raise RuntimeError("Mission Coordinator is not available.")
+        return self.coordinator
 
     @staticmethod
     def _reference(request: MissionReferenceRequest) -> str:

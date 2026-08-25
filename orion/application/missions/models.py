@@ -30,6 +30,8 @@ class MissionStatus(str, Enum):
     CREATED = "created"
     PLANNING = "planning"
     AWAITING_APPROVAL = "awaiting_approval"
+    APPROVED = "approved"
+    AWAITING_REVIEW = "awaiting_review"
     FAILED = "failed"
 
     @classmethod
@@ -47,6 +49,8 @@ class MissionStage(str, Enum):
     PROPOSAL = "proposal"
     TEAM_PLANNING = "team_planning"
     APPROVAL = "approval"
+    IMPLEMENTATION = "implementation"
+    FINAL_REVIEW = "final_review"
     FAILED = "failed"
 
     @classmethod

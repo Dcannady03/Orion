@@ -29,7 +29,9 @@ from orion.application.goals import (
 )
 from orion.application.missions import (
     Mission,
+    MissionAdvanceRequest,
     MissionApplicationHandler,
+    MissionCoordinator,
     MissionProjectionEngine,
     MissionRepository,
     MissionService,
@@ -57,7 +59,9 @@ __all__ = [
     "GoalProposalService",
     "GoalRequest",
     "Mission",
+    "MissionAdvanceRequest",
     "MissionApplicationHandler",
+    "MissionCoordinator",
     "MissionProjectionEngine",
     "MissionRepository",
     "MissionService",
