@@ -54,6 +54,8 @@ class TeamApprovalRequest:
     team_task_id: str
     actor: str = "user"
     plan_sha256: str | None = None
+    correlation_id: str | None = None
+    causation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -476,6 +478,20 @@ class AiTeamApplicationHandler:
                     if risk not in risks:
                         risks.append(risk)
         plan_hash = PlanSnapshot.from_team_task(task).hash
+        approvals = ()
+        approval_inspection_available = False
+        inspection_warnings: tuple[str, ...] = ()
+        try:
+            inspector = getattr(self.bridge, "approvals_for_task", None)
+            if callable(inspector):
+                approvals = tuple(inspector(task_id))
+                approval_inspection_available = True
+        except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
+            inspection_warnings = (
+                "Existing Team approvals could not be inspected safely "
+                f"({type(exc).__name__}).",
+            )
+        latest_approval = approvals[0] if approvals else None
         lines = [
             "AI Team Approval Details",
             "-" * 72,
@@ -508,7 +524,16 @@ class AiTeamApplicationHandler:
                 "plan_sha256": plan_hash,
                 "execution_engine": "codex",
                 "risks": list(risks),
+                "approval_inspection_available": approval_inspection_available,
+                "existing_approval_count": len(approvals),
+                "latest_approval_id": str(
+                    getattr(latest_approval, "approval_id", "")
+                ),
+                "latest_approval_plan_sha256": str(
+                    getattr(latest_approval, "plan_hash", "")
+                ),
             },
+            warnings=inspection_warnings,
             next_actions=cli_next_actions(actions),
         )
 
@@ -560,12 +585,32 @@ class AiTeamApplicationHandler:
             data["branch"] = approval.workspace.branch
         if approval.workspace.commit:
             data["commit"] = approval.workspace.commit
-        return ApplicationResult.success(
+        result = ApplicationResult.success(
             self._format_approval(approval, show_manual_command=True),
             data=data,
             warnings=sync_warnings,
             next_actions=cli_next_actions(actions),
         )
+        publisher = getattr(self.runtime, "event_publisher", None)
+        if publisher is None:
+            return result
+        publication = publisher.publish_lifecycle_event(
+            event_type=EventTypes.TEAM_PLAN_APPROVED,
+            source="ai_team",
+            severity="notice",
+            correlation_id=request.correlation_id or approval.team_task_id,
+            causation_id=request.causation_id,
+            subject_id=approval.team_task_id,
+            data={
+                "team_task_id": approval.team_task_id,
+                "approval_id": approval.approval_id,
+                "status": "approved",
+                "approval_required": True,
+                "approval_status": "approved",
+                "plan_sha256": approval.plan_hash,
+            },
+        )
+        return publisher.attach(result, publication)
 
     def implement(self, request: TeamImplementationRequest) -> ApplicationResult:
         try:

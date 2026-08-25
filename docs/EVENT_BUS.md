@@ -23,6 +23,10 @@ notifications in v0.8.4. Mission Engine Phase 1 later reads persisted Event Stor
 history through bounded queries; it is not a live subscriber and does not publish
 reaction events. See [Mission Engine](MISSION_ENGINE.md).
 
+Mission Coordinator v0.8.6 also does not react to live events. It dispatches only
+after explicit confirmation, then performs one read-based reconciliation. The bus is
+evidence for projection, never permission to coordinate another operation.
+
 ## Event model
 
 `OrionEvent` is a frozen, schema-versioned model:
@@ -58,7 +62,7 @@ Unsupported values are never silently stringified.
 
 ## Naming and supported event types
 
-The v0.8.4 public event contracts are:
+The current public event contracts are:
 
 ```text
 goal.plan.created
@@ -70,10 +74,13 @@ goal.proposal.expired
 goal.proposal.consumed
 goal.proposal.failed
 team.plan.created
+team.plan.approved
 ```
 
-Only these existing operations are instrumented. Command Center, agents, providers,
-workspaces, and other domains do not emit Event Bus records yet.
+Only these existing operations are instrumented. `team.plan.approved` is published
+only after the existing Team approval service has created its immutable,
+plan-hash-bound approval record; failure emits no success event. Command Center,
+agents, providers, workspaces, and other domains do not emit Event Bus records yet.
 
 ## Severity
 
@@ -108,6 +115,19 @@ Standalone AI Team plans use their Team task ID as correlation unless a typed ca
 supplies an existing correlation. Separate `goal plan` and
 `goal proposal create` commands each create a new Goal Plan, so Orion does not invent
 a causal link between those independently requested commands.
+
+A Mission-coordinated Team approval preserves the Mission Goal as correlation and
+uses the latest observed Mission event as causation where available:
+
+```text
+team.plan.approved       correlation = goal_id
+                         causation = latest Mission event ID
+                         subject = authoritative Team task ID
+```
+
+Mission projection additionally requires the subject/payload task to match its
+authoritative Team-task link plus a valid approval ID and plan SHA-256. Correlation
+alone is insufficient.
 
 ## Event Factory and publisher
 
@@ -278,9 +298,10 @@ handler, and CLI:
 - cannot return commands or actions from subscribers;
 - cannot accept arbitrary user-published lifecycle events.
 
-The only domain activity in the integrated acceptance flow remains the one typed,
-explicitly accepted `team.plan` operation already authorized by Goal Proposals.
-Events merely record its transitions.
+Domain activity remains limited to operations explicitly authorized outside the bus:
+Goal Proposal acceptance may dispatch one typed `team.plan`, and Mission Coordinator
+confirmation may dispatch one typed `team.approve`. Events merely record the
+resulting authoritative transitions and never authorize the next one.
 
 ## Schema compatibility
 
@@ -301,6 +322,7 @@ Future schema work must preserve existing event identities and public type meani
   activity identity.
 - Legacy clients that parse messages should migrate to structured event fields.
 
-The recommended next milestone is **Orion v0.8.5 — Mission Engine Phase 1**:
-persistent mission lifecycle records and event-based observation only, with no
-automatic progression.
+Mission Engine Phase 1 and Mission Coordinator v0.8.6 now consume this history
+without adding reactions. The safer next milestone is **Mission Coordinator Phase
+2**, beginning with reviewed lifecycle observability and typed operation boundaries;
+autonomy and a server over incomplete lifecycle facts remain premature.

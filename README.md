@@ -21,8 +21,8 @@ Awaiting Review, and rollback boundaries remain unchanged.
 ## Current development branch
 
 The development branch contains the unreleased Goal Engine, Goal Proposals, Event
-Bus, Mission Engine Phase 1, Command Center, Agent System, Image Center, Automatic
-Validation, Documentation Review, and application-core stabilization work.
+Bus, Mission Engine Phase 1, Mission Coordinator, Command Center, Agent System, Image
+Center, Automatic Validation, Documentation Review, and application-core stabilization work.
 These capabilities are tested development features; they are not part of the v0.7.0
 stable release.
 
@@ -82,6 +82,14 @@ recommended human command. Missions persist under `~/.orion/missions/`; explicit
 creation and reconciliation write only Mission state. There is no subscriber,
 automatic advancement, approval consumption, agent/job/provider launch, Git,
 subprocess, or workspace mutation. See [Mission Engine](docs/MISSION_ENGINE.md).
+
+The unreleased v0.8.6 Mission Coordinator adds a human-controlled gearbox above the
+Mission projection: `mission next` previews one deterministic operation, while
+`mission advance` requires explicit state-token-bound confirmation, dispatches at
+most one typed operation, reconciles once, and stops. The initial allowlist supports
+only the existing plan-hash-protected `team.approve` handler. Cross-process locks and
+external audit reservations block duplicate or uncertain replay; there is no
+autonomous continuation. See [Mission Coordinator](docs/MISSION_COORDINATOR.md).
 
 ### Experimental and planned interfaces
 

@@ -47,10 +47,29 @@ Accepted Goal Proposal + correlated Event Store facts
 ```
 
 `orion/application/missions/` owns strict models, persistence, projection,
-reconciliation, validation, and history selection. The Mission handler never calls
-Goal Proposal acceptance, AI Team, Command Center, providers, or execution engines.
-Only explicit create and reconcile operations may write, and they write Mission
-persistence exclusively. See [Mission Engine](MISSION_ENGINE.md).
+reconciliation, validation, and history selection. The Phase 1 Engine path never
+calls Goal Proposal acceptance, AI Team, Command Center, providers, or execution
+engines. Only explicit create and reconcile operations may write, and they write
+Mission persistence exclusively. See [Mission Engine](MISSION_ENGINE.md).
+
+Mission Coordinator v0.8.6 adds one explicit application flow without changing the
+Engine's authority:
+
+```text
+Mission projection -> immutable preview + advance token
+  -> explicit confirmation
+  -> allowlisted team.approve translation
+  -> AiTeamApplicationHandler.approve
+  -> ApplicationResult -> Mission reconcile -> stop
+```
+
+`MissionApplicationHandler.next()` is preview-only.
+`MissionApplicationHandler.advance()` verifies the exact current state under a
+per-Mission cross-process lock, persists a non-authoritative reservation, dispatches
+at most one typed request, reconciles once, and stops. It blocks stale tokens,
+duplicate attempts, unsupported stages, and uncertain prior dispatches. Prompting
+remains in `mission_cli.py`; the Coordinator never parses or invokes CLI syntax. See
+[Mission Coordinator](MISSION_COORDINATOR.md).
 
 ## Structured results
 
@@ -186,11 +205,13 @@ ordered subscriber snapshot. Subscriber failures are isolated. An event-store fa
 does not roll back the already successful domain operation; the original
 `ApplicationResult` receives an observability warning instead.
 
-The only initial publishers are successful Goal Plan creation, Goal Proposal
-lifecycle transitions, and successful AI Team plan creation. Proposal acceptance
-passes correlation and causation through the typed `TeamPlanRequest` without
-changing approval semantics. `event_cli.py` exposes history only and has no arbitrary
-publish command. See `EVENT_BUS.md`.
+Publishers cover successful Goal Plan creation, Goal Proposal lifecycle transitions,
+successful AI Team plan creation, and successful AI Team plan approval. Approval
+publishing occurs only after the existing plan-hash-bound approval succeeds; it does
+not grant approval or change consumption semantics. Proposal acceptance passes
+correlation and causation through the typed `TeamPlanRequest` without changing
+approval semantics. `event_cli.py` exposes history only and has no arbitrary publish
+command. See `EVENT_BUS.md`.
 
 ## AI Team lifecycle results
 

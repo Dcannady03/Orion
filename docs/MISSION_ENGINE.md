@@ -13,6 +13,11 @@ Goal -> Goal Plan -> Goal Proposal -> Mission -> Event projection
 Phase 1 is observation-only. It recommends a human-facing next command when a safe
 one is known, but never runs that command or advances another domain.
 
+Orion v0.8.6 adds a separate [Mission Coordinator](MISSION_COORDINATOR.md). The
+Engine remains the authoritative projection boundary. The Coordinator may dispatch
+one explicitly confirmed, state-bound application operation and then reconciles the
+Engine once before stopping.
+
 ## Goal, Proposal, and Mission
 
 | Record | Question answered | Authority |
@@ -116,9 +121,11 @@ Proposal events must match all of:
 
 A Team plan event must match the Goal correlation and have identical subject and
 payload Team task IDs. It must also match an already-authoritative Team task link or
-be caused by this proposal's accepted event. Goal text is never a correlation key.
+be caused by this proposal's accepted event. A Team approval event must identify the
+same authoritative Team task, a valid approval ID and plan hash, and the Goal or Team
+task correlation. Goal text is never a correlation key.
 
-Phase 1 understands only these existing event contracts:
+Mission projection understands these existing event contracts:
 
 | Event | Projection effect |
 | --- | --- |
@@ -127,6 +134,7 @@ Phase 1 understands only these existing event contracts:
 | `goal.proposal.accepted` | Proposal `accepted`; planning/team-planning at 10% |
 | `goal.proposal.consumed` | Proposal `consumed`; planning/team-planning at least 15% unless a later observed state is stronger |
 | `team.plan.created` | Link its Team task; planning at 20%, or awaiting approval at 30% when its payload requires approval |
+| `team.plan.approved` | Link the authoritative approval; approved/implementation at 35% |
 | `goal.proposal.failed` | Failed/failed with no automatic retry action |
 
 Unknown, malformed, unrelated, duplicated, or text-only matches do not affect the
@@ -144,12 +152,12 @@ Only states supported by current facts are modeled:
 | `planning` | `team_planning` | 15% | Consumed proposal without a later plan fact |
 | `planning` | `team_planning` | 20% | Team plan created without an observable approval requirement |
 | `awaiting_approval` | `approval` | 30% | Team plan event explicitly reports awaiting/required approval |
+| `approved` | `implementation` | 35% | Successful Team approval event with authoritative task, approval, and plan hash |
 | `failed` | `failed` | Last observed value, minimum 10% | Proposal failure event |
 
-Progress is a fixed mapping, never an AI estimate. Phase 1 cannot observe
-implementation, validation, documentation review, final review, cancellation,
-rollback, or completion authoritatively. It therefore does not model those statuses
-and never reports 100%.
+Progress is a fixed mapping, never an AI estimate. Current event coverage cannot
+observe implementation, validation, documentation review, final review,
+cancellation, rollback, or completion authoritatively. It never reports 100%.
 
 ## Recommended next action
 
@@ -204,22 +212,29 @@ mission list [--status <status>] [--goal <goal-id>] [--proposal <proposal-id>] [
 mission history <mission-id> [--limit <n>]
 mission validate <mission-id>
 mission reconcile <mission-id>
+mission next <mission-id>
+mission advance <mission-id>
 ```
 
 The core router contains only one Mission-family dispatch branch. Parsing and
-rendering live in the CLI adapter; all lifecycle logic lives below the application
-handler.
+rendering live in the CLI adapter; all lifecycle and coordination rules live below
+the application handler. `mission next` is preview-only. `mission advance` renders a
+fresh preview and accepts only CLI-bound Y/N/D confirmation; one `Y` can dispatch at
+most the current allowlisted operation.
 
 ## Safety boundary
 
 Mission creation writes only Mission persistence. Reconciliation may replace only a
-Mission projection. Show, list, history, and validation are read-only.
+Mission projection. Show, list, history, validation, and Engine recommendation logic
+remain read-only.
 
-No Mission code executes capabilities, consumes approvals, calls Team or Command
-Center mutation handlers, launches implementation, validation, documentation review,
-agents, jobs, providers, Git, subprocesses, or workspace mutations. There is no
-subscriber, background worker, scheduler, retry, pause/resume, GUI, REST endpoint,
-WebSocket, voice path, or Mission-generated event in Phase 1.
+The v0.8.6 Coordinator is the sole narrow exception: after exact-token verification
+and explicit confirmation it may call `AiTeamApplicationHandler.approve()` through a
+typed allowlist. It does not create approvals itself, consume approvals, call a CLI
+adapter, launch implementation, validation, documentation review, agents, jobs,
+providers, Git, subprocesses, or workspace mutations. There is no subscriber,
+background worker, scheduler, retry, pause/resume, GUI, REST endpoint, WebSocket,
+voice path, or Mission-generated event.
 
 ## Known limitations and next milestone
 
@@ -227,13 +242,13 @@ WebSocket, voice path, or Mission-generated event in Phase 1.
   incremental byte-offset cursor.
 - Command Center currently publishes no lifecycle events that can safely drive a
   Mission link or status.
-- AI Team exposes no Mission-consumable implementation, validation, documentation,
-  review, rollback, or completion events.
+- AI Team exposes successful approval but no Mission-consumable implementation,
+  validation, documentation, review, rollback, or completion events.
 - No authoritative completion signal exists, so Missions cannot reach completed or
   100%.
 - Missions update only when explicitly created or reconciled; there is no live
   Mission subscriber.
 
-The recommended next milestone is **Orion v0.8.6 — Mission Coordinator**, which may
-design explicit progression while preserving domain approvals and authority. It is
-not implemented in Phase 1.
+The safer next milestone is **Mission Coordinator Phase 2**, beginning with reviewed
+typed lifecycle events and operations rather than autonomy or a server over an
+incomplete lifecycle contract. See [Mission Coordinator](MISSION_COORDINATOR.md).

@@ -25,11 +25,17 @@ steps.
 ## Relationship to Missions
 
 A Proposal records the exact plan and the user's acceptance decision. A Mission is a
-separate observation-only projection of the lifecycle that follows. `mission create`
+separate authoritative projection of the lifecycle that follows. `mission create`
 accepts only an integrity-valid `accepted` or `consumed` Proposal, binds permanently
 to its ID and version, copies only safe context and existing downstream IDs, and does
 not dispatch any Proposal step. Repeated creation returns the same Mission identity.
-See [Mission Engine Phase 1](MISSION_ENGINE.md).
+
+Mission Coordinator confirmation is a later and separate decision: it authorizes at
+most one current typed application operation. In v0.8.6 that is only the existing
+Team approval handler. It never reinterprets Proposal acceptance as Team approval,
+and Team's immutable plan SHA-256 and approval ID remain authoritative. See
+[Mission Engine Phase 1](MISSION_ENGINE.md) and
+[Mission Coordinator](MISSION_COORDINATOR.md).
 
 ## Persistence
 
@@ -266,9 +272,10 @@ approval remain out of scope.
 - Future proposal schema migrations must preserve immutable-hash semantics and
   continue rejecting unknown or lossy conversions.
 
-## Future Mission relationship
+## Mission relationship
 
-Mission Engine should be considered only after proposal lifecycle behavior is stable.
-A future Mission may reference consumed proposals and separately approved downstream
-artifacts, but it must never reinterpret proposal acceptance as permission to execute
-every remaining capability.
+Mission Engine references consumed Proposals and separately approved downstream
+artifacts without changing Proposal history. Mission Coordinator may dispatch only
+an allowlisted operation supported by current authoritative Mission state. Proposal
+acceptance never grants permission to execute every remaining capability, and one
+Mission confirmation never grants automatic continuation.

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from orion.application.events import EventTypes, OrionEvent
 from orion.application.interface_actions import interface_action
 from orion.application.missions.models import (
+    LINK_ID_PATTERN,
     Mission,
     MissionEventRef,
     MissionLink,
@@ -19,6 +20,7 @@ MISSION_PROGRESS = {
     "proposal_consumed": 15,
     "team_plan_created": 20,
     "awaiting_approval": 30,
+    "approved": 35,
 }
 
 _EVENT_ORDER = {
@@ -27,7 +29,8 @@ _EVENT_ORDER = {
     EventTypes.GOAL_PROPOSAL_ACCEPTED: 30,
     EventTypes.TEAM_PLAN_CREATED: 40,
     EventTypes.GOAL_PROPOSAL_CONSUMED: 50,
-    EventTypes.GOAL_PROPOSAL_FAILED: 60,
+    EventTypes.TEAM_PLAN_APPROVED: 60,
+    EventTypes.GOAL_PROPOSAL_FAILED: 70,
 }
 
 
@@ -78,7 +81,7 @@ class MissionProjectionEngine:
         relevant = self.relevant_events(mission, events)
         links = {link.link_type: link for link in mission.links}
         proposal_status = mission.proposal_status
-        status, stage, progress = self._base_state(mission)
+        status, stage, progress = self._base_state(mission, links)
         current_action = ""
         next_action = ""
         next_reason = "No safe next action is currently observable."
@@ -88,6 +91,19 @@ class MissionProjectionEngine:
             current_action = action.capability_id
             next_action = action.cli_command or ""
             next_reason = "The persisted Team plan requires human approval."
+        elif status is MissionStatus.APPROVED:
+            task_id = links["team_task"].subject_id
+            approval_id = links["approval"].subject_id
+            action = interface_action("team.implement", {
+                "team_task_id": task_id,
+                "approval_id": approval_id,
+            })
+            current_action = action.capability_id
+            next_action = action.cli_command or ""
+            next_reason = (
+                "The Team plan is approved; implementation remains a separate "
+                "explicit operation."
+            )
         elif status is MissionStatus.PLANNING:
             if "team_task" in links:
                 current_action = "team.show"
@@ -100,6 +116,8 @@ class MissionProjectionEngine:
                 next_reason = "Waiting for an authoritative Team plan event."
         elif status is MissionStatus.FAILED:
             next_reason = "The accepted proposal dispatch failed; retries are disabled."
+        elif status is MissionStatus.AWAITING_REVIEW:
+            next_reason = "Explicit final review completion is not implemented."
         failed_at = mission.failed_at
 
         for event in relevant:
@@ -109,6 +127,7 @@ class MissionProjectionEngine:
                 if status not in {
                     MissionStatus.FAILED,
                     MissionStatus.AWAITING_APPROVAL,
+                    MissionStatus.APPROVED,
                 }:
                     status = MissionStatus.PLANNING
                     stage = MissionStage.TEAM_PLANNING
@@ -119,7 +138,11 @@ class MissionProjectionEngine:
             elif event.event_type == EventTypes.GOAL_PROPOSAL_CONSUMED:
                 if proposal_status != "failed":
                     proposal_status = "consumed"
-                if status not in {MissionStatus.FAILED, MissionStatus.AWAITING_APPROVAL}:
+                if status not in {
+                    MissionStatus.FAILED,
+                    MissionStatus.AWAITING_APPROVAL,
+                    MissionStatus.APPROVED,
+                }:
                     status = MissionStatus.PLANNING
                     stage = MissionStage.TEAM_PLANNING
                     progress = max(progress, MISSION_PROGRESS["proposal_consumed"])
@@ -142,7 +165,7 @@ class MissionProjectionEngine:
                     self._text(event.data.get("status")) == "awaiting_approval"
                     or event.data.get("approval_required") is True
                 )
-                if status is not MissionStatus.FAILED:
+                if status not in {MissionStatus.FAILED, MissionStatus.APPROVED}:
                     status = (
                         MissionStatus.AWAITING_APPROVAL
                         if awaiting and task_id else MissionStatus.PLANNING
@@ -171,6 +194,33 @@ class MissionProjectionEngine:
                         current_action = "team.show" if task_id else ""
                         next_action = ""
                         next_reason = "No safe actionable Team command can be derived."
+            elif event.event_type == EventTypes.TEAM_PLAN_APPROVED:
+                task_id = self._text(event.data.get("team_task_id"))
+                approval_id = self._text(event.data.get("approval_id"))
+                if (
+                    task_id
+                    and approval_id
+                    and status is not MissionStatus.FAILED
+                ):
+                    links["approval"] = MissionLink(
+                        "approval",
+                        approval_id,
+                        event.event_type,
+                        event.occurred_at,
+                    )
+                    status = MissionStatus.APPROVED
+                    stage = MissionStage.IMPLEMENTATION
+                    progress = max(progress, MISSION_PROGRESS["approved"])
+                    action = interface_action("team.implement", {
+                        "team_task_id": task_id,
+                        "approval_id": approval_id,
+                    })
+                    current_action = action.capability_id
+                    next_action = action.cli_command or ""
+                    next_reason = (
+                        "The Team plan is approved; implementation remains a "
+                        "separate explicit operation."
+                    )
             elif event.event_type == EventTypes.GOAL_PROPOSAL_FAILED:
                 proposal_status = "failed"
                 status = MissionStatus.FAILED
@@ -224,9 +274,32 @@ class MissionProjectionEngine:
             if event.event_type == EventTypes.GOAL_PROPOSAL_ACCEPTED
             and self._proposal_event_belongs(mission, event)
         )
+        linked_task = mission.link("team_task")
+        team_task_ids = {
+            linked_task.subject_id
+        } if linked_task is not None else set()
+        for event in ordered:
+            if event.event_type != EventTypes.TEAM_PLAN_CREATED:
+                continue
+            task_id = str(event.data.get("team_task_id", "")).strip()
+            if (
+                event.correlation_id == mission.goal_id
+                and task_id
+                and LINK_ID_PATTERN.fullmatch(task_id)
+                and event.subject_id == task_id
+                and (
+                    task_id in team_task_ids
+                    or event.causation_id in accepted_ids
+                )
+            ):
+                team_task_ids.add(task_id)
         return tuple(
             event for event in ordered
-            if self._belongs(mission, event, accepted_ids)
+            if self._belongs(
+                mission,
+                event,
+                frozenset(team_task_ids),
+            )
         )
 
     @staticmethod
@@ -269,9 +342,16 @@ class MissionProjectionEngine:
     @staticmethod
     def _base_state(
         mission: Mission,
+        links: dict[str, MissionLink],
     ) -> tuple[MissionStatus, MissionStage, int]:
         if mission.proposal_status == "failed":
             return MissionStatus.FAILED, MissionStage.FAILED, max(mission.progress, 10)
+        if "team_task" in links and "approval" in links:
+            return (
+                MissionStatus.APPROVED,
+                MissionStage.IMPLEMENTATION,
+                max(mission.progress, MISSION_PROGRESS["approved"]),
+            )
         if mission.proposal_status in {"accepted", "consumed"}:
             return (
                 MissionStatus.PLANNING,
@@ -288,7 +368,7 @@ class MissionProjectionEngine:
     def _belongs(
         mission: Mission,
         event: OrionEvent,
-        accepted_ids: frozenset[str],
+        team_task_ids: frozenset[str],
     ) -> bool:
         if event.event_type in {
             EventTypes.GOAL_PROPOSAL_CREATED,
@@ -301,15 +381,27 @@ class MissionProjectionEngine:
         if event.event_type == EventTypes.TEAM_PLAN_CREATED:
             data = event.data
             task_id = str(data.get("team_task_id", "")).strip()
-            linked_task = mission.link("team_task")
             return (
                 event.correlation_id == mission.goal_id
                 and bool(task_id)
                 and event.subject_id == task_id
-                and (
-                    (linked_task is not None and linked_task.subject_id == task_id)
-                    or event.causation_id in accepted_ids
-                )
+                and task_id in team_task_ids
+            )
+        if event.event_type == EventTypes.TEAM_PLAN_APPROVED:
+            data = event.data
+            task_id = str(data.get("team_task_id", "")).strip()
+            approval_id = str(data.get("approval_id", "")).strip()
+            plan_sha256 = str(data.get("plan_sha256", "")).strip().lower()
+            return (
+                task_id in team_task_ids
+                and event.subject_id == task_id
+                and event.correlation_id in {mission.goal_id, task_id}
+                and bool(LINK_ID_PATTERN.fullmatch(approval_id))
+                and len(plan_sha256) == 64
+                and all(character in "0123456789abcdef" for character in plan_sha256)
+                and str(data.get("status", "")).strip() == "approved"
+                and data.get("approval_required") is True
+                and str(data.get("approval_status", "")).strip() == "approved"
             )
         return False
 
