@@ -57,26 +57,35 @@ It persists restart-safe state under external user data and rebuilds it only on 
 explicit create or reconcile. It does not subscribe to events, publish reaction
 events, or call any mutation handler. See [Mission Engine](MISSION_ENGINE.md).
 
-Mission Coordinator v0.8.6 is a human-controlled gearbox layered above that
+Mission Coordinator Phase 2 is a human-controlled gearbox layered above that
 projection:
 
 ```text
 Mission -> Preview -> Confirm -> One typed operation -> Reconcile -> STOP
 ```
 
-The Coordinator determines operations without an LLM and currently allowlists only
-`team.approve -> TeamApprovalRequest -> AiTeamApplicationHandler.approve()`. A
-canonical state token binds the Mission/proposal identities, projection, cursor,
-links, target Team task, and persisted plan hash. The Coordinator verifies it while
-holding a per-Mission cross-process lock, reserves the attempt in bounded external
-audit storage, dispatches once, reconciles once, and never continues from the new
-state. Existing Team plan-hash and approval rules remain authoritative.
+The Coordinator determines operations without an LLM and explicitly allowlists the
+existing typed Team approval, implementation, validation, and Documentation Review
+application methods. Coordinated implementation and validation requests disable the
+Team layer's automatic follow-ups, preventing one dispatch from cascading into later
+stages. A canonical state token binds Mission/proposal identity, projection, cursor,
+links, and the exact authoritative plan, approval, run, and review facts needed by the
+selected operation.
 
-The Event Bus remains observational: `team.plan.approved` records a successful Team
-transition but no subscriber invokes the Coordinator. Reserved or uncertain attempts
-block replay for operator inspection. Prompting stays in the CLI adapter, and the
-Coordinator has no provider, agent, execution-engine, Git, subprocess, workspace,
-or CLI dependency. See [Mission Coordinator](MISSION_COORDINATOR.md).
+The Coordinator verifies that token while holding a per-Mission cross-process lock,
+reserves the attempt in bounded external audit storage, dispatches once, reconciles
+once, and never continues from the new state. Existing Team plan-hash, immutable
+approval, run, validation, and documentation rules remain authoritative. No typed
+Team final-decision operation currently exists, so coordination stops at final review.
+
+The Event Bus remains observational: approval, implementation, validation, and
+documentation events record persisted Team transitions, but no subscriber invokes
+the Coordinator or treats an event as permission. Strict final-review completed and
+blocked contracts are projection inputs only until a reviewed producer exists.
+Reserved or uncertain attempts block replay for operator inspection. Prompting stays
+in the CLI adapter, and the Coordinator has no direct provider, agent,
+execution-engine, Git, subprocess, workspace, or CLI dependency. See
+[Mission Coordinator](MISSION_COORDINATOR.md).
 
 Future GUI, REST, voice, Discord, mobile, or server clients must call application
 commands or domain services and consume structured results; they must not scrape CLI

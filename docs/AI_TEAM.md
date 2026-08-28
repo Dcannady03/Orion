@@ -44,20 +44,25 @@ authoritative Team task ID. When that event explicitly reports an approval
 requirement, the Mission can recommend the mapped `team approve <task-id>` and
 read-only `team status <task-id>` commands.
 
-Mission Coordinator v0.8.6 may dispatch that approval only after a fresh preview,
-exact state-token verification, and explicit user confirmation. It uses
-`approval_details()` read-only to bind the persisted plan SHA-256 and detect an
-existing approval, then translates only to `TeamApprovalRequest` and calls
-`AiTeamApplicationHandler.approve()`. AI Team still validates the plan hash and
-creates the approval; Mission never manufactures or consumes it. The Coordinator
-stops after approval and does not implement, validate, review documentation, or
-continue automatically.
+Mission Coordinator Phase 2 may dispatch approval, implementation, validation, and
+Documentation Review only after a fresh preview, exact state-token verification, and
+explicit user confirmation. It uses `coordination_details()` as a bounded read-only
+boundary for persisted plan, approval, run, validation, and documentation facts, then
+translates through exact typed requests to the existing application handlers. AI Team
+still owns every domain validation and record; Mission never manufactures an
+approval, run, or review attempt.
 
-Successful approval publishes `team.plan.approved`, allowing Mission projection to
-reach `approved / implementation` at 35%. Current Team events still do not expose
-run, implementation, validation, documentation, review, rollback, or completion
-facts to Missions. See [Mission Engine](MISSION_ENGINE.md) and
-[Mission Coordinator](MISSION_COORDINATOR.md).
+Coordinated implementation and validation requests set `run_followups=False`. This
+preserves ordinary Team CLI automatic follow-ups while ensuring that one Mission
+confirmation runs at most one stage. The Coordinator reconciles once and stops even
+when the next lifecycle operation becomes eligible.
+
+Successful persisted transitions publish `team.plan.approved`, implementation
+started/completed/failed, validation-completed, and
+documentation-review-completed events. Mission projection can therefore reach final
+human review, or a blocked/failed state, from authoritative facts. AI Team still has
+no typed final-accept or completion command; Mission cannot dispatch one. See
+[Mission Engine](MISSION_ENGINE.md) and [Mission Coordinator](MISSION_COORDINATOR.md).
 
 ## Application-core boundary
 
@@ -113,14 +118,15 @@ emits no success event.
 
 After `AiTeamApplicationHandler.approve` has successfully created the existing
 immutable approval, it publishes `team.plan.approved` with the Team task, approval
-ID, approved state, and exact plan SHA-256. A failed approval publishes no success
-event. The event observes the transition and does not grant permission to implement
-or consume the approval.
+ID, approved state, and exact plan SHA-256. Implementation publishes started and
+completed or failed facts only from the persisted run returned by the bridge.
+Validation and Documentation Review likewise publish completed facts only from their
+persisted attempt summaries. A failed operation emits no contradictory success fact.
 
-The Event Bus observes the existing Team result only. It cannot approve the plan,
-invoke implementation, launch Codex, run validation or Documentation Review, retry,
-or progress the Team workflow. An Event Store failure leaves the Team task intact
-and adds a bounded observability warning. See `EVENT_BUS.md`.
+The Event Bus observes the existing Team result only. An event is not permission for
+the next stage and no subscriber invokes Mission Coordinator. An Event Store failure
+leaves the Team record intact and adds a bounded observability warning. See
+`EVENT_BUS.md`.
 
 The handler accepts typed plan, task, approval, implementation, run, rollback, role,
 and synchronization requests. It returns JSON-safe semantic lifecycle data as well as
@@ -158,7 +164,9 @@ workflow transitions, or approval behavior.
 
 Team does not currently expose cancel, final-accept, or completion operations, so no
 aspirational capability IDs were added. `awaiting_review` with both bounded reviews
-present is projected as `final_review`; the next decision remains human.
+present is projected as `final_review`; the next decision remains human. Mission
+Coordinator recognizes reviewed final-review completed/blocked event contracts but
+does not publish or dispatch them.
 
 ## Commands
 

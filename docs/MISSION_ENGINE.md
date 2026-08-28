@@ -13,10 +13,11 @@ Goal -> Goal Plan -> Goal Proposal -> Mission -> Event projection
 Phase 1 is observation-only. It recommends a human-facing next command when a safe
 one is known, but never runs that command or advances another domain.
 
-Orion v0.8.6 adds a separate [Mission Coordinator](MISSION_COORDINATOR.md). The
-Engine remains the authoritative projection boundary. The Coordinator may dispatch
-one explicitly confirmed, state-bound application operation and then reconciles the
-Engine once before stopping.
+Orion v0.8.6 adds a separate [Mission Coordinator](MISSION_COORDINATOR.md), and
+v0.8.7 Phase 2 extends its typed allowlist through implementation, validation, and
+Documentation Review. The Engine remains the authoritative projection boundary. The
+Coordinator may dispatch one explicitly confirmed, state-bound application operation
+and then reconciles the Engine once before stopping.
 
 ## Goal, Proposal, and Mission
 
@@ -101,11 +102,10 @@ ID:
 - validation;
 - documentation review.
 
-Current events can populate a Team task link. Goal Proposal dispatch summaries may
-also supply existing Team task and approval IDs. There are currently no authoritative
-Team run, validation, documentation-review, or Command Center lifecycle events for
-Mission projection, so those links remain unset unless an existing persisted result
-explicitly supplies one. IDs are never generated or inferred from human text.
+Current Team events can populate Team task, approval, run, validation, and
+documentation-review links. Goal Proposal dispatch summaries may also supply existing
+Team task and approval IDs. Command Center lifecycle links remain unavailable. IDs are
+never generated or inferred from human text.
 
 ## Event correlation and replay
 
@@ -121,9 +121,10 @@ Proposal events must match all of:
 
 A Team plan event must match the Goal correlation and have identical subject and
 payload Team task IDs. It must also match an already-authoritative Team task link or
-be caused by this proposal's accepted event. A Team approval event must identify the
-same authoritative Team task, a valid approval ID and plan hash, and the Goal or Team
-task correlation. Goal text is never a correlation key.
+be caused by this proposal's accepted event. Downstream Team events must retain the
+same authoritative task, approval, plan hash, and run identity as applicable. Attempt
+IDs, statuses, and UTC timestamps must satisfy the strict contract, and lifecycle
+events cannot skip required phases. Goal text is never a correlation key.
 
 Mission projection understands these existing event contracts:
 
@@ -135,6 +136,13 @@ Mission projection understands these existing event contracts:
 | `goal.proposal.consumed` | Proposal `consumed`; planning/team-planning at least 15% unless a later observed state is stronger |
 | `team.plan.created` | Link its Team task; planning at 20%, or awaiting approval at 30% when its payload requires approval |
 | `team.plan.approved` | Link the authoritative approval; approved/implementation at 35% |
+| `team.implementation.started` | Link the authoritative run; implementing/implementation at 45% |
+| `team.implementation.completed` | Awaiting validation/validation at 60% |
+| `team.implementation.failed` | Failed/failed with no automatic retry action |
+| `team.validation.completed` | Link the attempt; awaiting documentation at 75% for pass/warnings, otherwise blocked/validation at 70% |
+| `team.documentation_review.completed` | Link the attempt; awaiting final review at 90% for pass/warnings/not-required, otherwise blocked/documentation review at 85% |
+| `team.final_review.blocked` | Blocked/final review at 95% |
+| `team.final_review.completed` | Completed/completed at 100% with `completed_at` |
 | `goal.proposal.failed` | Failed/failed with no automatic retry action |
 
 Unknown, malformed, unrelated, duplicated, or text-only matches do not affect the
@@ -143,7 +151,7 @@ feedback loops.
 
 ## Status, stage, and deterministic progress
 
-Only states supported by current facts are modeled:
+Only states supported by reviewed authoritative facts are modeled:
 
 | Status | Stage | Progress | Derivation |
 | --- | --- | ---: | --- |
@@ -153,19 +161,30 @@ Only states supported by current facts are modeled:
 | `planning` | `team_planning` | 20% | Team plan created without an observable approval requirement |
 | `awaiting_approval` | `approval` | 30% | Team plan event explicitly reports awaiting/required approval |
 | `approved` | `implementation` | 35% | Successful Team approval event with authoritative task, approval, and plan hash |
+| `implementing` | `implementation` | 45% | Persisted Team implementation-started fact |
+| `awaiting_validation` | `validation` | 60% | Persisted implementation completion |
+| `blocked` | `validation` | 70% | Failed, unavailable, or errored validation |
+| `awaiting_documentation` | `documentation_review` | 75% | Passed or warning validation |
+| `blocked` | `documentation_review` | 85% | Failed, unavailable, or errored documentation review |
+| `awaiting_review` | `final_review` | 90% | Passed, warning, or not-required documentation review |
+| `blocked` | `final_review` | 95% | Reviewed final-review blocked fact |
+| `completed` | `completed` | 100% | Reviewed final-review completion fact |
 | `failed` | `failed` | Last observed value, minimum 10% | Proposal failure event |
 
-Progress is a fixed mapping, never an AI estimate. Current event coverage cannot
-observe implementation, validation, documentation review, final review,
-cancellation, rollback, or completion authoritatively. It never reports 100%.
+Progress is a fixed mapping, never an AI estimate. Cancellation and rollback remain
+outside Mission projection. A Mission reaches 100% only from the strict reviewed
+final-review completion event; a successful application return alone is insufficient.
 
 ## Recommended next action
 
-When a correlated Team plan requires human approval, Mission projection uses the
-shared interface-action mapping and recommends:
+When a correlated Team lifecycle fact exposes a safe manual step, Mission projection
+uses the shared interface-action mapping and may recommend:
 
 ```text
 team approve <team-task-id>
+team implement <team-task-id> <approval-id>
+team test <run-id>
+team docs <run-id>
 ```
 
 Structured results may also suggest the read-only `team status <team-task-id>` and
@@ -228,13 +247,14 @@ Mission creation writes only Mission persistence. Reconciliation may replace onl
 Mission projection. Show, list, history, validation, and Engine recommendation logic
 remain read-only.
 
-The v0.8.6 Coordinator is the sole narrow exception: after exact-token verification
-and explicit confirmation it may call `AiTeamApplicationHandler.approve()` through a
-typed allowlist. It does not create approvals itself, consume approvals, call a CLI
-adapter, launch implementation, validation, documentation review, agents, jobs,
-providers, Git, subprocesses, or workspace mutations. There is no subscriber,
-background worker, scheduler, retry, pause/resume, GUI, REST endpoint, WebSocket,
-voice path, or Mission-generated event.
+The Coordinator is the sole narrow exception: after exact-token verification and
+explicit confirmation it may call one of the reviewed AI Team application handlers
+for approval, implementation, validation, or Documentation Review. The Phase 2
+translator disables automatic follow-up cascading for coordinated implementation and
+validation. It does not create domain records itself, call a CLI adapter, dispatch a
+final decision, retry, or continue from the reconciled state. There is no subscriber,
+background worker, scheduler, pause/resume, GUI, REST endpoint, WebSocket, voice path,
+or Mission-generated event.
 
 ## Known limitations and next milestone
 
@@ -242,13 +262,13 @@ voice path, or Mission-generated event.
   incremental byte-offset cursor.
 - Command Center currently publishes no lifecycle events that can safely drive a
   Mission link or status.
-- AI Team exposes successful approval but no Mission-consumable implementation,
-  validation, documentation, review, rollback, or completion events.
-- No authoritative completion signal exists, so Missions cannot reach completed or
-  100%.
+- AI Team emits persisted approval, implementation, validation, and documentation
+  lifecycle facts, but it has no typed final-review decision command.
+- Projection understands reviewed final-review completed/blocked event contracts;
+  the current Team application layer does not yet produce them.
 - Missions update only when explicitly created or reconciled; there is no live
   Mission subscriber.
 
-The safer next milestone is **Mission Coordinator Phase 2**, beginning with reviewed
-typed lifecycle events and operations rather than autonomy or a server over an
+The safer Phase 3 milestone is a reviewed typed human final-decision boundary and
+authoritative event producer, not autonomous continuation or a server over an
 incomplete lifecycle contract. See [Mission Coordinator](MISSION_COORDINATOR.md).

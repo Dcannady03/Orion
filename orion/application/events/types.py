@@ -15,6 +15,13 @@ class EventTypes:
     GOAL_PROPOSAL_FAILED = "goal.proposal.failed"
     TEAM_PLAN_CREATED = "team.plan.created"
     TEAM_PLAN_APPROVED = "team.plan.approved"
+    TEAM_IMPLEMENTATION_STARTED = "team.implementation.started"
+    TEAM_IMPLEMENTATION_COMPLETED = "team.implementation.completed"
+    TEAM_IMPLEMENTATION_FAILED = "team.implementation.failed"
+    TEAM_VALIDATION_COMPLETED = "team.validation.completed"
+    TEAM_DOCUMENTATION_REVIEW_COMPLETED = "team.documentation_review.completed"
+    TEAM_FINAL_REVIEW_COMPLETED = "team.final_review.completed"
+    TEAM_FINAL_REVIEW_BLOCKED = "team.final_review.blocked"
 
 
 KNOWN_EVENT_TYPES = (
@@ -28,4 +35,11 @@ KNOWN_EVENT_TYPES = (
     EventTypes.GOAL_PROPOSAL_FAILED,
     EventTypes.TEAM_PLAN_CREATED,
     EventTypes.TEAM_PLAN_APPROVED,
+    EventTypes.TEAM_IMPLEMENTATION_STARTED,
+    EventTypes.TEAM_IMPLEMENTATION_COMPLETED,
+    EventTypes.TEAM_IMPLEMENTATION_FAILED,
+    EventTypes.TEAM_VALIDATION_COMPLETED,
+    EventTypes.TEAM_DOCUMENTATION_REVIEW_COMPLETED,
+    EventTypes.TEAM_FINAL_REVIEW_COMPLETED,
+    EventTypes.TEAM_FINAL_REVIEW_BLOCKED,
 )
