@@ -23,9 +23,10 @@ notifications in v0.8.4. Mission Engine Phase 1 later reads persisted Event Stor
 history through bounded queries; it is not a live subscriber and does not publish
 reaction events. See [Mission Engine](MISSION_ENGINE.md).
 
-Mission Coordinator v0.8.6 also does not react to live events. It dispatches only
-after explicit confirmation, then performs one read-based reconciliation. The bus is
-evidence for projection, never permission to coordinate another operation.
+Mission Coordinator Phase 2 also does not react to live events. It dispatches one
+typed operation only after explicit confirmation, then performs one read-based
+reconciliation and stops. The bus is evidence for projection, never permission to
+coordinate another operation.
 
 ## Event model
 
@@ -75,12 +76,22 @@ goal.proposal.consumed
 goal.proposal.failed
 team.plan.created
 team.plan.approved
+team.implementation.started
+team.implementation.completed
+team.implementation.failed
+team.validation.completed
+team.documentation_review.completed
+team.final_review.completed
+team.final_review.blocked
 ```
 
-Only these existing operations are instrumented. `team.plan.approved` is published
-only after the existing Team approval service has created its immutable,
-plan-hash-bound approval record; failure emits no success event. Command Center,
-agents, providers, workspaces, and other domains do not emit Event Bus records yet.
+Only reviewed application boundaries may publish these contracts.
+`team.plan.approved` follows creation of the immutable plan-hash-bound approval.
+Implementation, validation, and documentation facts are derived from persisted Team
+run and attempt records returned by their existing handlers. The final-review
+completed/blocked types are registered for strict Mission projection, but the current
+AI Team layer has no typed final-decision producer. Command Center, agents, providers,
+workspaces, and other domains do not emit Event Bus records yet.
 
 ## Severity
 
@@ -128,6 +139,19 @@ team.plan.approved       correlation = goal_id
 Mission projection additionally requires the subject/payload task to match its
 authoritative Team-task link plus a valid approval ID and plan SHA-256. Correlation
 alone is insufficient.
+
+Mission-coordinated post-approval operations preserve the same Goal correlation and
+latest-Mission-event causation while retaining authoritative Team identity:
+
+```text
+team.implementation.started/completed/failed
+  -> team.validation.completed
+  -> team.documentation_review.completed
+```
+
+Projection additionally verifies the approval, plan hash, run, attempt ID, status,
+UTC timestamps, and legal lifecycle order. A later event cannot manufacture a missed
+earlier phase.
 
 ## Event Factory and publisher
 
@@ -299,8 +323,9 @@ handler, and CLI:
 - cannot accept arbitrary user-published lifecycle events.
 
 Domain activity remains limited to operations explicitly authorized outside the bus:
-Goal Proposal acceptance may dispatch one typed `team.plan`, and Mission Coordinator
-confirmation may dispatch one typed `team.approve`. Events merely record the
+Goal Proposal acceptance may dispatch one typed `team.plan`, and each Mission
+Coordinator confirmation may dispatch at most one allowlisted typed Team approval,
+implementation, validation, or Documentation Review request. Events merely record the
 resulting authoritative transitions and never authorize the next one.
 
 ## Schema compatibility
@@ -322,7 +347,6 @@ Future schema work must preserve existing event identities and public type meani
   activity identity.
 - Legacy clients that parse messages should migrate to structured event fields.
 
-Mission Engine Phase 1 and Mission Coordinator v0.8.6 now consume this history
-without adding reactions. The safer next milestone is **Mission Coordinator Phase
-2**, beginning with reviewed lifecycle observability and typed operation boundaries;
+Mission Engine and Mission Coordinator Phase 2 consume this history without adding
+reactions. A safer Phase 3 starts with a reviewed typed human final-decision producer;
 autonomy and a server over incomplete lifecycle facts remain premature.

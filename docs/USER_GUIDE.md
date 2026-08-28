@@ -583,26 +583,31 @@ progress, Team task links, and recommended commands from strictly correlated Eve
 Store facts.
 
 Mission Engine remains observation-only. `mission next` reconciles, validates, and
-previews one safe operation without executing it. In v0.8.6 the only supported
-operation is `team.approve` for an authoritative awaiting-approval Team task with no
-existing approval. `mission advance` repeats that preview, displays target, mutation,
-and downstream-approval details, then prompts:
+previews one safe operation without executing it. Mission Coordinator Phase 2 can
+select one of `team.approve`, `team.implement`, `team.validate`, or
+`team.documentation_review` when the exact authoritative Team lifecycle facts make
+that operation legal. `mission advance` repeats that preview, displays target,
+mutation, and downstream-approval details, then prompts:
 
 ```text
 Advance this Mission by exactly one operation? [Y/N/D]:
 ```
 
 `N`, empty input, or interruption cancels; `D` displays details only; `Y` verifies
-the exact state-bound token and may call the existing Team approval handler once.
-Team still validates the plan hash and owns the approval. The Coordinator then
-reconciles once and stops—it never implements or continues automatically.
+the exact state-bound token and may call one existing typed Team handler once. Team
+still owns the plan, immutable approval, implementation run, validation, and
+documentation attempt. Coordinated implementation and validation disable their
+automatic follow-ups. The Coordinator reconciles once and stops even when another
+stage becomes eligible.
 
 Coordination audit and locks persist under `~/.orion/missions/coordination/` so a
-restart, duplicate request, stale token, stale lock, or uncertain prior dispatch
-fails closed. Unsupported stages, including final review without a real completion
-operation, show a blocked preview. Current event visibility reaches successful Team
-approval at 35% but not implementation or completion. See `MISSION_ENGINE.md` and
-`MISSION_COORDINATOR.md`.
+restart, duplicate request, stale token, stale lock, unresolved Team run, authoritative
+mismatch, or uncertain prior dispatch fails closed. Validation and documentation
+failures project a blocked state; implementation failure is terminal. Successful
+documentation reaches final human review at 90%. The current Team application layer
+has no typed final-decision operation, so the Coordinator stops there. A strict
+reviewed final-completion event can project 100% but is not produced or dispatched by
+Phase 2. See `MISSION_ENGINE.md` and `MISSION_COORDINATOR.md`.
 
 ## 7. Memory, conversations, search, and knowledge
 
@@ -1759,10 +1764,12 @@ or execute anything from the CLI.
 | `mission next <mission-id>` | Preview the one eligible operation and state-bound token; execute nothing |
 | `mission advance <mission-id>` | Confirm and dispatch at most one current allowlisted operation, reconcile, and stop |
 
-Only `mission advance` can dispatch, and only after explicit Y/N/D confirmation. Its
-v0.8.6 allowlist contains `team.approve` only. Current progress is a fixed 5–35%
-mapping over proposal, Team-plan, and successful Team-approval facts; no completion
-signal exists.
+Only `mission advance` can dispatch, and only after explicit Y/N/D confirmation. The
+Phase 2 allowlist contains `team.approve`, `team.implement`, `team.validate`, and
+`team.documentation_review`. Each confirmation performs at most one mutation, one
+reconciliation, and then stops. Fixed progress can reach final review from persisted
+Team lifecycle events; the current Team layer still has no typed final-decision
+command.
 
 ### AI Team
 

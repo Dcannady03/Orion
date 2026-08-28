@@ -151,6 +151,7 @@ class MissionService:
                 stage=projection.stage,
                 progress=projection.progress,
                 updated_at=self._now(),
+                completed_at=projection.completed_at,
                 failed_at=projection.failed_at,
                 current_action=projection.current_action,
                 next_action=projection.next_action,

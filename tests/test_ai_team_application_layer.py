@@ -176,7 +176,7 @@ class FakeBridge:
     def latest_documentable_run(self):
         return self.persisted
 
-    def validate(self, run_id):
+    def validate(self, run_id, *, run_followups=True):
         return self.persisted
 
     def document(self, run_id):

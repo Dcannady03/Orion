@@ -64,6 +64,9 @@ class TeamImplementationRequest:
 
     team_task_id: str
     approval_id: str
+    run_followups: bool = True
+    correlation_id: str | None = None
+    causation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,9 @@ class TeamRunRequest:
     """Structured request for one persisted implementation run."""
 
     run_id: str
+    run_followups: bool = True
+    correlation_id: str | None = None
+    causation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -271,10 +277,14 @@ def team_run_lifecycle_data(run: Any) -> dict[str, object]:
             data["commit"] = commit
     if validation is not None:
         data["validation_status"] = str(getattr(validation, "status", ""))
+        data["validation_id"] = str(getattr(validation, "attempt_id", ""))
         data["validation"] = validation.to_dict()
     if documentation is not None:
         data["documentation_review_status"] = str(
             getattr(documentation, "status", "")
+        )
+        data["documentation_review_id"] = str(
+            getattr(documentation, "attempt_id", "")
         )
         data["documentation_review"] = documentation.to_dict()
     if result is not None:
@@ -291,6 +301,54 @@ def team_run_lifecycle_data(run: Any) -> dict[str, object]:
         data["error"] = error
     if hasattr(run, "to_dict") and callable(run.to_dict):
         data["run"] = run.to_dict()
+    return data
+
+
+def team_run_coordination_data(run: Any) -> dict[str, object]:
+    """Return the bounded persisted facts used for Mission coordination."""
+    validation = getattr(run, "validation", None)
+    documentation = getattr(run, "documentation", None)
+    result = getattr(run, "result", None)
+    data: dict[str, object] = {
+        "run_id": str(getattr(run, "run_id", "")),
+        "team_task_id": str(getattr(run, "team_task_id", "")),
+        "approval_id": str(getattr(run, "approval_id", "")),
+        "plan_sha256": str(getattr(run, "plan_hash", "")),
+        "status": str(getattr(run, "status", "")),
+        "stage": team_run_stage(run),
+        "implementation_status": (
+            "complete" if result is not None else str(getattr(run, "status", ""))
+        ),
+        "started_at": str(getattr(run, "started_at", "")),
+        "completed_at": str(getattr(run, "completed_at", "")),
+        "validation_status": "",
+        "validation_id": "",
+        "validation_completed_at": "",
+        "documentation_review_status": "",
+        "documentation_review_id": "",
+        "documentation_review_completed_at": "",
+        "error": str(getattr(run, "error", "")),
+    }
+    if validation is not None:
+        data.update({
+            "validation_status": str(getattr(validation, "status", "")),
+            "validation_id": str(getattr(validation, "attempt_id", "")),
+            "validation_completed_at": str(
+                getattr(validation, "completed_at", "")
+            ),
+        })
+    if documentation is not None:
+        data.update({
+            "documentation_review_status": str(
+                getattr(documentation, "status", "")
+            ),
+            "documentation_review_id": str(
+                getattr(documentation, "attempt_id", "")
+            ),
+            "documentation_review_completed_at": str(
+                getattr(documentation, "completed_at", "")
+            ),
+        })
     return data
 
 
@@ -537,6 +595,90 @@ class AiTeamApplicationHandler:
             next_actions=cli_next_actions(actions),
         )
 
+    def coordination_details(self, request: TeamTaskRequest) -> ApplicationResult:
+        """Inspect bounded approval and run facts without mutating Team state."""
+        try:
+            task_id = self._required(request.team_task_id, "AI Team task ID")
+            task = self.team.task(task_id)
+            if str(getattr(task, "task_id", "")).strip() != task_id:
+                raise ValueError("AI Team task identity does not match the request.")
+            plan_sha256 = PlanSnapshot.from_team_task(task).hash
+        except (
+            FileNotFoundError,
+            OSError,
+            PermissionError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            return self._failure("AI Team coordination details are unavailable", exc)
+
+        warnings: list[str] = []
+        approvals: tuple[Any, ...] = ()
+        approval_inspection_available = False
+        try:
+            inspector = getattr(self.bridge, "approvals_for_task", None)
+            if callable(inspector):
+                approvals = tuple(inspector(task_id))[:100]
+                approval_inspection_available = True
+        except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
+            warnings.append(
+                "Team approvals could not be inspected safely "
+                f"({type(exc).__name__})."
+            )
+
+        runs: tuple[Any, ...] = ()
+        unresolved: tuple[Any, ...] = ()
+        run_inspection_available = False
+        try:
+            inspector = getattr(self.bridge, "inspect_runs_for_task", None)
+            if callable(inspector):
+                inspection = inspector(task_id)
+                if str(getattr(inspection, "team_task_id", "")).strip() != task_id:
+                    raise ValueError("Team run inspection returned a different task.")
+                runs = tuple(getattr(inspection, "runs", ()))[:100]
+                unresolved = tuple(getattr(inspection, "unresolved", ()))[:100]
+                run_inspection_available = True
+        except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
+            warnings.append(
+                "Team implementation runs could not be inspected safely "
+                f"({type(exc).__name__})."
+            )
+
+        approval_summaries = [
+            {
+                "team_task_id": str(getattr(item, "team_task_id", "")),
+                "approval_id": str(getattr(item, "approval_id", "")),
+                "plan_sha256": str(getattr(item, "plan_hash", "")),
+                "workspace": str(getattr(item, "workspace_root", "")),
+                "approved_at": str(getattr(item, "approved_at", "")),
+            }
+            for item in approvals
+        ]
+        unresolved_summaries = [
+            {
+                "run_id": str(getattr(item, "run_id", "")),
+                "started_at": str(getattr(item, "started_at", "")),
+                "category": str(getattr(item, "category", "")),
+            }
+            for item in unresolved
+        ]
+        return ApplicationResult.success(
+            "AI Team coordination facts inspected without mutation.",
+            data={
+                "team_task_id": task_id,
+                "task_status": str(getattr(task, "status", "")),
+                "plan_sha256": plan_sha256,
+                "approval_inspection_available": approval_inspection_available,
+                "approvals": approval_summaries,
+                "run_inspection_available": run_inspection_available,
+                "runs": [team_run_coordination_data(item) for item in runs],
+                "unresolved_runs": unresolved_summaries,
+                "read_only": True,
+            },
+            warnings=tuple(warnings),
+        )
+
     def approve(self, request: TeamApprovalRequest) -> ApplicationResult:
         try:
             task_id = self._required(request.team_task_id, "AI Team task ID")
@@ -655,7 +797,10 @@ class AiTeamApplicationHandler:
                 execution_engine,
                 capabilities,
             )
-            run = self.bridge.execute(context)
+            run = self.bridge.execute(
+                context,
+                run_followups=request.run_followups,
+            )
         except ExecutionEngineUnavailable as exc:
             return ApplicationResult.failure(
                 self._no_execution_engine_message(engines),
@@ -685,7 +830,7 @@ class AiTeamApplicationHandler:
                 (interface_action("team.show", {"run_id": run_id}),)
                 if run_id else ()
             )
-            return ApplicationResult.failure(
+            failure = ApplicationResult.failure(
                 message,
                 data={
                     "team_task_id": task_id,
@@ -697,13 +842,37 @@ class AiTeamApplicationHandler:
                 warnings=sync_warnings,
                 next_actions=cli_next_actions(actions),
             )
+            if not run_id:
+                return failure
+            try:
+                observed_run = self.bridge.run(run_id)
+            except (FileNotFoundError, OSError, PermissionError, ValueError):
+                return failure
+            return self._attach_run_lifecycle_events(
+                failure,
+                observed_run,
+                operation="implementation",
+                correlation_id=request.correlation_id,
+                causation_id=request.causation_id,
+                include_started=True,
+                include_followups=False,
+            )
         sync_warnings = self._sync(run_id=run.run_id)
         result = self._run_result(run, warnings=sync_warnings)
-        return ApplicationResult.success(
+        completed = ApplicationResult.success(
             "Starting one approval-bound local Codex execution...\n" + result.message,
             data=result.data,
             warnings=result.warnings,
             next_actions=result.next_actions,
+        )
+        return self._attach_run_lifecycle_events(
+            completed,
+            run,
+            operation="implementation",
+            correlation_id=request.correlation_id,
+            causation_id=request.causation_id,
+            include_started=True,
+            include_followups=request.run_followups,
         )
 
     def show_run(self, request: TeamRunRequest) -> ApplicationResult:
@@ -729,7 +898,10 @@ class AiTeamApplicationHandler:
                 if run_id.lower() == "last"
                 else self.bridge.run(run_id)
             )
-            run = self.bridge.validate(selected.run_id)
+            run = self.bridge.validate(
+                selected.run_id,
+                run_followups=request.run_followups,
+            )
         except (
             FileNotFoundError,
             OSError,
@@ -739,7 +911,15 @@ class AiTeamApplicationHandler:
         ) as exc:
             return self._failure("Automatic validation refused", exc, run_id=run_id)
         sync_warnings = self._sync(run_id=run.run_id)
-        return self._run_result(run, warnings=sync_warnings)
+        result = self._run_result(run, warnings=sync_warnings)
+        return self._attach_run_lifecycle_events(
+            result,
+            run,
+            operation="validation",
+            correlation_id=request.correlation_id,
+            causation_id=request.causation_id,
+            include_followups=request.run_followups,
+        )
 
     def documentation_review(self, request: TeamRunRequest) -> ApplicationResult:
         try:
@@ -769,11 +949,18 @@ class AiTeamApplicationHandler:
             if selected_latest else ""
         )
         result = self._run_result(run, warnings=sync_warnings)
-        return ApplicationResult.success(
+        completed = ApplicationResult.success(
             prefix + result.message,
             data=result.data,
             warnings=result.warnings,
             next_actions=result.next_actions,
+        )
+        return self._attach_run_lifecycle_events(
+            completed,
+            run,
+            operation="documentation_review",
+            correlation_id=request.correlation_id,
+            causation_id=request.causation_id,
         )
 
     def documentation_status(self, request: TeamRunRequest) -> ApplicationResult:
@@ -1126,6 +1313,145 @@ class AiTeamApplicationHandler:
             warnings=warnings,
             next_actions=team_run_next_actions(run),
         )
+
+    def _attach_run_lifecycle_events(
+        self,
+        result: ApplicationResult,
+        run: Any,
+        *,
+        operation: str,
+        correlation_id: str | None,
+        causation_id: str | None,
+        include_started: bool = False,
+        include_followups: bool = False,
+    ) -> ApplicationResult:
+        """Publish only persisted run facts after one application operation."""
+        publisher = getattr(self.runtime, "event_publisher", None)
+        if publisher is None:
+            return result
+        facts = team_run_coordination_data(run)
+        task_id = str(facts.get("team_task_id", "")).strip()
+        run_id = str(facts.get("run_id", "")).strip()
+        approval_id = str(facts.get("approval_id", "")).strip()
+        plan_sha256 = str(facts.get("plan_sha256", "")).strip().lower()
+        if not task_id or not run_id or not approval_id or not plan_sha256:
+            return result
+        correlation = str(correlation_id or task_id).strip()
+        cause = str(causation_id or "").strip() or None
+        publications = []
+
+        def publish(event_type: str, severity: str, data: Mapping[str, object]):
+            nonlocal cause
+            publication = publisher.publish_lifecycle_event(
+                event_type=event_type,
+                source="ai_team",
+                severity=severity,
+                correlation_id=correlation,
+                causation_id=cause,
+                subject_id=run_id,
+                data=data,
+            )
+            publications.append(publication)
+            if publication.event_id:
+                cause = publication.event_id
+
+        identity = {
+            "team_task_id": task_id,
+            "run_id": run_id,
+            "approval_id": approval_id,
+            "plan_sha256": plan_sha256,
+        }
+        if include_started:
+            publish(
+                EventTypes.TEAM_IMPLEMENTATION_STARTED,
+                "notice",
+                {
+                    **identity,
+                    "status": "executing",
+                    "stage": "implementation",
+                    "implementation_status": "executing",
+                    "started_at": str(facts.get("started_at", "")),
+                },
+            )
+
+        status = str(facts.get("status", "")).strip().lower()
+        if operation == "implementation":
+            if status == "awaiting_review" and facts.get("implementation_status") == "complete":
+                publish(
+                    EventTypes.TEAM_IMPLEMENTATION_COMPLETED,
+                    "notice",
+                    {
+                        **identity,
+                        "status": "awaiting_review",
+                        "stage": "validation",
+                        "implementation_status": "complete",
+                        "started_at": str(facts.get("started_at", "")),
+                        "completed_at": str(facts.get("completed_at", "")),
+                    },
+                )
+            elif status == "failed":
+                publish(
+                    EventTypes.TEAM_IMPLEMENTATION_FAILED,
+                    "error",
+                    {
+                        **identity,
+                        "status": "failed",
+                        "stage": "implementation",
+                        "implementation_status": "failed",
+                        "started_at": str(facts.get("started_at", "")),
+                        "completed_at": str(facts.get("completed_at", "")),
+                        "error_category": str(facts.get("error", "")),
+                    },
+                )
+
+        validation_status = str(facts.get("validation_status", "")).strip().lower()
+        validation_id = str(facts.get("validation_id", "")).strip()
+        if (
+            operation == "validation"
+            or (operation == "implementation" and include_followups)
+        ) and validation_status and validation_id:
+            publish(
+                EventTypes.TEAM_VALIDATION_COMPLETED,
+                "warning" if validation_status in {"failed", "unavailable", "error"} else "notice",
+                {
+                    **identity,
+                    "status": "awaiting_review",
+                    "stage": "documentation_review",
+                    "validation_id": validation_id,
+                    "validation_status": validation_status,
+                    "completed_at": str(
+                        facts.get("validation_completed_at", "")
+                    ),
+                },
+            )
+
+        documentation_status = str(
+            facts.get("documentation_review_status", "")
+        ).strip().lower()
+        documentation_id = str(
+            facts.get("documentation_review_id", "")
+        ).strip()
+        if (
+            operation == "documentation_review"
+            or include_followups
+        ) and documentation_status and documentation_id:
+            publish(
+                EventTypes.TEAM_DOCUMENTATION_REVIEW_COMPLETED,
+                "warning"
+                if documentation_status in {"failed", "unavailable", "error"}
+                else "notice",
+                {
+                    **identity,
+                    "status": "awaiting_review",
+                    "stage": "final_review",
+                    "documentation_review_id": documentation_id,
+                    "documentation_review_status": documentation_status,
+                    "completed_at": str(
+                        facts.get("documentation_review_completed_at", "")
+                    ),
+                },
+            )
+        return publisher.attach(result, *publications)
 
     def _artifact_directory(self, run: Any) -> Path | None:
         store = getattr(self.bridge, "store", None)

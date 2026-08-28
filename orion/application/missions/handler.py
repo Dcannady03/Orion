@@ -322,7 +322,12 @@ class MissionApplicationHandler:
     @staticmethod
     def _next_actions(mission: Mission) -> tuple[str, ...]:
         commands: list[str] = []
-        if mission.status is MissionStatus.AWAITING_APPROVAL:
+        if mission.status in {
+            MissionStatus.AWAITING_APPROVAL,
+            MissionStatus.APPROVED,
+            MissionStatus.AWAITING_VALIDATION,
+            MissionStatus.AWAITING_DOCUMENTATION,
+        }:
             commands.append(f"mission next {mission.mission_id}")
         if mission.next_action:
             commands.append(mission.next_action)
@@ -340,6 +345,7 @@ class MissionApplicationHandler:
     @classmethod
     def _format_mission(cls, mission: Mission, *, heading: str = "Mission") -> str:
         task = mission.link("team_task")
+        run = mission.link("team_run")
         lines = [
             heading,
             "-" * 72,
@@ -355,6 +361,8 @@ class MissionApplicationHandler:
         ]
         if task is not None:
             lines.extend(["", "AI Team", f"  Task     : {task.subject_id}"])
+        if run is not None:
+            lines.append(f"  Run      : {run.subject_id}")
         if mission.next_action:
             lines.extend(["", "Next:", f"  {mission.next_action}"])
         else:

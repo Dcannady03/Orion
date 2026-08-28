@@ -8,6 +8,7 @@ import hmac
 import json
 import re
 from threading import RLock
+from typing import Mapping
 from uuid import uuid4
 
 from orion.application.commands.ai_team_commands import TeamTaskRequest
@@ -158,9 +159,7 @@ class MissionCoordinator:
 
                 updated = after.mission
                 audit_state = "succeeded" if downstream.ok else "failed"
-                downstream_reference = str(
-                    downstream.data.get("approval_id", "")
-                ).strip()
+                downstream_reference = self._downstream_reference(downstream)
                 completed = replace(
                     reserved,
                     state=audit_state,
@@ -240,24 +239,55 @@ class MissionCoordinator:
                 mission.mission_id,
                 "Failed Missions cannot be advanced or retried automatically.",
             )
+        if mission.status is MissionStatus.BLOCKED:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The authoritative Team lifecycle is blocked; automatic retry is "
+                "not supported.",
+            )
+        if mission.status is MissionStatus.COMPLETED:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The Mission is already complete and has no next mutation.",
+            )
+        if mission.status is MissionStatus.IMPLEMENTING:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "A Team implementation is already recorded as executing. Inspect "
+                "the run and reconcile before another operation.",
+            )
         if mission.status is MissionStatus.AWAITING_REVIEW:
             return MissionNextOperation.blocked_operation(
                 mission.mission_id,
-                "Explicit final review completion is not implemented.",
-            )
-        if mission.status is MissionStatus.APPROVED:
-            return MissionNextOperation.blocked_operation(
-                mission.mission_id,
-                "team.implement coordination is not supported in v0.8.6.",
+                "The Mission is awaiting explicit final review; the AI Team "
+                "application exposes no typed completion operation.",
             )
         if (
-            mission.status is not MissionStatus.AWAITING_APPROVAL
-            or mission.stage is not MissionStage.APPROVAL
+            mission.status is MissionStatus.AWAITING_APPROVAL
+            and mission.stage is MissionStage.APPROVAL
         ):
-            return MissionNextOperation.blocked_operation(
-                mission.mission_id,
-                "No supported operation is eligible from the current Mission state.",
-            )
+            return self._approval_operation(mission)
+        if (
+            mission.status is MissionStatus.APPROVED
+            and mission.stage is MissionStage.IMPLEMENTATION
+        ):
+            return self._implementation_operation(mission)
+        if (
+            mission.status is MissionStatus.AWAITING_VALIDATION
+            and mission.stage is MissionStage.VALIDATION
+        ):
+            return self._validation_operation(mission)
+        if (
+            mission.status is MissionStatus.AWAITING_DOCUMENTATION
+            and mission.stage is MissionStage.DOCUMENTATION_REVIEW
+        ):
+            return self._documentation_operation(mission)
+        return MissionNextOperation.blocked_operation(
+            mission.mission_id,
+            "No supported operation is eligible from the current Mission state.",
+        )
+
+    def _approval_operation(self, mission: Mission) -> MissionNextOperation:
         task = mission.link("team_task")
         if task is None:
             return MissionNextOperation.blocked_operation(
@@ -342,6 +372,291 @@ class MissionCoordinator:
             cli_representation=action.cli_command,
         )
 
+    def _implementation_operation(self, mission: Mission) -> MissionNextOperation:
+        task = mission.link("team_task")
+        approval = mission.link("approval")
+        if task is None or approval is None:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The approved Mission is missing its Team task or approval link.",
+            )
+        details, reason = self._coordination_details(mission, task.subject_id)
+        if details is None:
+            return MissionNextOperation.blocked_operation(mission.mission_id, reason)
+        if str(details.get("task_status", "")).strip() != "awaiting_approval":
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The authoritative Team task is not in its approved-plan source state.",
+            )
+        plan_sha256 = str(details.get("plan_sha256", "")).strip().lower()
+        approvals = self._records(details, "approvals")
+        matching_approvals = [
+            item for item in approvals
+            if str(item.get("team_task_id", "")).strip() == task.subject_id
+            and str(item.get("approval_id", "")).strip() == approval.subject_id
+            and str(item.get("plan_sha256", "")).strip().lower() == plan_sha256
+        ]
+        if (
+            not _PLAN_HASH_PATTERN.fullmatch(plan_sha256)
+            or len(approvals) != 1
+            or len(matching_approvals) != 1
+        ):
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The linked Team approval cannot be verified against the current plan.",
+            )
+        if self._records(details, "unresolved_runs"):
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "An unresolved Team run record exists; implementation fails closed.",
+            )
+        if self._records(details, "runs"):
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "A Team implementation run already exists, but Mission projection "
+                "has not observed it. Inspect and reconcile before continuing.",
+            )
+        action = interface_action("team.implement", {
+            "team_task_id": task.subject_id,
+            "approval_id": approval.subject_id,
+        })
+        if not action.cli_command:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The team.implement interface mapping is unavailable.",
+            )
+        return MissionNextOperation(
+            mission_id=mission.mission_id,
+            capability_id="team.implement",
+            operation_type="team_implementation",
+            subject_id=task.subject_id,
+            reason="The linked immutable approval is eligible for one implementation.",
+            requires_confirmation=True,
+            requires_downstream_approval=True,
+            mutates_state=True,
+            required_inputs=("team_task_id", "approval_id", "plan_sha256"),
+            resolved_inputs={
+                "team_task_id": task.subject_id,
+                "approval_id": approval.subject_id,
+                "plan_sha256": plan_sha256,
+            },
+            cli_representation=action.cli_command,
+        )
+
+    def _validation_operation(self, mission: Mission) -> MissionNextOperation:
+        run, reason = self._verified_run(mission)
+        if run is None:
+            return MissionNextOperation.blocked_operation(mission.mission_id, reason)
+        if str(run.get("status", "")).strip() != "awaiting_review" or str(
+            run.get("implementation_status", "")
+        ).strip() != "complete":
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The authoritative Team run is not a completed implementation.",
+            )
+        if str(run.get("validation_status", "")).strip():
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "Validation already exists, but Mission projection has not observed "
+                "it. Inspect and reconcile before continuing.",
+            )
+        action = interface_action("team.validate", {"run_id": run["run_id"]})
+        if not action.cli_command:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The team.validate interface mapping is unavailable.",
+            )
+        inputs = {
+            "run_id": run["run_id"],
+            "team_task_id": run["team_task_id"],
+            "approval_id": run["approval_id"],
+            "plan_sha256": run["plan_sha256"],
+            "implementation_completed_at": run["completed_at"],
+        }
+        if (
+            any(not str(value).strip() for value in inputs.values())
+            or not self._valid_timestamp(inputs["implementation_completed_at"])
+        ):
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The completed Team run is missing token-bound lifecycle facts.",
+            )
+        return MissionNextOperation(
+            mission_id=mission.mission_id,
+            capability_id="team.validate",
+            operation_type="team_validation",
+            subject_id=str(run["run_id"]),
+            reason="The implementation completed and has no validation attempt.",
+            requires_confirmation=True,
+            requires_downstream_approval=False,
+            mutates_state=True,
+            required_inputs=tuple(inputs),
+            resolved_inputs=inputs,
+            cli_representation=action.cli_command,
+        )
+
+    def _documentation_operation(self, mission: Mission) -> MissionNextOperation:
+        run, reason = self._verified_run(mission)
+        if run is None:
+            return MissionNextOperation.blocked_operation(mission.mission_id, reason)
+        validation_status = str(run.get("validation_status", "")).strip().lower()
+        if validation_status not in {"passed", "warnings"}:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "Documentation Review requires authoritative passed or warning "
+                "validation state.",
+            )
+        if str(run.get("documentation_review_status", "")).strip():
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "Documentation Review already exists, but Mission projection has "
+                "not observed it. Inspect and reconcile before continuing.",
+            )
+        action = interface_action(
+            "team.documentation_review",
+            {"run_id": run["run_id"]},
+        )
+        if not action.cli_command:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The team.documentation_review interface mapping is unavailable.",
+            )
+        inputs = {
+            "run_id": run["run_id"],
+            "team_task_id": run["team_task_id"],
+            "approval_id": run["approval_id"],
+            "plan_sha256": run["plan_sha256"],
+            "implementation_completed_at": run["completed_at"],
+            "validation_id": run["validation_id"],
+            "validation_status": validation_status,
+            "validation_completed_at": run["validation_completed_at"],
+        }
+        if (
+            any(not str(value).strip() for value in inputs.values())
+            or not self._valid_timestamp(inputs["implementation_completed_at"])
+            or not self._valid_timestamp(inputs["validation_completed_at"])
+        ):
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The validated Team run is missing token-bound lifecycle facts.",
+            )
+        return MissionNextOperation(
+            mission_id=mission.mission_id,
+            capability_id="team.documentation_review",
+            operation_type="team_documentation_review",
+            subject_id=str(run["run_id"]),
+            reason="Validation completed and documentation has not been reviewed.",
+            requires_confirmation=True,
+            requires_downstream_approval=False,
+            mutates_state=True,
+            required_inputs=tuple(inputs),
+            resolved_inputs=inputs,
+            cli_representation=action.cli_command,
+        )
+
+    def _verified_run(
+        self,
+        mission: Mission,
+    ) -> tuple[dict[str, object] | None, str]:
+        task = mission.link("team_task")
+        approval = mission.link("approval")
+        linked_run = mission.link("team_run")
+        if task is None or approval is None or linked_run is None:
+            return None, "The Mission is missing authoritative Team lifecycle links."
+        details, reason = self._coordination_details(mission, task.subject_id)
+        if details is None:
+            return None, reason
+        if self._records(details, "unresolved_runs"):
+            return None, "An unresolved Team run record exists; advancement fails closed."
+        runs = self._records(details, "runs")
+        matching = [
+            item for item in runs
+            if str(item.get("run_id", "")).strip() == linked_run.subject_id
+            and str(item.get("team_task_id", "")).strip() == task.subject_id
+            and str(item.get("approval_id", "")).strip() == approval.subject_id
+        ]
+        if len(matching) != 1 or len(runs) != 1:
+            return None, (
+                "The authoritative Team run set does not match the Mission links; "
+                "advancement fails closed."
+            )
+        run = matching[0]
+        plan_sha256 = str(run.get("plan_sha256", "")).strip().lower()
+        approvals = self._records(details, "approvals")
+        matching_approvals = [
+            item for item in approvals
+            if str(item.get("team_task_id", "")).strip() == task.subject_id
+            and str(item.get("approval_id", "")).strip() == approval.subject_id
+            and str(item.get("plan_sha256", "")).strip().lower() == plan_sha256
+        ]
+        if (
+            not _PLAN_HASH_PATTERN.fullmatch(plan_sha256)
+            or plan_sha256 != str(details.get("plan_sha256", "")).strip().lower()
+            or len(approvals) != 1
+            or len(matching_approvals) != 1
+        ):
+            return None, "The Team run plan hash does not match the current Team plan."
+        return run, ""
+
+    def _coordination_details(
+        self,
+        mission: Mission,
+        task_id: str,
+    ) -> tuple[dict[str, object] | None, str]:
+        inspector = getattr(self.team_application, "coordination_details", None)
+        if not callable(inspector):
+            return None, "AI Team coordination inspection is unavailable."
+        try:
+            details = inspector(TeamTaskRequest(task_id))
+        except Exception as exc:
+            return None, (
+                "AI Team lifecycle state could not be inspected safely "
+                f"({type(exc).__name__})."
+            )
+        if not isinstance(details, ApplicationResult) or not details.ok:
+            return None, "AI Team lifecycle details are unavailable for this Mission."
+        data = dict(details.data)
+        if (
+            str(data.get("team_task_id", "")).strip() != task_id
+            or data.get("read_only") is not True
+        ):
+            return None, "AI Team lifecycle details do not match the Mission task."
+        if data.get("approval_inspection_available") is not True:
+            return None, "Team approval inspection is unavailable; advancement fails closed."
+        if data.get("run_inspection_available") is not True:
+            return None, "Team run inspection is unavailable; advancement fails closed."
+        for name in ("approvals", "runs", "unresolved_runs"):
+            records = data.get(name)
+            if (
+                not isinstance(records, (list, tuple))
+                or len(records) > 100
+                or any(not isinstance(item, Mapping) for item in records)
+            ):
+                return None, (
+                    f"Team {name.replace('_', ' ')} metadata is malformed; "
+                    "advancement fails closed."
+                )
+        return data, ""
+
+    @staticmethod
+    def _records(data: dict[str, object], name: str) -> list[dict[str, object]]:
+        value = data.get(name, ())
+        if not isinstance(value, (list, tuple)):
+            return []
+        return [dict(item) for item in value]
+
+    @staticmethod
+    def _valid_timestamp(value: object) -> bool:
+        text = str(value or "").strip()
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        return (
+            parsed.tzinfo is not None
+            and parsed.utcoffset() == timezone.utc.utcoffset(parsed)
+        )
+
     def _blocked_preview(
         self,
         mission: Mission,
@@ -368,7 +683,7 @@ class MissionCoordinator:
         operation: MissionNextOperation,
     ) -> str:
         payload = {
-            "coordination_schema": 1,
+            "coordination_schema": 2,
             "mission_id": mission.mission_id,
             "goal_id": mission.goal_id,
             "proposal_id": mission.proposal_id,
@@ -440,6 +755,20 @@ class MissionCoordinator:
             uncertain,
             expected_attempt_id=reserved.attempt_id,
         )
+
+    @staticmethod
+    def _downstream_reference(result: ApplicationResult) -> str:
+        data = result.data
+        for name in (
+            "documentation_review_id",
+            "validation_id",
+            "run_id",
+            "approval_id",
+        ):
+            value = str(data.get(name, "")).strip()
+            if value:
+                return value
+        return ""
 
     def _now(self) -> str:
         value = self._clock()

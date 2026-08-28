@@ -1,5 +1,25 @@
 # Unreleased — Mission Coordinator, Mission Engine, Event Bus, Goal Engine, Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
 
+- Added Orion v0.8.7 Mission Coordinator Phase 2 using the existing typed
+  `team.implement`, `team.validate`, and `team.documentation_review` application
+  boundaries after the Phase 1 `team.approve` operation.
+- Added bounded read-only Team coordination inspection and exact lifecycle bindings
+  for persisted plan hashes, approvals, runs, validation attempts, documentation
+  attempts, statuses, and completion timestamps.
+- Added persisted Team implementation started/completed/failed, validation-completed,
+  and documentation-review-completed events plus strict final-review
+  completed/blocked projection contracts.
+- Extended deterministic Mission state through implementation, validation,
+  Documentation Review, failed/blocked states, final review, and reviewed completion,
+  with strict correlation and legal event-order checks.
+- Prevented coordinated implementation and validation from cascading into automatic
+  follow-ups: one explicit confirmation still invokes at most one typed mutation,
+  reconciles authoritative state once, and stops.
+- Extended stale-token, duplicate, uncertain-dispatch, restart, authoritative
+  mismatch, failure/blocked, unsupported-state, read-only, and exactly-one-operation
+  safety coverage. Final-review completion remains observation-only because AI Team
+  exposes no typed final-decision command.
+
 - Added Orion v0.8.6 Mission Coordinator with frozen JSON-safe previews, exact
   canonical advance tokens, deterministic blocked/eligible rules, and preview-only
   `mission next` plus CLI-confirmed `mission advance` commands.

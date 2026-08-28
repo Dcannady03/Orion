@@ -201,8 +201,8 @@ class MissionNextOperationTests(MissionCoordinatorFixture):
             (without_task, "no authoritative Team task"),
             (failed, "cannot be advanced"),
             (planning, "No supported operation"),
-            (awaiting_review, "final review completion is not implemented"),
-            (approved, "team.implement coordination is not supported"),
+            (awaiting_review, "no typed completion operation"),
+            (approved, "coordination inspection is unavailable"),
         )
         for mission, expected in cases:
             with self.subTest(expected=expected):
