@@ -77,6 +77,10 @@ class OrionPaths:
     def logs(self) -> Path:
         return self.user_root / "logs"
 
+    @property
+    def observability(self) -> Path:
+        return self.user_root / "observability"
+
     def ensure(self) -> None:
         for path in (
             self.user_root,

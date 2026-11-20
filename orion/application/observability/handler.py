@@ -7,6 +7,12 @@ from orion.application.observability.diagnostics import (
     DiagnosticsCollector,
     DiagnosticsReport,
 )
+from orion.application.observability.graphs import (
+    HealthGraphs,
+    HealthSnapshotStore,
+    build_dependency_graph,
+    build_timelines,
+)
 from orion.application.observability.health import (
     HEALTH_SECTIONS,
     HealthChecker,
@@ -49,8 +55,14 @@ class ObservabilityApplicationHandler:
             clock=clock,
         )
 
-    def health(self, section: str | None = None) -> ApplicationResult:
-        """Run the unified health check, optionally limited to one section."""
+    def health(
+        self, section: str | None = None, *, record: bool = False
+    ) -> ApplicationResult:
+        """Run the unified health check, optionally limited to one section.
+
+        With record=True the report is also saved as a health snapshot
+        for the graphs command; without it the check stays read-only.
+        """
         normalized = (section or "").strip().lower() or None
         if normalized is not None and normalized not in HEALTH_SECTIONS:
             return ApplicationResult.failure(
@@ -60,9 +72,24 @@ class ObservabilityApplicationHandler:
                 next_actions=("health",),
             )
         report = self.checker.check(normalized)
+        message = self._render_health(report)
+        data: dict[str, object] = {**report.to_dict(), "read_only": not record}
+        if record:
+            try:
+                path = HealthSnapshotStore(self._paths.observability).append(report)
+            except OSError as exc:
+                return ApplicationResult.failure(
+                    f"Health check ran, but the snapshot could not be saved: {exc}",
+                    data=data,
+                    errors=(str(exc),),
+                    next_actions=("health",),
+                )
+            message += f"\nSnapshot recorded to {path}."
+            data["recorded"] = True
+            data["snapshot_path"] = str(path)
         return ApplicationResult.success(
-            self._render_health(report),
-            data={**report.to_dict(), "read_only": True},
+            message,
+            data=data,
             warnings=tuple(
                 f"{check.name}: {check.detail}"
                 for check in report.checks
@@ -163,4 +190,89 @@ class ObservabilityApplicationHandler:
                 else:
                     rendered = str(value)
                 lines.append(f"  {key}: {rendered}")
+        return "\n".join(lines)
+
+    def graphs(self, section: str | None = None) -> ApplicationResult:
+        """Show health graphs: timelines from snapshots, or the live tree."""
+        normalized = (section or "").strip().lower() or None
+        if normalized == "dependencies":
+            report = self.checker.check()
+            tree = build_dependency_graph(report)
+            return ApplicationResult.success(
+                self._render_dependency_graph(tree),
+                data={
+                    "read_only": True,
+                    "kind": "dependencies",
+                    "tree": tree.to_dict(),
+                    "generated_at": report.generated_at,
+                },
+                next_actions=("graphs", "health"),
+            )
+        if normalized is not None and normalized not in HEALTH_SECTIONS:
+            return ApplicationResult.failure(
+                f"Unknown graphs section: {section}",
+                data={
+                    "read_only": True,
+                    "sections": [*HEALTH_SECTIONS, "dependencies"],
+                },
+                errors=(f"Unknown graphs section: {section}",),
+                next_actions=("graphs",),
+            )
+        history = HealthSnapshotStore(self._paths.observability).load()
+        if not history.snapshots:
+            return ApplicationResult.success(
+                "No health snapshots recorded yet.\n"
+                "Run `health --record` to record one, then `graphs` to view it.",
+                data={"read_only": True, "kind": "timelines", "snapshots": 0},
+                next_actions=("health --record",),
+            )
+        graphs = build_timelines(history)
+        return ApplicationResult.success(
+            self._render_timelines(graphs, normalized),
+            data={
+                **graphs.to_dict(),
+                "read_only": True,
+                "kind": "timelines",
+                "snapshots": len(history.snapshots),
+            },
+            next_actions=("graphs dependencies", "health --record"),
+        )
+
+    @staticmethod
+    def _render_timelines(graphs: HealthGraphs, section: str | None) -> str:
+        lines = [
+            "Orion Health Graphs",
+            "-" * 68,
+            "Legend: = ok, ~ warning, X error, ? unknown (oldest to newest)",
+        ]
+        timelines = [graphs.overall, *graphs.sections]
+        if section is not None:
+            timelines = [item for item in timelines if item.section == section]
+        for timeline in timelines:
+            counts = ", ".join(
+                f"{state} {count}"
+                for state, count in timeline.counts.items()
+                if count
+            )
+            lines.append("")
+            lines.append(
+                f"{timeline.section.title()} "
+                f"({timeline.snapshots} snapshots, {timeline.transitions} changes)"
+            )
+            lines.append(f"  {timeline.sparkline}")
+            lines.append(f"  {timeline.first_at} .. {timeline.last_at}")
+            lines.append(f"  {counts}")
+        if graphs.skipped:
+            lines.append("")
+            lines.append(f"{graphs.skipped} malformed snapshot line(s) ignored.")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_dependency_graph(tree) -> str:
+        lines = ["Orion Dependency Graph", "-" * 68]
+        lines.append(f"{tree.name} [{tree.state.value.upper()}]")
+        for index, child in enumerate(tree.children):
+            lines.extend(
+                child.render("", last=index == len(tree.children) - 1)
+            )
         return "\n".join(lines)

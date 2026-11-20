@@ -659,6 +659,25 @@ The report contains configuration flags only — it never includes API keys,
 tokens, or environment values, so it is safe to paste into an issue report.
 `diagnostics --json` prints the same report as JSON.
 
+Record health snapshots over time with `health --record`, then view them
+with `graphs`:
+
+```text
+health --record
+graphs
+graphs disk
+graphs dependencies
+graphs --json
+```
+
+`graphs` renders one ASCII sparkline per section (`=` ok, `~` warning, `X`
+error, `?` unknown, oldest to newest) with per-state counts and the number
+of state changes. `graphs <section>` shows one section's timeline.
+`graphs dependencies` renders a live dependency tree of providers, services,
+and subsystems with their current states. Snapshots are stored as JSONL under
+`observability/` (at most 1,000 kept); recording is the only write the health
+command performs, and only with `--record`.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1818,6 +1837,10 @@ or execute anything from the CLI.
 | `logs --source files` | Search only plain log files |
 | `diagnostics` | Build an environment report for issue reports |
 | `diagnostics --json` | Same report as JSON |
+| `health --record` | Run the health check and record a snapshot for the graphs |
+| `graphs` | Show health timelines from recorded snapshots |
+| `graphs disk` | Show one section's health timeline |
+| `graphs dependencies` | Show the live dependency tree |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 

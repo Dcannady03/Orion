@@ -4,6 +4,15 @@ from orion.application.observability.diagnostics import (
     DiagnosticsCollector,
     DiagnosticsReport,
 )
+from orion.application.observability.graphs import (
+    DependencyNode,
+    HealthGraphs,
+    HealthSnapshotHistory,
+    HealthSnapshotStore,
+    SectionTimeline,
+    build_dependency_graph,
+    build_timelines,
+)
 from orion.application.observability.handler import (
     ObservabilityApplicationHandler,
 )
@@ -23,16 +32,23 @@ from orion.application.observability.logs import (
 
 
 __all__ = [
+    "DependencyNode",
     "DiagnosticsCollector",
     "DiagnosticsReport",
     "HEALTH_SECTIONS",
     "HealthCheck",
     "HealthChecker",
+    "HealthGraphs",
     "HealthReport",
+    "HealthSnapshotHistory",
+    "HealthSnapshotStore",
     "HealthState",
     "LogEntry",
     "LogSearchRequest",
     "LogSearchResult",
     "LogViewer",
     "ObservabilityApplicationHandler",
+    "SectionTimeline",
+    "build_dependency_graph",
+    "build_timelines",
 ]

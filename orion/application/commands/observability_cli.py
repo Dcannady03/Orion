@@ -16,7 +16,7 @@ from orion.application.results import ApplicationResult
 from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
-_COMMAND_WORDS = frozenset({"health", "logs", "diagnostics"})
+_COMMAND_WORDS = frozenset({"health", "logs", "diagnostics", "graphs"})
 
 
 class ObservabilityCliAdapter:
@@ -61,6 +61,8 @@ class ObservabilityCliAdapter:
                 result, as_json = self._logs(tokens[1:])
             elif command == "diagnostics":
                 result, as_json = self._diagnostics(tokens[1:])
+            elif command == "graphs":
+                result, as_json = self._graphs(tokens[1:])
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -72,10 +74,14 @@ class ObservabilityCliAdapter:
 
     def _health(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
+        record = False
         sections: list[str] = []
         for token in tokens:
-            if token.casefold() == "--json":
+            folded = token.casefold()
+            if folded == "--json":
                 as_json = True
+            elif folded == "--record":
+                record = True
             elif token.startswith("--"):
                 raise ValueError(f"Unknown health option: {token}")
             else:
@@ -83,7 +89,22 @@ class ObservabilityCliAdapter:
         if len(sections) > 1:
             raise ValueError("health accepts at most one section.")
         section = sections[0] if sections else None
-        return self.application.health(section), as_json
+        return self.application.health(section, record=record), as_json
+
+    def _graphs(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
+        as_json = False
+        sections: list[str] = []
+        for token in tokens:
+            if token.casefold() == "--json":
+                as_json = True
+            elif token.startswith("--"):
+                raise ValueError(f"Unknown graphs option: {token}")
+            else:
+                sections.append(token)
+        if len(sections) > 1:
+            raise ValueError("graphs accepts at most one section.")
+        section = sections[0] if sections else None
+        return self.application.graphs(section), as_json
 
     def _logs(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
@@ -137,13 +158,14 @@ class ObservabilityCliAdapter:
         message = (
             f"{detail}\n" if detail else ""
         ) + (
-            "Usage: health [disk|providers|services|config|workspace|events] [--json]\n"
+            "Usage: health [disk|providers|services|config|workspace|events] [--json] [--record]\n"
             "       logs [--severity S] [--type T] [--search TEXT]\n"
             "            [--start ISO] [--end ISO] [--limit N]\n"
             "            [--source all|events|files] [--json]\n"
             "       diagnostics [--json]\n"
-            "Health checks, log searches, and diagnostics are read-only and\n"
-            "never change runtime state."
+            "       graphs [disk|providers|services|config|workspace|events|dependencies] [--json]\n"
+            "Health checks, log searches, diagnostics, and graphs are read-only\n"
+            "except `health --record`, which saves one snapshot for the graphs."
         )
         return ApplicationResult.failure(
             message,

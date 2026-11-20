@@ -51,7 +51,7 @@ tested, documented milestones.
 - [x] **v0.4.0 — Log viewer:** filterable, severity-aware search of runtime logs
 - [x] **v0.4.6 — Diagnostics:** environment report for issue reports, built on the health check
 
-- Dependency and service health graphs
+- Dependency and service health graphs (done: record snapshots with `health --record`, view timelines and the dependency tree with `graphs`)
 - Root-cause-oriented diagnostic runbooks
 - Safe, approval-based remediation
 - Retry and end-to-end verification
