@@ -444,32 +444,66 @@ class ObservabilityCliAdapter:
 
     def _docker(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
+        tail = 50
+        tail_seen = False
         args: list[str] = []
-        for token in tokens:
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
             if token.casefold() == "--json":
                 as_json = True
+                index += 1
+            elif token.casefold() == "--tail":
+                if index + 1 >= len(tokens):
+                    raise ValueError("docker logs --tail needs a value.")
+                try:
+                    tail = int(tokens[index + 1])
+                except ValueError:
+                    raise ValueError(
+                        "docker logs --tail must be an integer."
+                    ) from None
+                tail_seen = True
+                index += 2
             elif token.startswith("--"):
                 raise ValueError(f"Unknown docker option: {token}")
             else:
                 args.append(token)
+                index += 1
         if not args:
             raise ValueError(
                 "Usage: docker list | docker inspect <name> | "
-                "docker start|stop|restart <name>"
+                "docker start|stop|restart <name> | docker health | "
+                "docker logs <name> [--tail N]"
             )
         subcommand = args[0].casefold()
         if subcommand in {"list", "ps"}:
             if len(args) != 1:
                 raise ValueError("docker list takes no arguments.")
+            if tail_seen:
+                raise ValueError("docker list takes no --tail option.")
             return self.application.docker_list(), as_json
         if subcommand == "inspect":
             if len(args) != 2:
                 raise ValueError("Usage: docker inspect <name>")
+            if tail_seen:
+                raise ValueError("docker inspect takes no --tail option.")
             return self.application.docker_inspect(args[1]), as_json
         if subcommand in {"start", "stop", "restart"}:
             if len(args) != 2:
                 raise ValueError(f"Usage: docker {subcommand} <name>")
+            if tail_seen:
+                raise ValueError(f"docker {subcommand} takes no --tail option.")
             return self._docker_control(subcommand, args[1])
+        if subcommand == "health":
+            if len(args) != 1:
+                raise ValueError("docker health takes no arguments.")
+            if tail_seen:
+                raise ValueError("docker health takes no --tail option.")
+            return self.application.docker_health(), as_json
+        if subcommand == "logs":
+            if len(args) != 2:
+                raise ValueError("Usage: docker logs <name> [--tail N]")
+            return self.application.docker_logs(args[1], tail=tail), as_json
         raise ValueError(f"Unknown docker subcommand: {args[0]}")
 
     def _docker_control(self, action: str, name: str) -> tuple[ApplicationResult, bool]:
@@ -525,6 +559,8 @@ class ObservabilityCliAdapter:
             "       docker list [--json]\n"
             "       docker inspect <name> [--json]\n"
             "       docker start|stop|restart <name>\n"
+            "       docker health [--json]\n"
+            "       docker logs <name> [--tail N] [--json]\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
             "except `health --record`, which saves one snapshot for the graphs.\n"
             "Backup import replaces data and always asks for approval first."

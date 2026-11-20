@@ -21,6 +21,9 @@ CONTROL_TIMEOUT_SECONDS = 60.0
 MIN_ID_PREFIX = 4
 
 CONTROL_ACTIONS = ("start", "stop", "restart")
+DEFAULT_LOG_TAIL = 50
+MAX_LOG_TAIL = 500
+MAX_LOG_CHARS = 20_000
 
 _DAEMON_ERROR_MARKERS = (
     "cannot connect to the docker daemon",
@@ -81,7 +84,7 @@ def _health_from_status(status: str) -> str:
         return "healthy"
     if "(unhealthy)" in lowered:
         return "unhealthy"
-    if "(starting)" in lowered:
+    if "(health: starting)" in lowered or "(starting)" in lowered:
         return "starting"
     return "none"
 
@@ -194,6 +197,53 @@ class DockerControlOutcome:
             "detail": self.detail,
             "state_before": self.state_before,
             "state_after": self.state_after,
+        }
+
+
+@dataclass(frozen=True)
+class DockerHealthSummary:
+    """Container health counts across every container."""
+
+    total: int
+    running: int
+    exited: int
+    healthy: int
+    unhealthy: int
+    starting: int
+    no_healthcheck: int
+    overall: str
+    containers: tuple[ContainerSummary, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "total": self.total,
+            "running": self.running,
+            "exited": self.exited,
+            "healthy": self.healthy,
+            "unhealthy": self.unhealthy,
+            "starting": self.starting,
+            "no_healthcheck": self.no_healthcheck,
+            "overall": self.overall,
+            "containers": [item.to_dict() for item in self.containers],
+        }
+
+
+@dataclass(frozen=True)
+class ContainerLogResult:
+    """Recent log lines for one container, bounded and capped."""
+
+    name: str
+    lines: tuple[str, ...] = ()
+    truncated: bool = False
+    tail: int = DEFAULT_LOG_TAIL
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "lines": list(self.lines),
+            "truncated": self.truncated,
+            "tail": self.tail,
+            "line_count": len(self.lines),
         }
 
 
@@ -411,6 +461,71 @@ class DockerService:
             detail=detail,
             state_before=before,
             state_after=after_state,
+        )
+
+    def health_summary(self) -> DockerHealthSummary:
+        """Summarize container health across every container."""
+        listing = self.list_containers()
+        running = sum(1 for item in listing.containers if item.state == "running")
+        exited = sum(1 for item in listing.containers if item.state == "exited")
+        healthy = sum(1 for item in listing.containers if item.health == "healthy")
+        unhealthy = sum(
+            1 for item in listing.containers if item.health == "unhealthy"
+        )
+        starting = sum(1 for item in listing.containers if item.health == "starting")
+        no_healthcheck = sum(
+            1 for item in listing.containers if item.health == "none"
+        )
+        if unhealthy:
+            overall = "error"
+        elif starting:
+            overall = "warning"
+        else:
+            overall = "ok"
+        return DockerHealthSummary(
+            total=len(listing.containers),
+            running=running,
+            exited=exited,
+            healthy=healthy,
+            unhealthy=unhealthy,
+            starting=starting,
+            no_healthcheck=no_healthcheck,
+            overall=overall,
+            containers=listing.containers,
+        )
+
+    def container_logs(
+        self, name: str, tail: int = DEFAULT_LOG_TAIL
+    ) -> ContainerLogResult:
+        """Return recent log lines for one container, bounded and capped."""
+        try:
+            wanted = int(tail)
+        except (TypeError, ValueError):
+            raise ValueError("docker logs --tail must be an integer.") from None
+        clamped = max(1, min(wanted, MAX_LOG_TAIL))
+        target = self.resolve(name)
+        result = self._execute(
+            ["logs", "--tail", str(clamped), target.container_id],
+            merge_stderr=True,
+        )
+        lines = str(result.stdout or "").splitlines()
+        total_chars = sum(len(line) + 1 for line in lines)
+        truncated = False
+        if total_chars > MAX_LOG_CHARS:
+            kept: list[str] = []
+            budget = MAX_LOG_CHARS
+            for line in reversed(lines):
+                if budget - (len(line) + 1) < 0:
+                    break
+                kept.append(line)
+                budget -= len(line) + 1
+            lines = list(reversed(kept))
+            truncated = True
+        return ContainerLogResult(
+            name=target.name,
+            lines=tuple(lines),
+            truncated=truncated,
+            tail=clamped,
         )
 
 

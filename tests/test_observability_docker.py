@@ -431,6 +431,96 @@ class DockerServiceTests(TestCase):
         data = outcome.to_dict()
         self.assertEqual(json.loads(json.dumps(data)), data)
 
+    def test_health_summary_counts(self):
+        summary = _service().health_summary()
+        self.assertEqual(summary.total, 3)
+        self.assertEqual(summary.running, 2)
+        self.assertEqual(summary.exited, 1)
+        self.assertEqual(summary.healthy, 1)
+        self.assertEqual(summary.unhealthy, 1)
+        self.assertEqual(summary.starting, 0)
+        self.assertEqual(summary.no_healthcheck, 1)
+        self.assertEqual(summary.overall, "error")
+
+    def test_health_summary_ok_when_all_healthy(self):
+        fake = _FakeDocker(ps_rows=[_PS_ROWS[0]])
+        summary = _service(fake).health_summary()
+        self.assertEqual(summary.overall, "ok")
+        self.assertEqual(summary.healthy, 1)
+
+    def test_health_summary_warning_when_starting(self):
+        rows = [
+            _ps_row(_WEB_ID, "web", "nginx:latest", "Up 5 seconds (health: starting)", ""),
+        ]
+        summary = _service(_FakeDocker(ps_rows=rows)).health_summary()
+        self.assertEqual(summary.overall, "warning")
+        self.assertEqual(summary.starting, 1)
+
+    def test_health_summary_empty_is_ok(self):
+        summary = _service(_FakeDocker(ps_rows=[])).health_summary()
+        self.assertEqual(summary.total, 0)
+        self.assertEqual(summary.overall, "ok")
+
+    def test_health_summary_daemon_down_fails_closed(self):
+        with self.assertRaises(DockerUnavailableError):
+            _service(_FakeDocker(daemon_down=True)).health_summary()
+
+    def test_health_summary_serializes_to_json_safe_dict(self):
+        data = _service().health_summary().to_dict()
+        self.assertEqual(json.loads(json.dumps(data)), data)
+
+    def test_container_logs_returns_lines(self):
+        fake = _FakeDocker(log_lines=["booted", "listening on :80"])
+        result = _service(fake).container_logs("web")
+        self.assertEqual(result.name, "web")
+        self.assertEqual(result.lines, ("booted", "listening on :80"))
+        self.assertFalse(result.truncated)
+        self.assertEqual(result.tail, 50)
+
+    def test_container_logs_respects_tail(self):
+        lines = [f"line-{i}" for i in range(10)]
+        result = _service(_FakeDocker(log_lines=lines)).container_logs("web", tail=3)
+        self.assertEqual(result.lines, ("line-7", "line-8", "line-9"))
+        self.assertEqual(result.tail, 3)
+
+    def test_container_logs_clamps_tail_to_max(self):
+        lines = [f"line-{i}" for i in range(10)]
+        result = _service(_FakeDocker(log_lines=lines)).container_logs("web", tail=10000)
+        self.assertEqual(result.tail, 500)
+
+    def test_container_logs_clamps_tail_to_minimum(self):
+        lines = [f"line-{i}" for i in range(10)]
+        result = _service(_FakeDocker(log_lines=lines)).container_logs("web", tail=0)
+        self.assertEqual(result.tail, 1)
+        self.assertEqual(result.lines, ("line-9",))
+
+    def test_container_logs_non_integer_tail_is_rejected(self):
+        with self.assertRaises(ValueError):
+            _service().container_logs("web", tail="abc")
+
+    def test_container_logs_caps_total_chars_keeping_newest(self):
+        lines = [f"line-{i:03d}-" + "x" * 991 for i in range(30)]
+        result = _service(_FakeDocker(log_lines=lines)).container_logs("web")
+        self.assertTrue(result.truncated)
+        self.assertEqual(len(result.lines), 19)
+        self.assertTrue(result.lines[0].startswith("line-011-"))
+        self.assertTrue(result.lines[-1].startswith("line-029-"))
+        total = sum(len(line) + 1 for line in result.lines)
+        self.assertLessEqual(total, 20_000)
+
+    def test_container_logs_unknown_is_refused(self):
+        with self.assertRaises(UnknownContainerError):
+            _service().container_logs("nope")
+
+    def test_container_logs_daemon_down_fails_closed(self):
+        with self.assertRaises(DockerUnavailableError):
+            _service(_FakeDocker(daemon_down=True)).container_logs("web")
+
+    def test_container_logs_serializes_to_json_safe_dict(self):
+        fake = _FakeDocker(log_lines=["a", "b"])
+        data = _service(fake).container_logs("web").to_dict()
+        self.assertEqual(json.loads(json.dumps(data)), data)
+
 
 class DockerHandlerTests(TestCase):
     def setUp(self):
@@ -545,6 +635,59 @@ class DockerHandlerTests(TestCase):
         self.assertFalse(result.data["applied"])
         history = handler.recovery_list(kind="docker")
         self.assertEqual(history.data["total"], 0)
+
+    def test_docker_health_reports_unhealthy(self):
+        result = self.handler.docker_health()
+        self.assertFalse(result.ok)
+        self.assertEqual(result.data["overall"], "error")
+        self.assertEqual(result.data["unhealthy"], 1)
+        self.assertIn("Docker Health: ERROR", result.message)
+        self.assertIn("Unhealthy containers:", result.message)
+        self.assertIn("db", result.message)
+
+    def test_docker_health_ok_when_healthy(self):
+        handler = _handler(self.paths, _FakeDocker(ps_rows=[_PS_ROWS[0]]))
+        result = handler.docker_health()
+        self.assertTrue(result.ok)
+        self.assertEqual(result.data["overall"], "ok")
+
+    def test_docker_health_daemon_down_is_failure(self):
+        handler = _handler(self.paths, _FakeDocker(daemon_down=True))
+        result = handler.docker_health()
+        self.assertFalse(result.ok)
+        self.assertIn("Docker is not available", result.message)
+
+    def test_docker_logs_returns_lines(self):
+        handler = _handler(self.paths, _FakeDocker(log_lines=["booted", "ready"]))
+        result = handler.docker_logs("web")
+        self.assertTrue(result.ok)
+        self.assertIn("booted", result.message)
+        self.assertIn("ready", result.message)
+        self.assertEqual(result.data["line_count"], 2)
+
+    def test_docker_logs_empty_is_success(self):
+        result = self.handler.docker_logs("web")
+        self.assertTrue(result.ok)
+        self.assertIn("(no log output)", result.message)
+
+    def test_docker_logs_unknown_is_failure(self):
+        result = self.handler.docker_logs("nope")
+        self.assertFalse(result.ok)
+        self.assertIn("No container matches", result.message)
+
+    def test_docker_logs_daemon_down_is_failure(self):
+        handler = _handler(self.paths, _FakeDocker(daemon_down=True))
+        result = handler.docker_logs("web")
+        self.assertFalse(result.ok)
+        self.assertIn("Docker is not available", result.message)
+
+    def test_docker_logs_truncated_note(self):
+        lines = [f"line-{i:03d}-" + "x" * 991 for i in range(30)]
+        handler = _handler(self.paths, _FakeDocker(log_lines=lines))
+        result = handler.docker_logs("web")
+        self.assertTrue(result.ok)
+        self.assertTrue(result.data["truncated"])
+        self.assertIn("output capped", result.message)
 
 
 class DockerCliTests(TestCase):
@@ -695,3 +838,59 @@ class DockerCliTests(TestCase):
 
     def test_docker_start_needs_a_name(self):
         self.assertFalse(self._run("docker start").ok)
+
+    def test_docker_health_renders(self):
+        result = self._run("docker health")
+        self.assertFalse(result.ok)
+        self.assertIn("Docker Health: ERROR", self.output.getvalue())
+
+    def test_docker_health_json_parses(self):
+        healthy_handler = _handler(self.paths, _FakeDocker(ps_rows=[_PS_ROWS[0]]))
+        healthy_runtime = SimpleNamespace(observability_application=healthy_handler)
+        output = StringIO()
+        adapter = ObservabilityCliAdapter(
+            healthy_runtime,
+            output_provider=output.write,
+            input_provider=lambda prompt: "",
+        )
+        result = adapter.handle("docker health --json")
+        self.assertTrue(result.ok)
+        parsed = json.loads(output.getvalue())
+        self.assertEqual(parsed["data"]["overall"], "ok")
+
+    def test_docker_health_failure_with_json_renders_text(self):
+        result = self._run("docker health --json")
+        self.assertFalse(result.ok)
+        self.assertIn("Docker Health: ERROR", self.output.getvalue())
+
+    def test_docker_health_rejects_extra_args(self):
+        self.assertFalse(self._run("docker health web").ok)
+
+    def test_docker_logs_renders(self):
+        self.fake.log_lines = ["booted", "listening on :80"]
+        result = self._run("docker logs web")
+        self.assertTrue(result.ok)
+        rendered = self.output.getvalue()
+        self.assertIn("Logs: web", rendered)
+        self.assertIn("booted", rendered)
+        self.assertIn("listening on :80", rendered)
+
+    def test_docker_logs_tail_option(self):
+        self.fake.log_lines = [f"line-{i}" for i in range(5)]
+        result = self._run("docker logs web --tail 2")
+        self.assertTrue(result.ok)
+        rendered = self.output.getvalue()
+        self.assertIn("line-4", rendered)
+        self.assertNotIn("line-0", rendered)
+
+    def test_docker_logs_tail_missing_value(self):
+        self.assertFalse(self._run("docker logs web --tail").ok)
+
+    def test_docker_logs_tail_non_integer(self):
+        self.assertFalse(self._run("docker logs web --tail abc").ok)
+
+    def test_docker_logs_needs_a_name(self):
+        self.assertFalse(self._run("docker logs").ok)
+
+    def test_docker_list_rejects_tail(self):
+        self.assertFalse(self._run("docker list --tail 5").ok)

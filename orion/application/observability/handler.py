@@ -1245,3 +1245,79 @@ class ObservabilityApplicationHandler:
             errors=(outcome.detail,),
             next_actions=(f"docker inspect {outcome.name}", "docker list"),
         )
+
+    def docker_health(self) -> ApplicationResult:
+        """Summarize Docker container health across every container."""
+        try:
+            summary = self._docker().health_summary()
+        except DockerUnavailableError as exc:
+            return self._docker_unavailable(exc)
+        lines = [
+            f"Docker Health: {summary.overall.upper()}",
+            "-" * 68,
+            f"Containers : {summary.total} "
+            f"({summary.running} running, {summary.exited} exited)",
+            f"Healthy    : {summary.healthy}",
+            f"Unhealthy  : {summary.unhealthy}",
+            f"Starting   : {summary.starting}",
+            f"No healthcheck: {summary.no_healthcheck}",
+        ]
+        if summary.unhealthy:
+            lines.append("")
+            lines.append("Unhealthy containers:")
+            for item in summary.containers:
+                if item.health == "unhealthy":
+                    lines.append(f"  {item.name} ({item.image})")
+        message = "\n".join(lines)
+        data: dict[str, object] = {
+            **summary.to_dict(),
+            "read_only": True,
+        }
+        if summary.overall == "error":
+            return ApplicationResult.failure(
+                message,
+                data=data,
+                errors=(
+                    f"{summary.unhealthy} container(s) unhealthy.",
+                ),
+                next_actions=("docker list", "docker logs <name>"),
+            )
+        return ApplicationResult.success(
+            message,
+            data=data,
+            next_actions=("docker list",),
+        )
+
+    def docker_logs(self, name: str, tail: int = 50) -> ApplicationResult:
+        """Show recent log lines for one container (read-only, capped)."""
+        try:
+            result = self._docker().container_logs(name, tail=tail)
+        except DockerUnavailableError as exc:
+            return self._docker_unavailable(exc)
+        except (UnknownContainerError, AmbiguousContainerError) as exc:
+            return self._docker_unknown(exc)
+        except ValueError as exc:
+            return ApplicationResult.failure(
+                str(exc),
+                data={"read_only": True},
+                errors=(str(exc),),
+                next_actions=("docker list",),
+            )
+        lines = [
+            f"Logs: {result.name} (last {len(result.lines)} line(s))",
+            "-" * 68,
+        ]
+        if result.lines:
+            lines.extend(result.lines)
+        else:
+            lines.append("(no log output)")
+        if result.truncated:
+            lines.append(
+                "(output capped; oldest lines dropped — "
+                "use --tail to narrow the window)"
+            )
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={**result.to_dict(), "read_only": True},
+            next_actions=("docker list", "docker inspect " + result.name),
+        )
