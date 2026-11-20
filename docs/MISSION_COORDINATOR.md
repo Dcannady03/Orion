@@ -1,4 +1,4 @@
-# Orion v0.8.7 Mission Coordinator Phase 2
+# Orion v0.8.7 Mission Coordinator Phase 3
 
 ## Purpose
 
@@ -42,11 +42,41 @@ coordination-specific stop control: ordinary Team CLI behavior may retain its
 existing automatic follow-ups, while one confirmed Mission advance cannot cascade
 from implementation into validation or from validation into Documentation Review.
 
-AI Team does not currently expose a typed final-accept or completion operation. The
-Coordinator therefore stops at final review. It can reconcile reviewed
-`team.final_review.completed` and `team.final_review.blocked` facts if an authorized
-application boundary publishes them, but it does not fabricate or dispatch that
-decision.
+## Phase 3 scope
+
+Phase 3 adds the reviewed typed human final-review decision boundary that Phase 2
+deliberately left open:
+
+```text
+team.final_review
+  -> TeamFinalReviewRequest
+  -> AiTeamApplicationHandler.final_review()
+```
+
+The decision is the one human boundary between a reviewed run and Mission
+completion. `AiTeamApplicationHandler.final_review()` records one immutable
+`FinalReviewDecision` on the run (decision, optional note, actor, completion time)
+and publishes exactly one strict lifecycle event from the persisted record:
+
+- `accepted` -> `team.final_review.completed` (Mission `completed / 100%`);
+- `changes_requested` or `rejected` -> `team.final_review.blocked`
+  (Mission `blocked / final_review / 95%`).
+
+A run accepts at most one decision; a second decision is refused at the bridge, and
+the Coordinator blocks fail-closed when a decision already exists but the
+projection has not observed it yet. There is no rework or repair loop in Phase 3:
+a blocked Mission stays blocked. The decision contract is:
+
+- the decision is captured only through `mission advance` (two prompts: decision
+  first, then the usual confirmation with the decision shown);
+- the decision and note are token-bound resolved inputs, so an accept-token and a
+  reject-token are different tokens and a decision cannot be swapped after preview;
+- the Coordinator dispatches only when validation passed or warned and
+  documentation review passed, warned, or was not required;
+- the event carries the full identity payload the projection requires (run, task,
+  approval, plan hash, validation ID, documentation-review ID, decision ID);
+- the projection links the decision record as a `final_review` Mission link when
+  the event is observed, mirroring the validation and documentation-review links.
 
 ## Architecture and boundaries
 
@@ -101,7 +131,7 @@ goal text or an LLM.
 | `implementing / implementation` | Matching started run without completion | Blocked while implementation is unresolved |
 | `awaiting_validation / validation` | Matching completed run; no validation attempt | `team.validate` |
 | `awaiting_documentation / documentation_review` | Matching passed/warning validation; no documentation attempt | `team.documentation_review` |
-| `awaiting_review / final_review` | Completed documentation review | Blocked pending a separate human final-review boundary |
+| `awaiting_review / final_review` | Passed/warning validation, passed/warnings/not-required documentation review, no recorded decision | `team.final_review` |
 | `blocked` | Failed validation/documentation or final-review block | Blocked; no automatic retry |
 | `failed` | Proposal or implementation failure | Blocked; no automatic retry |
 | `completed / completed` | Reviewed final-completion fact | No further operation |
@@ -123,9 +153,19 @@ advance token.
 Advance this Mission by exactly one operation? [Y/N/D]:
 ```
 
-`N`, empty input, or interruption dispatches nothing. `D` repeats details without
-executing. Only `Y` submits a structured `MissionAdvanceRequest` with
-`confirmed=True` and the exact token.
+When the previewed operation is `team.final_review`, the CLI asks for the decision
+first, then re-previews with the decision bound into the token before the usual
+confirmation:
+
+```text
+Final review: accept the run, request changes, or reject it? [A/C/R/N]:
+```
+
+`N`, empty input, or interruption at either prompt dispatches nothing. `D` repeats
+details without executing. Only `Y` at the confirmation submits a structured
+`MissionAdvanceRequest` with `confirmed=True`, the exact token, and the decision.
+An optional note travels with the decision (`mission advance <mission-id> --note
+"<text>"`) and is token-bound with it.
 
 The coordination schema-2 token is SHA-256 over canonical JSON. It binds Mission,
 Goal, Proposal, and Proposal-version identity; status, stage, progress, update time,
@@ -136,7 +176,10 @@ applicable:
 - Team task ID and persisted plan SHA-256;
 - immutable approval ID;
 - run ID and implementation completion timestamp;
-- validation ID, status, and completion timestamp.
+- validation ID, status, and completion timestamp;
+- documentation-review ID, status, and completion timestamp;
+- the human final-review decision and note, when the operation is
+  `team.final_review`.
 
 Preview time and actor are excluded, so a token remains stable after restart only
 when authoritative state is unchanged. Before dispatch, the Coordinator reloads and
@@ -146,11 +189,11 @@ token stale.
 
 ## Typed translation and exactly-one operation
 
-`MissionOperationTranslator` contains four explicit branches and exact input
-schemas. It constructs only `TeamApprovalRequest`, `TeamImplementationRequest`, or
-`TeamRunRequest`, then calls the corresponding named method on
-`AiTeamApplicationHandler`. There is no arbitrary callable registry or stringly typed
-execution.
+`MissionOperationTranslator` contains five explicit branches and exact input
+schemas. It constructs only `TeamApprovalRequest`, `TeamImplementationRequest`,
+`TeamRunRequest`, or `TeamFinalReviewRequest`, then calls the corresponding named
+method on `AiTeamApplicationHandler`. There is no arbitrary callable registry or
+stringly typed execution.
 
 For each confirmed advance:
 
@@ -178,14 +221,13 @@ team.implementation.completed
 team.implementation.failed
 team.validation.completed
 team.documentation_review.completed
-```
-
-Mission projection also recognizes reviewed final-decision contracts:
-
-```text
 team.final_review.completed
 team.final_review.blocked
 ```
+
+The final-review events are produced only by `AiTeamApplicationHandler.final_review()`
+from a persisted `FinalReviewDecision` record; the Coordinator never fabricates a
+decision.
 
 The projection checks source, correlation, causation where applicable, Team task,
 approval, plan hash, run, attempt identity, status, and UTC completion time. Events
@@ -237,23 +279,19 @@ mission advance <mission-id>
 ```
 
 `mission next` may reconcile Mission projection and perform bounded Team inspection,
-but it never calls approval, implementation, validation, or documentation mutation
-handlers and never writes coordination audit. Existing Mission show, list, history,
-and validate operations remain read-only. `mission advance` is the only coordination
-entry point that can dispatch, and only after explicit confirmation.
+but it never calls approval, implementation, validation, documentation, or
+final-review mutation handlers and never writes coordination audit. Existing
+Mission show, list, history, and validate operations remain read-only.
+`mission advance` is the only coordination entry point that can dispatch, and only
+after explicit confirmation.
 
-## Intentional Phase 3 gaps
+## Intentional gaps
 
-- AI Team has no typed final-accept/final-completion application command; Phase 2
-  therefore stops at final review even though projection can observe reviewed final
-  events.
 - There is no automatic retry or operator uncertainty-resolution command.
+- There is no rework or repair loop after a `changes_requested` decision; the
+  Mission stays blocked.
 - Command Center lifecycle event coverage is still incomplete.
 - Missions update on explicit create, reconcile, next, or advance; there is no live
   subscriber, worker, scheduler, loop, server, GUI, REST, WebSocket, Discord, voice,
   or mobile coordinator.
 - Rollback and cancellation are not Mission-coordinated lifecycle transitions.
-
-Phase 3 should begin only with a reviewed typed human final-decision boundary and an
-authoritative event producer. It must preserve explicit confirmation and the
-one-operation/reconcile/stop invariant.

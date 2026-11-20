@@ -588,15 +588,27 @@ progress, Team task links, and recommended commands from strictly correlated Eve
 Store facts.
 
 Mission Engine remains observation-only. `mission next` reconciles, validates, and
-previews one safe operation without executing it. Mission Coordinator Phase 2 can
-select one of `team.approve`, `team.implement`, `team.validate`, or
-`team.documentation_review` when the exact authoritative Team lifecycle facts make
-that operation legal. `mission advance` repeats that preview, displays target,
-mutation, and downstream-approval details, then prompts:
+previews one safe operation without executing it. Mission Coordinator Phase 3 can
+select one of `team.approve`, `team.implement`, `team.validate`,
+`team.documentation_review`, or `team.final_review` when the exact authoritative
+Team lifecycle facts make that operation legal. `mission advance` repeats that
+preview, displays target, mutation, and downstream-approval details, then prompts:
 
 ```text
 Advance this Mission by exactly one operation? [Y/N/D]:
 ```
+
+When the previewed operation is `team.final_review`, `mission advance` asks for
+the human decision first:
+
+```text
+Final review: accept the run, request changes, or reject it? [A/C/R/N]:
+```
+
+Accept completes the Mission at 100%; request changes or reject blocks it at 95%
+with no rework loop. An optional note travels with the decision
+(`mission advance <mission-id> --note "<text>"`) and is bound into the same
+advance token, so the decision cannot change between preview and dispatch.
 
 `N`, empty input, or interruption cancels; `D` displays details only; `Y` verifies
 the exact state-bound token and may call one existing typed Team handler once. Team
@@ -609,10 +621,10 @@ Coordination audit and locks persist under `~/.orion/missions/coordination/` so 
 restart, duplicate request, stale token, stale lock, unresolved Team run, authoritative
 mismatch, or uncertain prior dispatch fails closed. Validation and documentation
 failures project a blocked state; implementation failure is terminal. Successful
-documentation reaches final human review at 90%. The current Team application layer
-has no typed final-decision operation, so the Coordinator stops there. A strict
-reviewed final-completion event can project 100% but is not produced or dispatched by
-Phase 2. See `MISSION_ENGINE.md` and `MISSION_COORDINATOR.md`.
+documentation reaches final human review at 90%, where `mission advance` records
+the one typed human decision: accept completes the Mission at 100%, while request
+changes or reject blocks it at 95%. See `MISSION_ENGINE.md` and
+`MISSION_COORDINATOR.md`.
 
 ### Observability
 

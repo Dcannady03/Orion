@@ -100,12 +100,19 @@ ID:
 - Command Center job;
 - approval;
 - validation;
-- documentation review.
+- documentation review;
+- final review.
 
-Current Team events can populate Team task, approval, run, validation, and
-documentation-review links. Goal Proposal dispatch summaries may also supply existing
-Team task and approval IDs. Command Center lifecycle links remain unavailable. IDs are
-never generated or inferred from human text.
+Current Team events can populate Team task, approval, run, validation,
+documentation-review, and final-review links. Goal Proposal dispatch summaries may
+also supply existing Team task and approval IDs. Command Center lifecycle links
+remain unavailable. IDs are never generated or inferred from human text.
+
+A `final_review` link points at the immutable `FinalReviewDecision` record on the
+Team run: one decision per run (`accepted`, `changes_requested`, or `rejected`),
+with an optional human note, the actor, and the completion time. The projection
+creates the link when it observes a reviewed `team.final_review.completed` or
+`team.final_review.blocked` event carrying the decision ID.
 
 ## Event correlation and replay
 
@@ -262,13 +269,12 @@ or Mission-generated event.
   incremental byte-offset cursor.
 - Command Center currently publishes no lifecycle events that can safely drive a
   Mission link or status.
-- AI Team emits persisted approval, implementation, validation, and documentation
-  lifecycle facts, but it has no typed final-review decision command.
-- Projection understands reviewed final-review completed/blocked event contracts;
-  the current Team application layer does not yet produce them.
+- AI Team emits persisted approval, implementation, validation, documentation, and
+  final-review lifecycle facts. The final-review decision is a typed human
+  boundary (`AiTeamApplicationHandler.final_review()`); a run accepts at most one
+  decision, and there is no rework loop after `changes_requested`.
 - Missions update only when explicitly created or reconciled; there is no live
   Mission subscriber.
 
-The safer Phase 3 milestone is a reviewed typed human final-decision boundary and
-authoritative event producer, not autonomous continuation or a server over an
-incomplete lifecycle contract. See [Mission Coordinator](MISSION_COORDINATOR.md).
+The next milestone is an explicit audited uncertainty-resolution workflow before
+any retry. See [Mission Coordinator](MISSION_COORDINATOR.md).
