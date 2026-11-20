@@ -286,7 +286,7 @@ RUNBOOKS: tuple[Runbook, ...] = (
             RunbookCause(
                 "Corrupt Vault store",
                 "audit reports the Vault file is missing or unreadable.",
-                "Restore the Vault from a backup; credentials cannot be recovered otherwise.",
+                "Restore the Vault from a copy made outside Orion (Orion backups never include it); without one, re-enter the credentials; they cannot be recovered.",
             ),
         ),
     ),
