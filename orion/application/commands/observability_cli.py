@@ -18,7 +18,7 @@ from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
 _COMMAND_WORDS = frozenset(
-    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit", "runbooks", "retry", "remediate"}
+    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit", "runbooks", "retry", "remediate", "docker"}
 )
 
 
@@ -101,6 +101,8 @@ class ObservabilityCliAdapter:
                 result, as_json = self._retry(tokens[1:])
             elif command == "remediate":
                 result, as_json = self._remediate(tokens[1:])
+            elif command == "docker":
+                result, as_json = self._docker(tokens[1:])
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -440,6 +442,31 @@ class ObservabilityCliAdapter:
         )
         return self.application.logs(request), as_json
 
+    def _docker(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
+        as_json = False
+        args: list[str] = []
+        for token in tokens:
+            if token.casefold() == "--json":
+                as_json = True
+            elif token.startswith("--"):
+                raise ValueError(f"Unknown docker option: {token}")
+            else:
+                args.append(token)
+        if not args:
+            raise ValueError(
+                "Usage: docker list | docker inspect <name>"
+            )
+        subcommand = args[0].casefold()
+        if subcommand in {"list", "ps"}:
+            if len(args) != 1:
+                raise ValueError("docker list takes no arguments.")
+            return self.application.docker_list(), as_json
+        if subcommand == "inspect":
+            if len(args) != 2:
+                raise ValueError("Usage: docker inspect <name>")
+            return self.application.docker_inspect(args[1]), as_json
+        raise ValueError(f"Unknown docker subcommand: {args[0]}")
+
     def _diagnostics(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
         for token in tokens:
@@ -472,6 +499,8 @@ class ObservabilityCliAdapter:
             "       retry backup <path> [--attempts N] [--json]\n"
             "       remediate [--json]\n"
             "       remediate apply <id> | apply --all\n"
+            "       docker list [--json]\n"
+            "       docker inspect <name> [--json]\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
             "except `health --record`, which saves one snapshot for the graphs.\n"
             "Backup import replaces data and always asks for approval first."

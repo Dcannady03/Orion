@@ -19,6 +19,16 @@ from orion.application.observability.diagnostics import (
     DiagnosticsCollector,
     DiagnosticsReport,
 )
+from orion.application.observability.docker import (
+    AmbiguousContainerError,
+    ContainerDetail,
+    ContainerList,
+    ContainerSummary,
+    DockerCommandError,
+    DockerService,
+    DockerUnavailableError,
+    UnknownContainerError,
+)
 from orion.application.observability.graphs import (
     DependencyNode,
     HealthGraphs,
@@ -86,6 +96,7 @@ from orion.application.observability.runbooks import (
 
 
 __all__ = [
+    "AmbiguousContainerError",
     "AuditFinding",
     "AuditReport",
     "BackupExport",
@@ -94,9 +105,15 @@ __all__ = [
     "BackupInfo",
     "BackupService",
     "BackupVerification",
+    "ContainerDetail",
+    "ContainerList",
+    "ContainerSummary",
     "DependencyNode",
     "DiagnosticsCollector",
     "DiagnosticsReport",
+    "DockerCommandError",
+    "DockerService",
+    "DockerUnavailableError",
     "EXCLUDED_PATHS",
     "EXPORTED_PATHS",
     "HEALTH_SECTIONS",
@@ -132,6 +149,7 @@ __all__ = [
     "RunbookStep",
     "SectionTimeline",
     "SecurityAudit",
+    "UnknownContainerError",
     "build_dependency_graph",
     "build_timelines",
     "find_runbook",

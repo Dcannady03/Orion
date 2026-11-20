@@ -16,6 +16,12 @@ from orion.application.observability.diagnostics import (
     DiagnosticsCollector,
     DiagnosticsReport,
 )
+from orion.application.observability.docker import (
+    AmbiguousContainerError,
+    DockerService,
+    DockerUnavailableError,
+    UnknownContainerError,
+)
 from orion.application.observability.graphs import (
     HealthGraphs,
     HealthSnapshotStore,
@@ -71,6 +77,7 @@ class ObservabilityApplicationHandler:
         event_store=None,
         clock=None,
         plugin_manager=None,
+        docker_service=None,
     ) -> None:
         self._paths = paths
         self._config_manager = config_manager
@@ -79,6 +86,7 @@ class ObservabilityApplicationHandler:
         self._event_store = event_store
         self._clock = clock
         self._plugin_manager = plugin_manager
+        self._docker_service = docker_service
         self.checker = HealthChecker(
             paths,
             config_manager=config_manager,
@@ -1059,3 +1067,115 @@ class ObservabilityApplicationHandler:
             errors=(outcome.detail,),
             next_actions=("remediate", "runbooks diagnose"),
         )
+
+    def _docker(self) -> DockerService:
+        if self._docker_service is not None:
+            return self._docker_service
+        return DockerService()
+
+    @staticmethod
+    def _docker_unavailable(exc: DockerUnavailableError) -> ApplicationResult:
+        if exc.reason == "cli_missing":
+            message = (
+                "Docker is not available: the `docker` command was not "
+                "found on this machine."
+            )
+        elif exc.reason == "timeout":
+            message = (
+                "Docker did not answer in time; the daemon may be busy "
+                "or unreachable."
+            )
+        else:
+            message = f"Docker is not available: {exc.detail}"
+        return ApplicationResult.failure(
+            message,
+            data={"read_only": True, "docker_available": False},
+            errors=(message,),
+            next_actions=("diagnostics",),
+        )
+
+    @staticmethod
+    def _docker_unknown(exc: Exception) -> ApplicationResult:
+        message = str(exc)
+        return ApplicationResult.failure(
+            message,
+            data={"read_only": True},
+            errors=(message,),
+            next_actions=("docker list",),
+        )
+
+    def docker_list(self) -> ApplicationResult:
+        """List every Docker container, running or stopped."""
+        try:
+            listing = self._docker().list_containers()
+        except DockerUnavailableError as exc:
+            return self._docker_unavailable(exc)
+        return ApplicationResult.success(
+            self._render_docker_list(listing),
+            data={**listing.to_dict(), "read_only": True},
+            next_actions=("docker inspect <name>", "docker health"),
+        )
+
+    @staticmethod
+    def _render_docker_list(listing) -> str:
+        lines = [
+            f"Docker Containers ({len(listing.containers)})",
+            "-" * 68,
+        ]
+        if not listing.containers:
+            lines.append("No containers found.")
+        for item in listing.containers:
+            ports = ", ".join(item.ports) if item.ports else "-"
+            lines.append(
+                f"{item.name:<18} {item.state:<10} {item.health:<10} "
+                f"{item.image:<22} {ports}"
+            )
+        if listing.skipped:
+            lines.append(
+                f"{listing.skipped} malformed container line(s) ignored."
+            )
+        return "\n".join(lines)
+
+    def docker_inspect(self, name: str) -> ApplicationResult:
+        """Show full detail for one Docker container."""
+        try:
+            detail = self._docker().inspect_container(name)
+        except DockerUnavailableError as exc:
+            return self._docker_unavailable(exc)
+        except (UnknownContainerError, AmbiguousContainerError) as exc:
+            return self._docker_unknown(exc)
+        return ApplicationResult.success(
+            self._render_docker_inspect(detail),
+            data={**detail.to_dict(), "read_only": True},
+            next_actions=("docker list", "docker logs " + detail.name),
+        )
+
+    @staticmethod
+    def _render_docker_inspect(detail) -> str:
+        lines = [
+            f"Container: {detail.name} ({detail.container_id[:12]})",
+            "-" * 68,
+            f"State     : {detail.state}",
+            f"Health    : {detail.health}",
+            f"Image     : {detail.image}",
+            f"Created   : {detail.created}",
+        ]
+        if detail.started_at:
+            lines.append(f"Started   : {detail.started_at}")
+        if detail.finished_at and not detail.finished_at.startswith("0001-"):
+            lines.append(
+                f"Finished  : {detail.finished_at} (exit {detail.exit_code})"
+            )
+        lines.append("Ports     :")
+        if detail.ports:
+            for port in detail.ports:
+                lines.append(f"  {port}")
+        else:
+            lines.append("  -")
+        lines.append("Mounts    :")
+        if detail.mounts:
+            for mount in detail.mounts:
+                lines.append(f"  {mount}")
+        else:
+            lines.append("  -")
+        return "\n".join(lines)
