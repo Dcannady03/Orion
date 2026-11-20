@@ -63,6 +63,7 @@ BASE_COMMANDS = (
     "graphs", "graphs dependencies",
     "graphs disk", "graphs providers", "graphs services",
     "graphs config", "graphs workspace", "graphs events",
+    "backup", "backup export", "backup list", "backup verify", "backup import",
     "command-center", "command-center status", "command-center snapshot",
     "command-center departments", "command-center department show",
     "command-center department create", "command-center department add-agent",

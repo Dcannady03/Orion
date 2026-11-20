@@ -1,5 +1,15 @@
 """Typed observability application package (Phase 4)."""
 
+from orion.application.observability.backup import (
+    EXCLUDED_PATHS,
+    EXPORTED_PATHS,
+    BackupExport,
+    BackupImportPlan,
+    BackupImportResult,
+    BackupInfo,
+    BackupService,
+    BackupVerification,
+)
 from orion.application.observability.diagnostics import (
     DiagnosticsCollector,
     DiagnosticsReport,
@@ -32,9 +42,17 @@ from orion.application.observability.logs import (
 
 
 __all__ = [
+    "BackupExport",
+    "BackupImportPlan",
+    "BackupImportResult",
+    "BackupInfo",
+    "BackupService",
+    "BackupVerification",
     "DependencyNode",
     "DiagnosticsCollector",
     "DiagnosticsReport",
+    "EXCLUDED_PATHS",
+    "EXPORTED_PATHS",
     "HEALTH_SECTIONS",
     "HealthCheck",
     "HealthChecker",

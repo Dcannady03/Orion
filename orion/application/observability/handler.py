@@ -2,7 +2,12 @@
 from __future__ import annotations
 
 import json
+import zipfile
 
+from orion.application.observability.backup import (
+    EXCLUDED_PATHS,
+    BackupService,
+)
 from orion.application.observability.diagnostics import (
     DiagnosticsCollector,
     DiagnosticsReport,
@@ -276,3 +281,132 @@ class ObservabilityApplicationHandler:
                 child.render("", last=index == len(tree.children) - 1)
             )
         return "\n".join(lines)
+
+    def backup_export(self, name: str | None = None) -> ApplicationResult:
+        """Export config and runtime data to a verified backup archive."""
+        service = BackupService(self._paths, clock=self._clock)
+        try:
+            export = service.export(name)
+        except (ValueError, OSError) as exc:
+            return ApplicationResult.failure(
+                f"Backup export failed: {exc}",
+                data={"read_only": False},
+                errors=(str(exc),),
+                next_actions=("backup list",),
+            )
+        return ApplicationResult.success(
+            f"Backup exported: {export.name}\n"
+            f"  Files: {export.file_count}\n"
+            f"  Size: {export.total_bytes} bytes\n"
+            f"  Path: {export.path}\n"
+            "Vault and tokens were excluded.",
+            data={
+                **export.to_dict(),
+                "read_only": False,
+                "excluded": list(EXCLUDED_PATHS),
+            },
+            next_actions=("backup list", f"backup verify {export.path}"),
+        )
+
+    def backup_list(self) -> ApplicationResult:
+        """List backup archives in the backups directory."""
+        service = BackupService(self._paths, clock=self._clock)
+        backups = service.list_backups()
+        if not backups:
+            return ApplicationResult.success(
+                "No backups found.",
+                data={"read_only": True, "backups": []},
+                next_actions=("backup export",),
+            )
+        lines = ["Orion Backups", "-" * 68]
+        for info in backups:
+            lines.append(
+                f"{info.name} ({info.size_bytes} bytes, {info.modified_at})"
+            )
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={
+                "read_only": True,
+                "backups": [info.to_dict() for info in backups],
+            },
+            next_actions=("backup export",),
+        )
+
+    def backup_verify(self, path: str) -> ApplicationResult:
+        """Verify a backup archive against its manifest (read-only)."""
+        service = BackupService(self._paths, clock=self._clock)
+        verification = service.verify(path)
+        if not verification.valid:
+            detail = "\n".join(f"  - {error}" for error in verification.errors)
+            return ApplicationResult.failure(
+                f"Backup verification failed:\n{detail}",
+                data={**verification.to_dict(), "read_only": True},
+                errors=verification.errors,
+                next_actions=("backup list",),
+            )
+        return ApplicationResult.success(
+            f"Backup verified: {verification.file_count} file(s), checksums OK.",
+            data={**verification.to_dict(), "read_only": True},
+            warnings=verification.warnings,
+            next_actions=(f"backup import {path}",),
+        )
+
+    def backup_import_plan(self, path: str) -> ApplicationResult:
+        """Describe what importing a backup would change (read-only)."""
+        service = BackupService(self._paths, clock=self._clock)
+        try:
+            plan = service.plan_import(path)
+        except ValueError as exc:
+            return ApplicationResult.failure(
+                f"Import plan failed: {exc}",
+                data={"read_only": True},
+                errors=(str(exc),),
+                next_actions=(f"backup verify {path}",),
+            )
+        lines = [
+            "Backup Import Plan",
+            "-" * 68,
+            f"Archive : {plan.path}",
+            f"Files   : {len(plan.files)} ({plan.total_bytes} bytes)",
+            f"Replace : {len(plan.overwrite)} existing file(s)",
+            f"Add     : {len(plan.new)} new file(s)",
+            f"Safety backup: {plan.safety_backup_name} (written before any change)",
+        ]
+        if plan.warnings:
+            lines.append("Warnings:")
+            for warning in plan.warnings:
+                lines.append(f"  - {warning}")
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={**plan.to_dict(), "read_only": True},
+            warnings=plan.warnings,
+            next_actions=(f"backup import {path}",),
+        )
+
+    def backup_import(self, path: str, *, confirm: bool = False) -> ApplicationResult:
+        """Restore a verified backup. Requires explicit confirmation."""
+        if not confirm:
+            return ApplicationResult.failure(
+                "Backup import requires explicit confirmation.",
+                data={"read_only": True},
+                errors=("Backup import requires explicit confirmation.",),
+                next_actions=(f"backup import {path}",),
+            )
+        service = BackupService(self._paths, clock=self._clock)
+        try:
+            result = service.import_backup(path, confirm=True)
+        except (ValueError, OSError, zipfile.BadZipFile) as exc:
+            return ApplicationResult.failure(
+                f"Backup import failed: {exc}",
+                data={"read_only": False},
+                errors=(str(exc),),
+                next_actions=(f"backup verify {path}",),
+            )
+        lines = [f"Backup imported: {result.restored} file(s) restored."]
+        if result.safety_backup:
+            lines.append(f"Safety backup: {result.safety_backup}")
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={**result.to_dict(), "read_only": False},
+            next_actions=("health",),
+        )

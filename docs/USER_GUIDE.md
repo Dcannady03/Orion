@@ -678,6 +678,25 @@ and subsystems with their current states. Snapshots are stored as JSONL under
 `observability/` (at most 1,000 kept); recording is the only write the health
 command performs, and only with `--record`.
 
+Back up configuration and runtime data with `backup`:
+
+```text
+backup export
+backup export --name before-upgrade
+backup list
+backup verify backups/orion-backup-20261120-120000.zip
+backup import backups/orion-backup-20261120-120000.zip
+```
+
+Exports are ZIP archives under `backups/` holding config, profile, events,
+missions, goals, Command Center, team, agent, memory, and observability
+data, plus a SHA-256 manifest. Vault and tokens are never exported.
+`backup verify` checks the archive against its manifest without changing
+anything. `backup import` verifies first, writes a pre-import safety backup
+of the files it will replace, shows a plan, and only restores after an
+explicit `Approve? [y/N]` confirmation. A failed verification aborts the
+import before anything changes.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1841,6 +1860,10 @@ or execute anything from the CLI.
 | `graphs` | Show health timelines from recorded snapshots |
 | `graphs disk` | Show one section's health timeline |
 | `graphs dependencies` | Show the live dependency tree |
+| `backup export` | Export config and runtime data to a backup archive |
+| `backup list` | List backup archives |
+| `backup verify PATH` | Verify a backup against its manifest |
+| `backup import PATH` | Restore a backup (asks for approval first) |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 

@@ -16,7 +16,28 @@ from orion.application.results import ApplicationResult
 from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
-_COMMAND_WORDS = frozenset({"health", "logs", "diagnostics", "graphs"})
+_COMMAND_WORDS = frozenset({"health", "logs", "diagnostics", "graphs", "backup"})
+
+
+def _split_command(payload: str) -> list[str]:
+    """Split a command line, keeping Windows backslashes intact.
+
+    shlex in POSIX mode strips backslashes, which mangles Windows paths
+    (``C:\\Users\\...`` becomes ``C:Users...``). Split without POSIX
+    processing instead and strip one layer of surrounding quotes.
+    """
+    tokens = shlex.split(str(payload), posix=False)
+    cleaned: list[str] = []
+    for token in tokens:
+        if (
+            len(token) >= 2
+            and token[0] == token[-1]
+            and token[0] in {"'", '"'}
+        ):
+            cleaned.append(token[1:-1])
+        else:
+            cleaned.append(token)
+    return cleaned
 
 
 class ObservabilityCliAdapter:
@@ -27,11 +48,13 @@ class ObservabilityCliAdapter:
         runtime,
         *,
         output_provider: Callable[[str], None] | None = None,
+        input_provider: Callable[[str], str] | None = None,
     ) -> None:
         application = getattr(runtime, "observability_application", None)
         self.application = application
         self.renderer = ApplicationResultRenderer(output_provider)
         self._output = output_provider or print
+        self._input = input_provider or input
 
     def handle(self, payload: str) -> ApplicationResult:
         if not isinstance(self.application, ObservabilityApplicationHandler):
@@ -41,7 +64,7 @@ class ObservabilityCliAdapter:
                 errors=("Observability application handler is unavailable.",),
             ))
         try:
-            tokens = shlex.split(str(payload), posix=True)
+            tokens = _split_command(payload)
         except ValueError as exc:
             return self._render(self._usage(
                 f"Observability command could not be read: {exc}"
@@ -63,6 +86,8 @@ class ObservabilityCliAdapter:
                 result, as_json = self._diagnostics(tokens[1:])
             elif command == "graphs":
                 result, as_json = self._graphs(tokens[1:])
+            elif command == "backup":
+                result, as_json = self._backup(tokens[1:])
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -105,6 +130,69 @@ class ObservabilityCliAdapter:
             raise ValueError("graphs accepts at most one section.")
         section = sections[0] if sections else None
         return self.application.graphs(section), as_json
+
+    def _backup(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
+        as_json = False
+        args: list[str] = []
+        for token in tokens:
+            if token.casefold() == "--json":
+                as_json = True
+            else:
+                args.append(token)
+        if not args:
+            raise ValueError(
+                "backup needs a subcommand: export, list, verify, or import."
+            )
+        subcommand = args[0].casefold()
+        if subcommand == "export":
+            return self._backup_export(args[1:], as_json)
+        if subcommand == "list":
+            if args[1:]:
+                raise ValueError("backup list takes no arguments.")
+            return self.application.backup_list(), as_json
+        if subcommand == "verify":
+            if len(args) != 2:
+                raise ValueError("backup verify needs a path.")
+            return self.application.backup_verify(args[1]), as_json
+        if subcommand == "import":
+            if as_json:
+                raise ValueError(
+                    "backup import is interactive and does not support --json."
+                )
+            if len(args) != 2:
+                raise ValueError("backup import needs a path.")
+            return self._backup_import(args[1])
+        raise ValueError(f"Unknown backup subcommand: {args[0]}")
+
+    def _backup_export(
+        self, args: list[str], as_json: bool
+    ) -> tuple[ApplicationResult, bool]:
+        name = None
+        index = 0
+        while index < len(args):
+            if args[index].casefold() == "--name":
+                if index + 1 >= len(args):
+                    raise ValueError("backup export --name needs a value.")
+                name = args[index + 1]
+                index += 2
+            else:
+                raise ValueError(f"Unknown backup export option: {args[index]}")
+        return self.application.backup_export(name), as_json
+
+    def _backup_import(self, path: str) -> tuple[ApplicationResult, bool]:
+        plan = self.application.backup_import_plan(path)
+        if not plan.ok:
+            return plan, False
+        self._render(plan)
+        self._output("Sensitive action: replace Orion data with this backup.")
+        answer = (self._input("Approve? [y/N]: ") or "").strip().lower()
+        if answer not in {"y", "yes"}:
+            return ApplicationResult.failure(
+                "Import cancelled.",
+                data={"read_only": True},
+                errors=("Import cancelled.",),
+            ), False
+        return self.application.backup_import(path, confirm=True), False
 
     def _logs(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
@@ -164,8 +252,13 @@ class ObservabilityCliAdapter:
             "            [--source all|events|files] [--json]\n"
             "       diagnostics [--json]\n"
             "       graphs [disk|providers|services|config|workspace|events|dependencies] [--json]\n"
+            "       backup export [--name NAME] [--json]\n"
+            "       backup list [--json]\n"
+            "       backup verify PATH [--json]\n"
+            "       backup import PATH\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
-            "except `health --record`, which saves one snapshot for the graphs."
+            "except `health --record`, which saves one snapshot for the graphs.\n"
+            "Backup import replaces data and always asks for approval first."
         )
         return ApplicationResult.failure(
             message,
