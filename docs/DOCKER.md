@@ -123,10 +123,11 @@ The chain, in order:
 
 1. **State.** Is the container running? If not, that is the primary
    finding, with the last exit code and finish time from inspect.
-2. **Ports.** For each published host port (a real host binding, not
-   merely an exposed port), TCP-connect to localhost with a 3-second
-   timeout, then try a plain HTTP GET and report the status code — or
-   "not HTTP" when the port answers TCP but is not a web service.
+2. **Ports.** For each published host port (a real configured host
+   binding, not merely an exposed port), TCP-connect to localhost
+   with a 3-second timeout, then try a plain HTTP GET and report the
+   status code — or "not HTTP" when the port answers TCP but is not
+   a web service.
 3. **Logs.** Scan the last 100 log lines for error signals
    (`error`, `exception`, `fail`, `traceback`, `panic`,
    case-insensitive) and report the count plus the five most recent

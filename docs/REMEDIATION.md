@@ -34,8 +34,10 @@ remediate.
 
 The `start-container-<name>` proposal is the one fix that does not
 come from the health check: it comes from Docker. It appears only for
-a stopped container with a real published host port (a host binding
-in inspect, not merely an exposed port) — a stopped container with no
+a stopped container with a real published host port — the configured
+port binding in the container's inspect output, which survives stops,
+not the runtime port table (which is empty while a container is
+stopped) and not merely an exposed port. A stopped container with no
 published port was probably stopped on purpose and never gets a
 proposal. When Docker is unavailable, no container proposals appear
 and the other fixes are unaffected. A container start applied through

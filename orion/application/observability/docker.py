@@ -535,8 +535,12 @@ class DockerService:
     def resolve(self, name: str) -> ContainerSummary:
         """Resolve a name or id to one container, or refuse.
 
-        Matches an exact name, an exact id, or a unique id prefix of at
-        least four characters. Anything else raises instead of guessing.
+        Matches an exact name, an exact id (short or full), or a unique
+        id prefix of at least four characters. Anything else raises
+        instead of guessing. Note `docker ps` reports 12-character
+        short ids while `docker inspect` reports the full 64-character
+        id, so a full id must match the container whose short id it
+        starts with.
         """
         query = (name or "").strip().lstrip("/")
         if not query:
@@ -553,6 +557,7 @@ class DockerService:
                 item
                 for item in listing.containers
                 if item.container_id.startswith(query)
+                or query.startswith(item.container_id)
             ]
             if len(matches) == 1:
                 return matches[0]
@@ -922,9 +927,9 @@ def _summary_from_ps(data: Mapping[str, Any]) -> ContainerSummary:
 def _detail_from_inspect(data: Mapping[str, Any]) -> ContainerDetail:
     state = data.get("State", {}) if isinstance(data.get("State"), dict) else {}
     config = data.get("Config", {}) if isinstance(data.get("Config"), dict) else {}
-    network = (
-        data.get("NetworkSettings", {})
-        if isinstance(data.get("NetworkSettings"), dict)
+    host_config = (
+        data.get("HostConfig", {})
+        if isinstance(data.get("HostConfig"), dict)
         else {}
     )
     health_data = state.get("Health", {})
@@ -937,26 +942,42 @@ def _detail_from_inspect(data: Mapping[str, Any]) -> ContainerDetail:
     running = bool(state.get("Running", False))
     ports: list[str] = []
     published: list[PublishedPort] = []
-    port_map = network.get("Ports", {})
-    if isinstance(port_map, dict):
-        for container_port in sorted(port_map):
-            bindings = port_map[container_port]
-            if isinstance(bindings, list) and bindings:
-                for binding in bindings:
-                    if not isinstance(binding, dict):
-                        continue
-                    host_ip = str(binding.get("HostIp", "") or "")
-                    host_port = str(binding.get("HostPort", "") or "")
-                    ports.append(f"{host_ip}:{host_port}->{container_port}")
-                    try:
-                        published.append(
-                            PublishedPort(
-                                host_ip, int(host_port), str(container_port)
-                            )
+    # Published ports come from HostConfig.PortBindings, the configured
+    # bindings — not NetworkSettings.Ports. The runtime port table is
+    # empty while a container is stopped, but the configured bindings
+    # survive and say what the container will publish when started.
+    # That is the signal both `docker diagnose` and the remediation
+    # start-container proposal need.
+    port_bindings = host_config.get("PortBindings", {})
+    bound_ports: set[str] = set()
+    if isinstance(port_bindings, dict):
+        for container_port in sorted(port_bindings):
+            bindings = port_bindings[container_port]
+            if not isinstance(bindings, list):
+                continue
+            for binding in bindings:
+                if not isinstance(binding, dict):
+                    continue
+                # An empty HostIp means "all interfaces", rendered as
+                # 0.0.0.0 the way docker itself renders it.
+                host_ip = str(binding.get("HostIp", "") or "") or "0.0.0.0"
+                host_port = str(binding.get("HostPort", "") or "")
+                if not host_port:
+                    continue
+                bound_ports.add(str(container_port))
+                ports.append(f"{host_ip}:{host_port}->{container_port}")
+                try:
+                    published.append(
+                        PublishedPort(
+                            host_ip, int(host_port), str(container_port)
                         )
-                    except (TypeError, ValueError):
-                        continue
-            else:
+                    )
+                except (TypeError, ValueError):
+                    continue
+    exposed = config.get("ExposedPorts", {})
+    if isinstance(exposed, dict):
+        for container_port in sorted(exposed):
+            if str(container_port) not in bound_ports:
                 ports.append(f"{container_port} (not published)")
     mounts: list[str] = []
     raw_mounts = data.get("Mounts", [])

@@ -43,6 +43,16 @@ _WORKER_ID = "c3d4e5f6a7b8" + "2" * 52
 _AMBIGUOUS_A_ID = "abcd1111" + "3" * 56
 _AMBIGUOUS_B_ID = "abcd2222" + "4" * 56
 
+# Real `docker ps` reports 12-character short ids while `docker inspect`
+# reports the full 64-character id. The fixtures keep that split on
+# purpose: a mocked suite where both sides use the same id cannot catch
+# a resolve path that only works for one length.
+_WEB_SHORT = _WEB_ID[:12]
+_DB_SHORT = _DB_ID[:12]
+_WORKER_SHORT = _WORKER_ID[:12]
+_AMBIGUOUS_A_SHORT = _AMBIGUOUS_A_ID[:12]
+_AMBIGUOUS_B_SHORT = _AMBIGUOUS_B_ID[:12]
+
 _DAEMON_STDERR = (
     "error during connect: Get "
     "\"http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.51/version\": "
@@ -69,9 +79,9 @@ def _ps_row(container_id, name, image, status, ports):
 
 
 _PS_ROWS = [
-    _ps_row(_WEB_ID, "web", "nginx:latest", "Up 2 days (healthy)", "0.0.0.0:8080->80/tcp"),
-    _ps_row(_DB_ID, "db", "postgres:16", "Up 2 days (unhealthy)", "5432/tcp"),
-    _ps_row(_WORKER_ID, "worker", "myapp:latest", "Exited (0) 3 hours ago", ""),
+    _ps_row(_WEB_SHORT, "web", "nginx:latest", "Up 2 days (healthy)", "0.0.0.0:8080->80/tcp"),
+    _ps_row(_DB_SHORT, "db", "postgres:16", "Up 2 days (unhealthy)", "5432/tcp"),
+    _ps_row(_WORKER_SHORT, "worker", "myapp:latest", "Exited (0) 3 hours ago", ""),
 ]
 
 
@@ -80,7 +90,23 @@ def _inspect_data(container_id, name, image, status, running, health):
         "Id": container_id,
         "Created": "2026-11-19T10:00:00Z",
         "Name": "/" + name,
-        "Config": {"Image": image},
+        "Config": {
+            "Image": image,
+            "ExposedPorts": (
+                {"80/tcp": {}}
+                if name == "web"
+                else {"5432/tcp": {}}
+                if name == "db"
+                else {}
+            ),
+        },
+        "HostConfig": {
+            "PortBindings": (
+                {"80/tcp": [{"HostIp": "0.0.0.0", "HostPort": "8080"}]}
+                if name == "web"
+                else {}
+            ),
+        },
         "State": {
             "Status": status,
             "Running": running,
@@ -181,6 +207,16 @@ class _FakeDocker:
             target = args[-1]
             data = self.inspect_data.get(target)
             if data is None:
+                # Real docker accepts a short id for inspect; map it to
+                # the full id the inspect data is keyed by.
+                matches = [
+                    full
+                    for full in self.inspect_data
+                    if full.startswith(target)
+                ]
+                if len(matches) == 1:
+                    data = self.inspect_data[matches[0]]
+            if data is None:
                 return _Completed(1, "", f"Error: No such container: {target}\n")
             return _Completed(0, json.dumps(data), "")
         if sub in {"start", "stop", "restart"}:
@@ -212,7 +248,16 @@ class _FakeDocker:
 
     def _sync_inspect(self, container_id):
         """Keep the inspect view consistent with the simulated state."""
-        data = self.inspect_data.get(container_id)
+        full_id = container_id
+        if full_id not in self.inspect_data:
+            matches = [
+                full
+                for full in self.inspect_data
+                if full.startswith(container_id)
+            ]
+            if len(matches) == 1:
+                full_id = matches[0]
+        data = self.inspect_data.get(full_id)
         if data is None:
             return
         state = self.states[container_id]
@@ -350,14 +395,19 @@ class DockerServiceTests(TestCase):
         self.assertEqual(_service().resolve("a1b2").name, "web")
         self.assertEqual(_service().resolve("a1b2c3d4e5f6").name, "web")
 
+    def test_resolve_prefix_longer_than_short_id(self):
+        # A 20-character prefix of the full id is longer than the
+        # 12-character short id ps reports; it still resolves.
+        self.assertEqual(_service().resolve(_WEB_ID[:20]).name, "web")
+
     def test_resolve_short_prefix_is_unknown(self):
         with self.assertRaises(UnknownContainerError):
             _service().resolve("a1b")
 
     def test_resolve_ambiguous_prefix_is_refused(self):
         rows = [
-            _ps_row(_AMBIGUOUS_A_ID, "alpha", "img:1", "Up 1 hour", ""),
-            _ps_row(_AMBIGUOUS_B_ID, "beta", "img:1", "Up 1 hour", ""),
+            _ps_row(_AMBIGUOUS_A_SHORT, "alpha", "img:1", "Up 1 hour", ""),
+            _ps_row(_AMBIGUOUS_B_SHORT, "beta", "img:1", "Up 1 hour", ""),
         ]
         service = _service(_FakeDocker(ps_rows=rows))
         with self.assertRaises(AmbiguousContainerError) as ctx:
@@ -486,7 +536,7 @@ class DockerServiceTests(TestCase):
 
     def test_health_summary_warning_when_starting(self):
         rows = [
-            _ps_row(_WEB_ID, "web", "nginx:latest", "Up 5 seconds (health: starting)", ""),
+            _ps_row(_WEB_SHORT, "web", "nginx:latest", "Up 5 seconds (health: starting)", ""),
         ]
         summary = _service(_FakeDocker(ps_rows=rows)).health_summary()
         self.assertEqual(summary.overall, "warning")
@@ -590,6 +640,37 @@ class DockerServiceTests(TestCase):
         self.assertEqual(detail.published_ports, ())
         self.assertIn("5432/tcp (not published)", detail.ports)
 
+    def test_inspect_stopped_container_keeps_published_ports(self):
+        # Live finding: a stopped container's NetworkSettings.Ports is
+        # empty, but HostConfig.PortBindings still holds the configured
+        # mapping. The published signal must come from the config, or
+        # every stopped container looks unpublished.
+        n8n_id = "11360c94944f" + "5" * 52
+        rows = [
+            _ps_row(
+                n8n_id[:12],
+                "n8n",
+                "docker.n8n.io/n8nio/n8n",
+                "Exited (143) 17 minutes ago",
+                "",
+            )
+        ]
+        data = _inspect_data(
+            n8n_id, "n8n", "docker.n8n.io/n8nio/n8n", "exited", False, "none"
+        )
+        data["Config"]["ExposedPorts"] = {"5678/tcp": {}}
+        data["HostConfig"]["PortBindings"] = {
+            "5678/tcp": [{"HostIp": "", "HostPort": "5678"}]
+        }
+        data["NetworkSettings"]["Ports"] = {}
+        fake = _FakeDocker(ps_rows=rows, inspect_data={n8n_id: data})
+        detail = _service(fake).inspect_container("n8n")
+        self.assertEqual(
+            detail.published_ports,
+            (PublishedPort("0.0.0.0", 5678, "5678/tcp"),),
+        )
+        self.assertEqual(detail.ports, ("0.0.0.0:5678->5678/tcp",))
+
     def test_diagnose_stopped_container_names_exit_code(self):
         diagnosis = _service().diagnose_container("worker")
         self.assertEqual(diagnosis.verdict, "not-running")
@@ -669,6 +750,16 @@ class DockerServiceTests(TestCase):
         diagnosis = _service(fake, _probe_ok).diagnose_container("web")
         self.assertEqual(diagnosis.error_count, 0)
         self.assertEqual(diagnosis.error_lines, ())
+
+    def test_diagnose_reads_logs_for_stopped_container(self):
+        # Live finding: diagnose reads logs by the full inspect id, and
+        # resolve only knew the short ps id, so the log scan failed for
+        # every container. A stopped container's logs must still scan.
+        fake = _FakeDocker(log_lines=["ERROR boom", "started"])
+        diagnosis = _service(fake).diagnose_container("worker")
+        self.assertEqual(diagnosis.verdict, "not-running")
+        self.assertEqual(diagnosis.error_count, 1)
+        self.assertEqual(diagnosis.error_lines, ("ERROR boom",))
 
     def test_diagnose_serializes_to_json_safe_dict(self):
         fake = _FakeDocker(log_lines=["ERROR boom"])
@@ -1017,7 +1108,7 @@ class DockerCliTests(TestCase):
         result = self._run("docker stop web")
         self.assertTrue(result.ok)
         self.assertIn("Docker stop: web", self.output.getvalue())
-        self.assertEqual(self.fake.states[_WEB_ID], "exited")
+        self.assertEqual(self.fake.states[_WEB_SHORT], "exited")
 
     def test_docker_stop_yes_word_applies(self):
         self.answers = ["yes"]
@@ -1036,7 +1127,7 @@ class DockerCliTests(TestCase):
         result = self._run("docker stop web")
         self.assertFalse(result.ok)
         self.assertIn("Cancelled", result.message)
-        self.assertEqual(self.fake.states[_WEB_ID], "running")
+        self.assertEqual(self.fake.states[_WEB_SHORT], "running")
         self.assertFalse(
             any(call[1] == "stop" for call in self.fake.calls if len(call) > 1)
         )
@@ -1046,7 +1137,7 @@ class DockerCliTests(TestCase):
         result = self._run("docker stop web")
         self.assertFalse(result.ok)
         self.assertIn("Cancelled", result.message)
-        self.assertEqual(self.fake.states[_WEB_ID], "running")
+        self.assertEqual(self.fake.states[_WEB_SHORT], "running")
 
     def test_docker_stop_unknown_never_prompts(self):
         self.answers = ["y"]
