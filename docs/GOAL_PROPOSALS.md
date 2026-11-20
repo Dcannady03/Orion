@@ -193,6 +193,34 @@ application handler receives a structured, hash-bound `GoalProposalAcceptance`.
 The existing `goal validate "<goal>"` validates a new, unpersisted Goal Plan.
 `goal proposal validate <proposal-id>` validates an existing persisted proposal.
 
+## Event observation and correlation
+
+The Proposal application and lifecycle boundaries publish:
+
+```text
+goal.proposal.created
+goal.proposal.validated
+goal.proposal.accepted
+goal.proposal.rejected
+goal.proposal.expired
+goal.proposal.consumed
+goal.proposal.failed
+```
+
+Events are emitted only after the matching authoritative persistence transition.
+Explicit validation records its bounded outcome. A pending-to-expired correction
+during validation, acceptance, rejection, or supersession also records the expiry
+transition. Failure before proposal persistence emits no success event.
+
+All Proposal events use `goal_id` as correlation and `proposal_id` as subject.
+Acceptance is persisted before publishing `goal.proposal.accepted`. That event ID is
+passed through the explicit `TeamPlanRequest` as causation for
+`team.plan.created` and the terminal consumed/failed proposal event.
+
+Event publication cannot advance a proposal, retry dispatch, approve Team
+implementation, or trigger later steps. Event Store failure leaves the proposal's
+authoritative state intact and surfaces a bounded warning. See `EVENT_BUS.md`.
+
 ## Safety guarantees and limits
 
 - Creation, show, list, validation, rejection, and supersession call no provider,

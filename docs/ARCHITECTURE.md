@@ -29,9 +29,9 @@ owns legacy syntax and interactive prompts. Both return `ApplicationResult` and 
 ```text
 CLI input
   -> core router
-  -> Goal, Command Center, or AI Team CLI adapter
+  -> Goal, Event, Command Center, or AI Team CLI adapter
   -> application handler
-  -> Goal planner or Command Center / Team / Codex domain services
+  -> Goal planner, read-only Event Store, or Command Center / Team / Codex services
   -> ApplicationResult
   -> CLI renderer
 ```
@@ -103,6 +103,34 @@ acceptance and terminal persistence, Orion cannot safely infer whether the downs
 operation happened. It leaves the proposal accepted for inspection rather than
 retrying. No worker, continuation loop, Mission Engine, or multi-step execution is
 present. See `GOAL_PROPOSALS.md`.
+
+## Event Bus observation boundary
+
+The runtime registers `event_factory`, optional `event_store`, `event_bus`,
+`event_publisher`, and `event_application` before domain handlers. Publishers depend
+only on the narrow helper; they do not know which subscribers exist.
+
+```text
+authoritative application transition
+  ├── ApplicationResult
+  └── OrionEvent
+        -> validate
+        -> append ~/.orion/events/YYYY-MM-DD.jsonl
+        -> synchronous subscriber snapshot
+```
+
+Event data is frozen, JSON-safe, size-bounded, schema-versioned, and selected
+explicitly rather than reflected from domain objects. The store reads daily logs in
+bounded reverse chunks and exposes newest-first filters. Replay delivers an existing
+bounded selection to one observer with `replayed=True`; it neither republishes nor
+repersists.
+
+Goal Proposal acceptance publishes only after the accepted state is durable. The
+accepted event ID becomes causation for `team.plan.created`, and `goal_id` remains the
+correlation through terminal proposal observation. Subscriber outputs cannot become
+requests or actions, recursive publication is blocked, and observability failures
+never reverse domain state. No automatic reactions, workers, external streaming, or
+Mission Engine are present. See `EVENT_BUS.md`.
 
 ## First Contact onboarding
 

@@ -126,6 +126,35 @@ makes it terminal `failed`. An `accepted` record after interruption blocks repla
 Goal Proposal acceptance does not create AI Team implementation approval. See
 `GOAL_PROPOSALS.md`.
 
+## Event observation boundary
+
+v0.8.4 adds a parallel observation path after authoritative application transitions:
+
+```text
+application or lifecycle handler
+  ├── ApplicationResult
+  └── explicit OrionEvent
+        -> Event Bus
+        -> external append-only Event Store
+        -> observation-only subscribers
+```
+
+`orion/application/events/` owns the immutable event model, allowlisted factory,
+synchronous bus, JSONL store, diagnostic subscriber, publishing helper, and read-only
+application handler. The Event Bus contains no application requests or domain
+services. Subscribers receive `EventDelivery` and their return values are ignored.
+
+With storage enabled, publication validates, persists, and `fsync`s before taking an
+ordered subscriber snapshot. Subscriber failures are isolated. An event-store failure
+does not roll back the already successful domain operation; the original
+`ApplicationResult` receives an observability warning instead.
+
+The only initial publishers are successful Goal Plan creation, Goal Proposal
+lifecycle transitions, and successful AI Team plan creation. Proposal acceptance
+passes correlation and causation through the typed `TeamPlanRequest` without
+changing approval semantics. `event_cli.py` exposes history only and has no arbitrary
+publish command. See `EVENT_BUS.md`.
+
 ## AI Team lifecycle results
 
 Team task results include their task ID, persisted status/stage, goal, resolved agents,

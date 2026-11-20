@@ -21,6 +21,7 @@ from orion.application.commands.ai_team_cli import (
     dispatch_ai_team,
 )
 from orion.application.commands.goal_cli import dispatch_goal
+from orion.application.commands.event_cli import dispatch_events
 from orion.services.email import redact_email_text
 
 
@@ -262,6 +263,9 @@ class CommandRouter:
             pass
 
         elif dispatch_goal(self.orion, raw_command):
+            pass
+
+        elif dispatch_events(self.orion, raw_command):
             pass
 
         elif (
@@ -670,6 +674,15 @@ class CommandRouter:
         print("    goal proposal validate <id> Validate integrity and current context")
         print("    goal proposal accept <id>  Confirm and dispatch at most one operation")
         print("    goal proposal reject <id>  Permanently reject a pending proposal")
+        print()
+        print("  Event Bus (observation only)")
+        print("    events status              Show Event Bus and store health")
+        print("    events list                Read bounded event history")
+        print("    events show <event-id>     Inspect one immutable event")
+        print("    events correlation <id>    Filter a correlated activity")
+        print("    events subject <id>        Filter events for one subject")
+        print("    events types               List stable event type contracts")
+        print("    events subscribers         List observer names without objects")
         print()
         print("  Command Center")
         print("    cc status                  Show organization, jobs, and health")

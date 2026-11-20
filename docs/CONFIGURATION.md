@@ -27,6 +27,27 @@ Creation may request `--expires-hours` within that bound. Reads never refresh a
 proposal's expiry. These settings affect review lifetime only; they grant no
 capability, provider, Team, approval, workspace, or execution permission.
 
+## Event Bus
+
+```yaml
+events:
+  enabled: true
+  store_enabled: true
+  max_event_bytes: 65536
+  history_default_limit: 100
+  history_max_limit: 1000
+  diagnostic_logging: true
+```
+
+`enabled` controls lifecycle publication. `store_enabled` controls external daily
+JSONL persistence; both default to enabled. Event and history limits are validated
+at startup. Diagnostic logging writes concise event identity fields through the
+`orion.events` logger and never publishes another event.
+
+No retention setting is exposed because automatic deletion is not implemented.
+These settings cannot authorize arbitrary publishing, subscribers, reactions,
+providers, jobs, agents, approvals, or workflow advancement.
+
 ## Image Center
 
 Image-provider selection is independent from `providers.default` and persists in the

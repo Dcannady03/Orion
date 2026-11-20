@@ -4,9 +4,9 @@
 
 **Project:** Orion — Personal AI Operating System
 
-**Documentation baseline:** v0.7.0 — Conductor plus unreleased Goal Engine and Goal
-Proposals, Automatic Validation, Documentation Review, Image Center, and Command
-Center workflow integration
+**Documentation baseline:** v0.7.0 — Conductor plus unreleased Goal Engine, Goal
+Proposals, Event Bus, Automatic Validation, Documentation Review, Image Center, and
+Command Center workflow integration
 
 Orion is a local-first personal intelligence operating system. It coordinates local
 and cloud AI providers, project knowledge, communication services, applications, and
@@ -534,6 +534,32 @@ A consumed proposal means that one planning request returned successfully. The n
 Team plan still needs its separate Team approval before implementation. Proposal
 acceptance does not approve Codex, execute later proposal steps, create a Command
 Center job, or start a Mission. See `GOAL_PROPOSALS.md`.
+
+### Event Bus
+
+Use the Event Bus commands to inspect immutable lifecycle facts:
+
+```text
+events status
+events list --limit 50
+events list --type goal.proposal.accepted
+events show <event-id>
+events correlation <correlation-id>
+events subject <subject-id>
+events types
+events subscribers
+```
+
+Events live under `~/.orion/events/YYYY-MM-DD.jsonl` as canonical append-only
+records. History is newest-first, bounded, and filterable by type, correlation,
+subject, source, severity, and time. A malformed crash-truncated line is reported and
+ignored rather than treated as an event.
+
+All Event CLI commands are read-only. There is no arbitrary publish command.
+Subscribers observe events synchronously after persistence; they cannot return
+actions, consume approvals, launch agents or jobs, invoke providers, change
+workspaces, or advance Goal Proposals or AI Team. Replay is an internal bounded
+observer API that preserves original IDs and never republishes. See `EVENT_BUS.md`.
 
 ## 7. Memory, conversations, search, and knowledge
 
@@ -1660,6 +1686,22 @@ Creation also accepts `--expires-hours <1-168>` and
 `--supersedes <pending-proposal-id>`. Acceptance requires Y/N/D confirmation and never
 continues automatically. `goal validate "<goal>"` validates an ephemeral Goal Plan;
 `goal proposal validate <id>` validates a persisted proposal.
+
+### Event Bus
+
+| Command | Purpose |
+| --- | --- |
+| `events status` | Show enabled/store state, subscriber count, types, and latest event |
+| `events list [filters]` | Read bounded newest-first history |
+| `events show <event-id>` | Inspect one immutable schema-versioned event |
+| `events correlation <id> [--limit n]` | Read one correlated activity |
+| `events subject <id> [--limit n]` | Read events about one subject |
+| `events types` | List stable event type contracts |
+| `events subscribers` | List observer IDs and names without implementation objects |
+
+`events list` supports `--type`, `--correlation`, `--subject`, `--source`,
+`--severity`, `--start`, `--end`, and `--limit`. It cannot publish, replay, subscribe,
+or execute anything from the CLI.
 
 ### AI Team
 

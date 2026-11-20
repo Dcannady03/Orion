@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from orion.application.events import EventTypes
 from orion.application.results import ApplicationResult
 from orion.application.team_reconciliation import synchronize_command_center_team
 from orion.services.codex_bridge import (
@@ -28,6 +29,8 @@ class TeamPlanRequest:
     provider: str = "auto"
     model: str = "auto"
     task_id: str | None = None
+    correlation_id: str | None = None
+    causation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -365,7 +368,33 @@ class AiTeamApplicationHandler:
                 team_task_id=task_id,
                 next_actions=((f"team.show {task_id}",) if task_id else ()),
             )
-        return self._task_result(task)
+        result = self._task_result(task)
+        publisher = getattr(self.runtime, "event_publisher", None)
+        if publisher is None:
+            return result
+        task_id = str(getattr(task, "task_id", "")).strip()
+        status = str(getattr(task, "status", "")).strip()
+        task_agents = getattr(task, "selected_agents", ())
+        selected_agent_count = (
+            len(task_agents)
+            if isinstance(task_agents, (list, tuple))
+            else len(selected)
+        )
+        publication = publisher.publish_lifecycle_event(
+            event_type=EventTypes.TEAM_PLAN_CREATED,
+            source="ai_team",
+            severity="notice",
+            correlation_id=request.correlation_id or task_id,
+            causation_id=request.causation_id,
+            subject_id=task_id,
+            data={
+                "team_task_id": task_id,
+                "status": status,
+                "approval_required": status == "awaiting_approval",
+                "selected_agent_count": selected_agent_count,
+            },
+        )
+        return publisher.attach(result, publication)
 
     def approval_details(self, request: TeamTaskRequest) -> ApplicationResult:
         try:

@@ -91,6 +91,12 @@ supersession never create a Command Center job or activity event. Any future Com
 Center translation must use a typed application boundary and preserve the existing
 separation between inert job creation and explicit launch.
 
+Event Bus v0.8.4 does not instrument Command Center jobs. Command Center's existing
+append-only activity records remain a separate domain audit mechanism, and no Event
+Bus subscriber can create, launch, synchronize, cancel, or advance a job. Future
+Command Center event types require a separate review at each authoritative
+application transition; they must not turn an observed event into launch authority.
+
 ## 5. Organization model
 
 The milestone supports one default personal organization:

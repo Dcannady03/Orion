@@ -36,6 +36,7 @@ class ConfigManager:
         "ai",
         "team",
         "goals",
+        "events",
         "vault",
         "connect",
         "image",

@@ -76,6 +76,24 @@ to the proposal's later steps. Proposal `consumed` means the accepted planning
 operation returned successfully; it does not mean the goal or implementation is
 complete. See `GOAL_PROPOSALS.md`.
 
+## Event Bus relationship
+
+After a Team Plan has actually been created and persisted,
+`AiTeamApplicationHandler.plan` publishes `team.plan.created`. The event contains the
+Team task ID, persisted status, approval requirement, selected-agent count, and
+explicit correlation fields; it does not copy the goal prompt, provider secrets,
+artifacts, or workspace contents.
+
+When planning came from an accepted Goal Proposal, `goal_id` is preserved as
+correlation and the `goal.proposal.accepted` event ID is preserved as causation.
+Standalone Team planning uses the Team task ID as correlation. A planning failure
+emits no success event.
+
+The Event Bus observes the existing Team result only. It cannot approve the plan,
+invoke implementation, launch Codex, run validation or Documentation Review, retry,
+or progress the Team workflow. An Event Store failure leaves the Team task intact
+and adds a bounded observability warning. See `EVENT_BUS.md`.
+
 The handler accepts typed plan, task, approval, implementation, run, rollback, role,
 and synchronization requests. It returns JSON-safe semantic lifecycle data as well as
 the compatibility message shown in the terminal. A future local client can therefore
