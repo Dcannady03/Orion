@@ -61,7 +61,13 @@ class MissionCoordinator:
         )
         self._lock = RLock()
 
-    def preview(self, mission_id: str) -> MissionAdvancePreview:
+    def preview(
+        self,
+        mission_id: str,
+        *,
+        decision: str = "",
+        note: str = "",
+    ) -> MissionAdvancePreview:
         """Reconcile and preview without dispatching any domain operation."""
         reconciliation = self.mission_service.reconcile(mission_id)
         mission = reconciliation.mission
@@ -71,7 +77,9 @@ class MissionCoordinator:
                 "Mission validation did not establish a safe current projection."
             )
             return self._blocked_preview(mission, reason, validation.warnings)
-        return self._preview_current(mission, check_audit=True)
+        return self._preview_current(
+            mission, check_audit=True, decision=decision, note=note
+        )
 
     def advance(self, request: MissionAdvanceRequest) -> MissionAdvanceResult:
         if not isinstance(request, MissionAdvanceRequest):
@@ -95,7 +103,12 @@ class MissionCoordinator:
                         validation.errors[0] if validation.errors else
                         "Mission validation failed before advancement."
                     )
-                preview = self._preview_current(mission, check_audit=False)
+                preview = self._preview_current(
+                    mission,
+                    check_audit=False,
+                    decision=request.decision,
+                    note=request.note,
+                )
                 if preview.operation.blocked:
                     raise MissionCoordinationError(preview.operation.blocked_reason)
                 if not hmac.compare_digest(
@@ -104,6 +117,16 @@ class MissionCoordinator:
                 ):
                     raise MissionStalePreviewError(
                         "Mission changed after preview. Re-run mission next."
+                    )
+                if (
+                    preview.operation.capability_id == "team.final_review"
+                    and request.decision not in {
+                        "accepted", "changes_requested", "rejected",
+                    }
+                ):
+                    raise MissionCoordinationError(
+                        "Final review requires an accepted, changes requested, "
+                        "or rejected decision before dispatch."
                     )
 
                 prior = self.audit_repository.get(mission.mission_id)
@@ -204,8 +227,10 @@ class MissionCoordinator:
         mission: Mission,
         *,
         check_audit: bool,
+        decision: str = "",
+        note: str = "",
     ) -> MissionAdvancePreview:
-        operation = self.determine_operation(mission)
+        operation = self.determine_operation(mission, decision=decision, note=note)
         if operation.blocked:
             return self._blocked_preview(mission, operation.blocked_reason)
         token = self._advance_token(mission, operation)
@@ -232,7 +257,13 @@ class MissionCoordinator:
             warnings=mission.warnings,
         )
 
-    def determine_operation(self, mission: Mission) -> MissionNextOperation:
+    def determine_operation(
+        self,
+        mission: Mission,
+        *,
+        decision: str = "",
+        note: str = "",
+    ) -> MissionNextOperation:
         """Determine one operation from authoritative state without dispatching it."""
         if mission.status is MissionStatus.FAILED:
             return MissionNextOperation.blocked_operation(
@@ -256,12 +287,6 @@ class MissionCoordinator:
                 "A Team implementation is already recorded as executing. Inspect "
                 "the run and reconcile before another operation.",
             )
-        if mission.status is MissionStatus.AWAITING_REVIEW:
-            return MissionNextOperation.blocked_operation(
-                mission.mission_id,
-                "The Mission is awaiting explicit final review; the AI Team "
-                "application exposes no typed completion operation.",
-            )
         if (
             mission.status is MissionStatus.AWAITING_APPROVAL
             and mission.stage is MissionStage.APPROVAL
@@ -282,6 +307,11 @@ class MissionCoordinator:
             and mission.stage is MissionStage.DOCUMENTATION_REVIEW
         ):
             return self._documentation_operation(mission)
+        if (
+            mission.status is MissionStatus.AWAITING_REVIEW
+            and mission.stage is MissionStage.FINAL_REVIEW
+        ):
+            return self._final_review_operation(mission, decision, note)
         return MissionNextOperation.blocked_operation(
             mission.mission_id,
             "No supported operation is eligible from the current Mission state.",
@@ -554,6 +584,101 @@ class MissionCoordinator:
             cli_representation=action.cli_command,
         )
 
+    def _final_review_operation(
+        self,
+        mission: Mission,
+        decision: str,
+        note: str,
+    ) -> MissionNextOperation:
+        run, reason = self._verified_run(mission)
+        if run is None:
+            return MissionNextOperation.blocked_operation(mission.mission_id, reason)
+        validation_status = str(run.get("validation_status", "")).strip().lower()
+        if validation_status not in {"passed", "warnings"}:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "Final review requires authoritative passed or warning "
+                "validation state.",
+            )
+        documentation_status = str(
+            run.get("documentation_review_status", "")
+        ).strip().lower()
+        if documentation_status not in {"passed", "warnings", "not_required"}:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "Final review requires an authoritative passed, warnings, or "
+                "not-required documentation review.",
+            )
+        if str(run.get("final_review_status", "")).strip():
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "A final-review decision already exists, but Mission projection "
+                "has not observed it. Inspect and reconcile before continuing.",
+            )
+        normalized_decision = str(decision or "").strip().lower()
+        if normalized_decision and normalized_decision not in {
+            "accepted", "changes_requested", "rejected",
+        }:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The final-review decision is not accepted, changes requested, "
+                "or rejected.",
+            )
+        action = interface_action(
+            "team.final_review",
+            {"mission_id": mission.mission_id},
+        )
+        if not action.cli_command:
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The team.final_review interface mapping is unavailable.",
+            )
+        inputs = {
+            "run_id": run["run_id"],
+            "team_task_id": run["team_task_id"],
+            "approval_id": run["approval_id"],
+            "plan_sha256": run["plan_sha256"],
+            "implementation_completed_at": run["completed_at"],
+            "validation_id": run["validation_id"],
+            "validation_status": validation_status,
+            "validation_completed_at": run["validation_completed_at"],
+            "documentation_review_id": run["documentation_review_id"],
+            "documentation_review_status": documentation_status,
+            "documentation_review_completed_at": run["documentation_review_completed_at"],
+            "decision": normalized_decision,
+            "note": " ".join(str(note or "").split()),
+        }
+        # The decision and note are supplied by the operator at advance time;
+        # a preview without them is still eligible so the CLI can discover the
+        # operation and ask. Dispatch refuses an empty decision.
+        required = {name for name in inputs if name not in {"decision", "note"}}
+        if (
+            any(not str(inputs[name]).strip() for name in required)
+            or not self._valid_timestamp(inputs["implementation_completed_at"])
+            or not self._valid_timestamp(inputs["validation_completed_at"])
+            or not self._valid_timestamp(inputs["documentation_review_completed_at"])
+        ):
+            return MissionNextOperation.blocked_operation(
+                mission.mission_id,
+                "The reviewed Team run is missing token-bound lifecycle facts.",
+            )
+        return MissionNextOperation(
+            mission_id=mission.mission_id,
+            capability_id="team.final_review",
+            operation_type="team_final_review",
+            subject_id=str(run["run_id"]),
+            reason=(
+                "Documentation review completed and a human final-review "
+                "decision is required."
+            ),
+            requires_confirmation=True,
+            requires_downstream_approval=False,
+            mutates_state=True,
+            required_inputs=tuple(inputs),
+            resolved_inputs=inputs,
+            cli_representation=action.cli_command,
+        )
+
     def _verified_run(
         self,
         mission: Mission,
@@ -760,6 +885,7 @@ class MissionCoordinator:
     def _downstream_reference(result: ApplicationResult) -> str:
         data = result.data
         for name in (
+            "final_review_id",
             "documentation_review_id",
             "validation_id",
             "run_id",

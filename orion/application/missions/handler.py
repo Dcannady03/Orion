@@ -14,6 +14,8 @@ from orion.application.results import ApplicationResult
 @dataclass(frozen=True)
 class MissionReferenceRequest:
     mission_id: str
+    decision: str = ""
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -205,7 +207,11 @@ class MissionApplicationHandler:
     def next(self, request: MissionReferenceRequest) -> ApplicationResult:
         try:
             coordinator = self._require_coordinator()
-            preview = coordinator.preview(self._reference(request))
+            preview = coordinator.preview(
+                self._reference(request),
+                decision=request.decision,
+                note=request.note,
+            )
         except self._expected_errors() as exc:
             return self._failure("Mission next-operation preview failed", exc)
         operation = preview.operation
@@ -311,6 +317,7 @@ class MissionApplicationHandler:
             ("approval", "approval_id"),
             ("validation", "validation_id"),
             ("documentation_review", "documentation_review_id"),
+            ("final_review", "final_review_id"),
         ):
             link = mission.link(link_type)
             if link is not None:
@@ -327,6 +334,7 @@ class MissionApplicationHandler:
             MissionStatus.APPROVED,
             MissionStatus.AWAITING_VALIDATION,
             MissionStatus.AWAITING_DOCUMENTATION,
+            MissionStatus.AWAITING_REVIEW,
         }:
             commands.append(f"mission next {mission.mission_id}")
         if mission.next_action:

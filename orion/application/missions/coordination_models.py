@@ -256,6 +256,8 @@ class MissionAdvanceRequest:
     advance_token: str = ""
     confirmed: bool = False
     actor: str = "user"
+    decision: str = ""
+    note: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mission_id", _mission_id(self.mission_id))
@@ -267,6 +269,18 @@ class MissionAdvanceRequest:
         object.__setattr__(self, "advance_token", token)
         object.__setattr__(self, "actor", _text(
             self.actor, "Mission advance actor", 100, required=True
+        ))
+        decision = _text(
+            self.decision, "Mission final-review decision", 20
+        ).lower()
+        if decision and decision not in {"accepted", "changes_requested", "rejected"}:
+            raise ValueError(
+                "Mission final-review decision is not accepted, changes "
+                "requested, or rejected."
+            )
+        object.__setattr__(self, "decision", decision)
+        object.__setattr__(self, "note", _text(
+            self.note, "Mission final-review note", 500
         ))
 
 

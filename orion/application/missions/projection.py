@@ -326,6 +326,14 @@ class MissionProjectionEngine:
             if event.event_type == EventTypes.TEAM_FINAL_REVIEW_BLOCKED:
                 if status is not MissionStatus.AWAITING_REVIEW:
                     continue
+                final_review_id = self._text(event.data.get("final_review_id"))
+                if LINK_ID_PATTERN.fullmatch(final_review_id):
+                    links["final_review"] = MissionLink(
+                        "final_review",
+                        final_review_id,
+                        event.event_type,
+                        event.occurred_at,
+                    )
                 status = MissionStatus.BLOCKED
                 stage = MissionStage.FINAL_REVIEW
                 progress = max(progress, MISSION_PROGRESS["final_review"])
@@ -337,6 +345,14 @@ class MissionProjectionEngine:
             if event.event_type == EventTypes.TEAM_FINAL_REVIEW_COMPLETED:
                 if status is not MissionStatus.AWAITING_REVIEW:
                     continue
+                final_review_id = self._text(event.data.get("final_review_id"))
+                if LINK_ID_PATTERN.fullmatch(final_review_id):
+                    links["final_review"] = MissionLink(
+                        "final_review",
+                        final_review_id,
+                        event.event_type,
+                        event.occurred_at,
+                    )
                 status = MissionStatus.COMPLETED
                 stage = MissionStage.COMPLETED
                 progress = MISSION_PROGRESS["completed"]
@@ -602,8 +618,8 @@ class MissionProjectionEngine:
             return (
                 "",
                 "",
-                "Final review requires a human decision, but no typed Team completion "
-                "operation exists yet.",
+                "Final review requires a human decision; run mission advance to "
+                "record accept, changes requested, or reject.",
             )
         if status is MissionStatus.BLOCKED:
             return (
