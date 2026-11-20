@@ -37,9 +37,9 @@ tested, documented milestones.
 - [x] **v0.3.5 — Weather:** current conditions, forecasts, location lookup, and briefing provider
 - [x] **v0.3.6 — Calendar:** agenda access, availability, next-event queries, and briefing provider
 - [x] **v0.6.0 — Email Phase A:** provider-neutral Gmail and Microsoft read-only mail
-- [ ] **v0.3.8 — Docker:** container discovery, control, and health checks
-- [ ] **v0.3.9 — Git:** repository status and approval-based operations
-- [ ] **v0.3.10 — Home Assistant:** entity discovery and device control
+- [ ] **Docker:** container discovery, control, and health checks
+- [ ] **Git:** repository status and approval-based operations
+- [ ] **Home Assistant:** entity discovery and device control
 - [ ] Approval-based shell execution
 - [ ] Routines and multi-step workflows
 
@@ -52,7 +52,7 @@ tested, documented milestones.
 - Root-cause-oriented diagnostic runbooks
 - Safe, approval-based remediation
 - Retry and end-to-end verification
-- Transparent recovery history and rollback where possible
+- Transparent recovery history and rollback where possible (rollback done via `team rollback` in v0.5.9; recovery history still open)
 
 ## Phase 4 — Voice
 
