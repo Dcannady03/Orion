@@ -732,6 +732,21 @@ counts only, so it is safe to paste into an issue report. On Windows, file
 access is controlled by ACLs, so the audit verifies storage locations
 instead of POSIX permission bits.
 
+`runbooks` lists root-cause-oriented diagnostic runbooks: step-by-step
+procedures for common symptoms, with the checks to run, the likely
+causes, and the fix for each one. `runbooks diagnose` runs the health
+check and suggests the runbooks matching the problems it finds.
+
+```text
+runbooks
+runbooks diagnose
+runbooks for provider unavailable
+runbooks disk-full
+runbooks disk-full --json
+```
+
+Runbooks are descriptive only — they never change anything.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1903,6 +1918,10 @@ or execute anything from the CLI.
 | `recovery <id>` | Show one recovery record in detail |
 | `audit` | Run the read-only security audit |
 | `audit --json` | Same audit report as JSON |
+| `runbooks` | List diagnostic runbooks |
+| `runbooks diagnose` | Suggest runbooks for current problems |
+| `runbooks for <symptom>` | Find runbooks by symptom |
+| `runbooks <id>` | Show one runbook in detail |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 

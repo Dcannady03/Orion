@@ -52,6 +52,15 @@ from orion.application.observability.recovery import (
     RecoveryQuery,
     RecoveryRecord,
 )
+from orion.application.observability.runbooks import (
+    RUNBOOKS,
+    Runbook,
+    RunbookCause,
+    RunbookStep,
+    find_runbook,
+    match_runbooks,
+    suggest_runbooks,
+)
 
 
 __all__ = [
@@ -83,11 +92,18 @@ __all__ = [
     "ObservabilityApplicationHandler",
     "RECOVERY_KINDS",
     "RECOVERY_STATUSES",
+    "RUNBOOKS",
     "RecoveryHistoryStore",
     "RecoveryQuery",
     "RecoveryRecord",
+    "Runbook",
+    "RunbookCause",
+    "RunbookStep",
     "SectionTimeline",
     "SecurityAudit",
     "build_dependency_graph",
     "build_timelines",
+    "find_runbook",
+    "match_runbooks",
+    "suggest_runbooks",
 ]

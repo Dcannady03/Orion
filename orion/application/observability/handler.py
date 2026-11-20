@@ -26,6 +26,12 @@ from orion.application.observability.recovery import (
     DEFAULT_RECOVERY_LIMIT,
     RecoveryHistoryStore,
 )
+from orion.application.observability.runbooks import (
+    RUNBOOKS,
+    find_runbook,
+    match_runbooks,
+    suggest_runbooks,
+)
 from orion.application.observability.health import (
     HEALTH_SECTIONS,
     HealthChecker,
@@ -566,3 +572,111 @@ class ObservabilityApplicationHandler:
                 f"{finding.check:<20}: {finding.state.value.upper()} - {finding.detail}"
             )
         return "\n".join(lines)
+
+    def runbooks_list(self) -> ApplicationResult:
+        """List the available diagnostic runbooks."""
+        lines = ["Orion Diagnostic Runbooks", "-" * 68]
+        for runbook in RUNBOOKS:
+            lines.append(f"{runbook.runbook_id:<20} {runbook.title}")
+            lines.append(f"{'':<20} {runbook.symptom}")
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={
+                "read_only": True,
+                "runbooks": [runbook.to_dict() for runbook in RUNBOOKS],
+            },
+            next_actions=("runbooks diagnose", "runbooks <id>"),
+        )
+
+    def runbooks_show(self, runbook_id: str) -> ApplicationResult:
+        """Show one diagnostic runbook in full."""
+        runbook = find_runbook(runbook_id)
+        if runbook is None:
+            return ApplicationResult.failure(
+                f"No runbook: {runbook_id}",
+                data={
+                    "read_only": True,
+                    "runbooks": [item.runbook_id for item in RUNBOOKS],
+                },
+                errors=(f"No runbook: {runbook_id}",),
+                next_actions=("runbooks",),
+            )
+        lines = [
+            f"Runbook: {runbook.title} ({runbook.runbook_id})",
+            "-" * 68,
+            f"Symptom: {runbook.symptom}",
+            "",
+            "Checks:",
+        ]
+        for index, step in enumerate(runbook.steps, start=1):
+            lines.append(f"  {index}. {step.title}")
+            lines.append(f"     Run: {step.command}")
+            lines.append(f"     Look for: {step.look_for}")
+        lines.append("")
+        lines.append("Likely causes:")
+        for cause in runbook.causes:
+            lines.append(f"  - {cause.cause}")
+            lines.append(f"    Evidence: {cause.evidence}")
+            lines.append(f"    Fix: {cause.fix}")
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={**runbook.to_dict(), "read_only": True},
+            next_actions=("runbooks diagnose",),
+        )
+
+    def runbooks_match(self, text: str) -> ApplicationResult:
+        """Find runbooks matching a symptom description."""
+        matched = match_runbooks(text)
+        if not matched:
+            return ApplicationResult.success(
+                f"No runbook matches: {text}",
+                data={"read_only": True, "runbooks": [], "query": text},
+                next_actions=("runbooks",),
+            )
+        lines = [f"Runbooks matching: {text}", "-" * 68]
+        for runbook in matched:
+            lines.append(f"{runbook.runbook_id:<20} {runbook.title}")
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={
+                "read_only": True,
+                "runbooks": [runbook.to_dict() for runbook in matched],
+                "query": text,
+            },
+            next_actions=tuple(f"runbooks {runbook.runbook_id}" for runbook in matched),
+        )
+
+    def runbooks_diagnose(self) -> ApplicationResult:
+        """Run the health check and suggest runbooks for live problems."""
+        report = self.checker.check()
+        suggestions = suggest_runbooks(report)
+        if not suggestions:
+            return ApplicationResult.success(
+                "Health check found no problems; no runbook is suggested.",
+                data={**report.to_dict(), "read_only": True, "suggestions": []},
+                next_actions=("runbooks",),
+            )
+        lines = [
+            "Suggested runbooks",
+            "-" * 68,
+            f"Health check overall: {report.overall.value.upper()}",
+        ]
+        for runbook, reason in suggestions:
+            lines.append("")
+            lines.append(f"{runbook.runbook_id} - {runbook.title}")
+            lines.append(f"  Why: {reason}")
+            lines.append(f"  See: runbooks {runbook.runbook_id}")
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={
+                **report.to_dict(),
+                "read_only": True,
+                "suggestions": [
+                    {"id": runbook.runbook_id, "title": runbook.title, "reason": reason}
+                    for runbook, reason in suggestions
+                ],
+            },
+            next_actions=tuple(
+                f"runbooks {runbook.runbook_id}" for runbook, _ in suggestions
+            ),
+        )

@@ -18,7 +18,7 @@ from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
 _COMMAND_WORDS = frozenset(
-    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit"}
+    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit", "runbooks"}
 )
 
 
@@ -95,6 +95,8 @@ class ObservabilityCliAdapter:
                 result, as_json = self._recovery(tokens[1:])
             elif command == "audit":
                 result, as_json = self._audit(tokens[1:])
+            elif command == "runbooks":
+                result, as_json = self._runbooks(tokens[1:])
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -248,6 +250,29 @@ class ObservabilityCliAdapter:
                 raise ValueError(f"Unknown audit option: {token}")
         return self.application.audit(), as_json
 
+    def _runbooks(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
+        as_json = False
+        args: list[str] = []
+        for token in tokens:
+            if token.casefold() == "--json":
+                as_json = True
+            elif token.startswith("--"):
+                raise ValueError(f"Unknown runbooks option: {token}")
+            else:
+                args.append(token)
+        if not args:
+            return self.application.runbooks_list(), as_json
+        if args[0].casefold() == "diagnose" and len(args) == 1:
+            return self.application.runbooks_diagnose(), as_json
+        if args[0].casefold() == "for":
+            query = " ".join(args[1:]).strip()
+            if not query:
+                raise ValueError("runbooks for needs a symptom description.")
+            return self.application.runbooks_match(query), as_json
+        if len(args) == 1:
+            return self.application.runbooks_show(args[0]), as_json
+        raise ValueError("Usage: runbooks [diagnose | for <symptom> | <id>]")
+
     def _logs(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
         options: dict[str, str] = {}
@@ -312,6 +337,7 @@ class ObservabilityCliAdapter:
             "       backup import PATH\n"
             "       recovery [ID] [--kind K] [--status S] [--limit N] [--json]\n"
             "       audit [--json]\n"
+            "       runbooks [diagnose | for <symptom> | <id>] [--json]\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
             "except `health --record`, which saves one snapshot for the graphs.\n"
             "Backup import replaces data and always asks for approval first."

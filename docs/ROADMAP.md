@@ -55,7 +55,7 @@ tested, documented milestones.
 - [x] **v0.4.7 — Security audit:** read-only report on permissions, secrets, exposed interfaces, and approval policies
 
 - Dependency and service health graphs (done: record snapshots with `health --record`, view timelines and the dependency tree with `graphs`)
-- Root-cause-oriented diagnostic runbooks
+- Root-cause-oriented diagnostic runbooks (done via `runbooks`; `runbooks diagnose` suggests runbooks from live health-check findings)
 - Safe, approval-based remediation
 - Retry and end-to-end verification
 - Transparent recovery history and rollback where possible (rollback done via `team rollback` in v0.5.9; history recorded and queryable via `recovery`)
