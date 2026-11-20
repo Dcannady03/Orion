@@ -278,6 +278,11 @@ ai provider use openai
 ai provider use gemini
 ```
 
+`ai provider use` switches the live provider immediately: the Brain, AI Control,
+and routing all use the new provider right away, and the choice is saved as the
+default. Switching to a cloud provider requires its API key to be configured
+first; the switch is refused otherwise, leaving the current provider untouched.
+
 `ai status` shows the active provider, active/default model, routing profile, session
 overrides, and capabilities.
 

@@ -51,6 +51,7 @@ tested, documented milestones.
 - [x] **v0.4.0 — Log viewer:** filterable, severity-aware search of runtime logs
 - [x] **v0.4.6 — Diagnostics:** environment report for issue reports, built on the health check
 - [x] **v0.4.2 — Backup/restore:** config and runtime-data export/import with SHA-256 integrity checks
+- [x] **v0.4.3 — Provider switching:** `ai provider use` swaps the live provider immediately (Brain, AI Control, routing), refusing unconfigured providers
 
 - Dependency and service health graphs (done: record snapshots with `health --record`, view timelines and the dependency tree with `graphs`)
 - Root-cause-oriented diagnostic runbooks

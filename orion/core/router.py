@@ -1862,7 +1862,7 @@ class CommandRouter:
             print(f"Could not activate provider: {exc}")
             return
         print(f"[OK] Active AI provider: {active.name()}")
-        print("This provider will be used the next time Orion starts.")
+        print("The new provider is live now; no restart needed.")
 
     def show_provider_models(self, provider: str):
         try:

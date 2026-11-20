@@ -80,15 +80,35 @@ class ProviderManager:
 
     def activate(self, provider: str, persist: bool = True):
         key = self._validate(provider)
+        if key != "ollama" and not self.secrets.get(key):
+            raise ValueError(f"{key.title()} API key is not configured.")
         instance = AIProviderFactory(self.config, self.secrets).create(key)
-        if self.orion is not None:
-            self.orion.ai_provider = instance
-            self.orion.brain.ai_provider = instance
-            self.orion.ai_control.provider = instance
+        self._swap_live_provider(instance)
         if persist:
             self.config.set("providers.default", key)
             self.config.save()
         return instance
+
+    def _swap_live_provider(self, instance) -> None:
+        """Point every live provider reference at a new instance.
+
+        The Brain and AI Control hold the provider directly; the request
+        router reaches it through the Brain, and routing plus the team
+        services create providers on demand from this manager, so these
+        three references are the complete live set. Missing attributes
+        (partial runtimes) are skipped instead of failing the switch.
+        """
+        orion = self.orion
+        if orion is None:
+            return
+        if hasattr(orion, "ai_provider"):
+            orion.ai_provider = instance
+        brain = getattr(orion, "brain", None)
+        if brain is not None and hasattr(brain, "ai_provider"):
+            brain.ai_provider = instance
+        control = getattr(orion, "ai_control", None)
+        if control is not None and hasattr(control, "provider"):
+            control.provider = instance
 
     def models(self, provider: str) -> list[str]:
         key = self._validate(provider)
@@ -148,9 +168,7 @@ class ProviderManager:
             self.config.set(f"providers.{key}.model", model)
             self.config.set("providers.default", key)
             self.config.save()
-        self.orion.ai_provider = instance
-        self.orion.brain.ai_provider = instance
-        self.orion.ai_control.provider = instance
+        self._swap_live_provider(instance)
         return instance
 
     @classmethod
