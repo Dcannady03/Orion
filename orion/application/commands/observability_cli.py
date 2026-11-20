@@ -18,7 +18,7 @@ from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
 _COMMAND_WORDS = frozenset(
-    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit", "runbooks"}
+    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit", "runbooks", "retry"}
 )
 
 
@@ -97,6 +97,8 @@ class ObservabilityCliAdapter:
                 result, as_json = self._audit(tokens[1:])
             elif command == "runbooks":
                 result, as_json = self._runbooks(tokens[1:])
+            elif command == "retry":
+                result, as_json = self._retry(tokens[1:])
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -273,6 +275,70 @@ class ObservabilityCliAdapter:
             return self.application.runbooks_show(args[0]), as_json
         raise ValueError("Usage: runbooks [diagnose | for <symptom> | <id>]")
 
+    def _retry(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
+        from orion.application.observability.retry import (
+            DEFAULT_MAX_ATTEMPTS,
+            MAX_ATTEMPTS_LIMIT,
+        )
+
+        as_json = False
+        max_attempts = DEFAULT_MAX_ATTEMPTS
+        args: list[str] = []
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if token.casefold() == "--json":
+                as_json = True
+            elif token.casefold() == "--attempts":
+                if index + 1 >= len(tokens):
+                    raise ValueError("retry --attempts needs a number.")
+                try:
+                    max_attempts = int(tokens[index + 1])
+                except ValueError:
+                    raise ValueError(
+                        f"retry --attempts needs a number, got: {tokens[index + 1]}"
+                    ) from None
+                if max_attempts < 1 or max_attempts > MAX_ATTEMPTS_LIMIT:
+                    raise ValueError(
+                        f"retry --attempts must be between 1 and {MAX_ATTEMPTS_LIMIT}."
+                    )
+                index += 1
+            elif token.startswith("--"):
+                raise ValueError(f"Unknown retry option: {token}")
+            else:
+                args.append(token)
+            index += 1
+        if not args:
+            raise ValueError(
+                "Usage: retry provider <name> | retry health [section] | retry backup <path>"
+            )
+        operation = args[0].casefold()
+        if operation == "provider":
+            if len(args) != 2:
+                raise ValueError("Usage: retry provider <name>")
+            return (
+                self.application.retry_provider(args[1], max_attempts=max_attempts),
+                as_json,
+            )
+        if operation == "health":
+            if len(args) > 2:
+                raise ValueError("Usage: retry health [section]")
+            section = args[1] if len(args) == 2 else None
+            return (
+                self.application.retry_health(section, max_attempts=max_attempts),
+                as_json,
+            )
+        if operation == "backup":
+            if len(args) != 2:
+                raise ValueError("Usage: retry backup <path>")
+            return (
+                self.application.retry_backup(args[1], max_attempts=max_attempts),
+                as_json,
+            )
+        raise ValueError(
+            "Usage: retry provider <name> | retry health [section] | retry backup <path>"
+        )
+
     def _logs(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
         options: dict[str, str] = {}
@@ -338,6 +404,9 @@ class ObservabilityCliAdapter:
             "       recovery [ID] [--kind K] [--status S] [--limit N] [--json]\n"
             "       audit [--json]\n"
             "       runbooks [diagnose | for <symptom> | <id>] [--json]\n"
+            "       retry provider <name> [--attempts N] [--json]\n"
+            "       retry health [section] [--attempts N] [--json]\n"
+            "       retry backup <path> [--attempts N] [--json]\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
             "except `health --record`, which saves one snapshot for the graphs.\n"
             "Backup import replaces data and always asks for approval first."

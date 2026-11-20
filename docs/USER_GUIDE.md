@@ -747,6 +747,25 @@ runbooks disk-full --json
 
 Runbooks are descriptive only — they never change anything.
 
+`retry` makes an explicit, bounded retry of a failing operation and
+then verifies the result end to end. Retries are never automatic:
+you run the command, Orion makes up to three foreground attempts
+(`--attempts N`, at most 5), and reports every attempt plus the
+verification outcome.
+
+```text
+retry provider ollama
+retry health providers --attempts 2
+retry backup C:\Users\you\.orion\backups\orion-backup-2026-11-20.zip
+```
+
+Verification is a separate check, not a repeat of the attempt: for a
+provider it confirms the configured model is in the model list; for a
+health check it re-runs the check to confirm the recovery holds; for
+a backup it re-reads the archive independently. Mission operations
+keep their no-automatic-retry policy; this command retries only what
+you explicitly ask it to.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1922,6 +1941,9 @@ or execute anything from the CLI.
 | `runbooks diagnose` | Suggest runbooks for current problems |
 | `runbooks for <symptom>` | Find runbooks by symptom |
 | `runbooks <id>` | Show one runbook in detail |
+| `retry provider <name>` | Retry a provider connection test |
+| `retry health [section]` | Retry a health check until it passes |
+| `retry backup <path>` | Retry a backup verification |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 

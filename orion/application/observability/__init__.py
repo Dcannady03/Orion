@@ -52,6 +52,15 @@ from orion.application.observability.recovery import (
     RecoveryQuery,
     RecoveryRecord,
 )
+from orion.application.observability.retry import (
+    DEFAULT_MAX_ATTEMPTS,
+    MAX_ATTEMPTS_LIMIT,
+    RetryAttempt,
+    RetryOutcome,
+    RetryPolicy,
+    RetryResult,
+    RetryRunner,
+)
 from orion.application.observability.runbooks import (
     RUNBOOKS,
     Runbook,
@@ -96,6 +105,11 @@ __all__ = [
     "RecoveryHistoryStore",
     "RecoveryQuery",
     "RecoveryRecord",
+    "RetryAttempt",
+    "RetryOutcome",
+    "RetryPolicy",
+    "RetryResult",
+    "RetryRunner",
     "Runbook",
     "RunbookCause",
     "RunbookStep",

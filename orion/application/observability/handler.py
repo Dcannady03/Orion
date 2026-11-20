@@ -26,6 +26,14 @@ from orion.application.observability.recovery import (
     DEFAULT_RECOVERY_LIMIT,
     RecoveryHistoryStore,
 )
+from orion.application.observability.retry import (
+    DEFAULT_MAX_ATTEMPTS,
+    MAX_ATTEMPTS_LIMIT,
+    RetryOutcome,
+    RetryPolicy,
+    RetryResult,
+    RetryRunner,
+)
 from orion.application.observability.runbooks import (
     RUNBOOKS,
     find_runbook,
@@ -680,3 +688,225 @@ class ObservabilityApplicationHandler:
                 f"runbooks {runbook.runbook_id}" for runbook, _ in suggestions
             ),
         )
+
+    def retry_provider(
+        self, name: str, *, max_attempts: int = DEFAULT_MAX_ATTEMPTS
+    ) -> ApplicationResult:
+        """Retry a provider connection test, then verify it end to end.
+
+        The attempt connects and lists models; the verification confirms
+        the provider reports configured and the configured model (if any)
+        is in the returned model list.
+        """
+        key = (name or "").strip().lower()
+        if key not in {"ollama", "openai", "gemini"}:
+            return ApplicationResult.failure(
+                f"Unknown provider: {name}",
+                data={"read_only": True, "providers": ["ollama", "openai", "gemini"]},
+                errors=(f"Unknown provider: {name}",),
+                next_actions=("ai providers",),
+            )
+        try:
+            policy = RetryPolicy(max_attempts=max_attempts)
+        except ValueError as exc:
+            return ApplicationResult.failure(
+                str(exc),
+                data={"read_only": True},
+                errors=(str(exc),),
+                next_actions=("retry provider ollama",),
+            )
+
+        def _attempt() -> RetryOutcome:
+            models = self._provider_manager.test_connection(key)
+            return RetryOutcome(
+                True,
+                f"{len(models)} models visible",
+                {"models": list(models)},
+            )
+
+        def _verify(outcome: RetryOutcome) -> RetryOutcome:
+            configured_model = ""
+            if self._config_manager is not None:
+                configured_model = (
+                    self._config_manager.get(f"providers.{key}.model", "") or ""
+                )
+            models = list(outcome.evidence.get("models", ()))
+            if configured_model and configured_model not in models:
+                return RetryOutcome(
+                    False,
+                    f"Connected, but configured model {configured_model} "
+                    "is not in the model list.",
+                )
+            for status in self._provider_manager.statuses():
+                if status.key == key and not status.configured:
+                    return RetryOutcome(
+                        False,
+                        f"Connected, but {key} still reports not configured.",
+                    )
+            if configured_model:
+                return RetryOutcome(
+                    True,
+                    f"Connection verified; configured model {configured_model} "
+                    "is available.",
+                )
+            return RetryOutcome(
+                True, "Connection verified; no default model configured."
+            )
+
+        result = RetryRunner(policy=policy).run(
+            "provider", key, attempt_fn=_attempt, verify_fn=_verify
+        )
+        return self._retry_result(result)
+
+    def retry_health(
+        self, section: str | None = None, *, max_attempts: int = DEFAULT_MAX_ATTEMPTS
+    ) -> ApplicationResult:
+        """Retry a health check until it is OK, then verify it holds.
+
+        The attempt runs the health check; the verification re-runs it and
+        requires the same section to still be OK.
+        """
+        normalized = (section or "").strip().lower() or None
+        if normalized is not None and normalized not in HEALTH_SECTIONS:
+            return ApplicationResult.failure(
+                f"Unknown health section: {section}",
+                data={"read_only": True, "sections": list(HEALTH_SECTIONS)},
+                errors=(f"Unknown health section: {section}",),
+                next_actions=("health",),
+            )
+        try:
+            policy = RetryPolicy(max_attempts=max_attempts)
+        except ValueError as exc:
+            return ApplicationResult.failure(
+                str(exc),
+                data={"read_only": True},
+                errors=(str(exc),),
+                next_actions=("retry health",),
+            )
+
+        def _attempt() -> RetryOutcome:
+            report = self.checker.check(normalized)
+            if report.overall is HealthState.OK:
+                return RetryOutcome(True, "Health check is OK.")
+            problems = "; ".join(
+                f"{check.name}: {check.detail}"
+                for check in report.checks
+                if check.state in {HealthState.WARNING, HealthState.ERROR}
+            )
+            return RetryOutcome(
+                False, f"Health check is {report.overall.value}: {problems}"
+            )
+
+        def _verify(_outcome: RetryOutcome) -> RetryOutcome:
+            report = self.checker.check(normalized)
+            if report.overall is HealthState.OK:
+                return RetryOutcome(
+                    True, "Re-check confirms the health check is still OK."
+                )
+            return RetryOutcome(
+                False,
+                f"Re-check shows {report.overall.value}; the recovery did not hold.",
+            )
+
+        result = RetryRunner(policy=policy).run(
+            "health",
+            normalized or "all",
+            attempt_fn=_attempt,
+            verify_fn=_verify,
+        )
+        return self._retry_result(result)
+
+    def retry_backup(
+        self, path: str, *, max_attempts: int = DEFAULT_MAX_ATTEMPTS
+    ) -> ApplicationResult:
+        """Retry a backup verification, then verify it with a fresh read.
+
+        The attempt verifies the archive against its manifest; the
+        verification re-reads the archive independently and verifies again.
+        """
+        if not (path or "").strip():
+            return ApplicationResult.failure(
+                "retry backup needs an archive path.",
+                data={"read_only": True},
+                errors=("retry backup needs an archive path.",),
+                next_actions=("backup list",),
+            )
+        try:
+            policy = RetryPolicy(max_attempts=max_attempts)
+        except ValueError as exc:
+            return ApplicationResult.failure(
+                str(exc),
+                data={"read_only": True},
+                errors=(str(exc),),
+                next_actions=("backup list",),
+            )
+        service = BackupService(self._paths, clock=self._clock)
+
+        def _attempt() -> RetryOutcome:
+            verification = service.verify(path)
+            if verification.valid:
+                return RetryOutcome(
+                    True,
+                    f"Backup verified: {verification.file_count} files, "
+                    "manifest intact.",
+                )
+            detail = "; ".join(verification.errors) or "Backup verification failed."
+            return RetryOutcome(False, detail)
+
+        def _verify(_outcome: RetryOutcome) -> RetryOutcome:
+            verification = service.verify(path)
+            if verification.valid:
+                return RetryOutcome(
+                    True, "Independent re-read confirms the archive and manifest."
+                )
+            detail = "; ".join(verification.errors) or "Re-read failed."
+            return RetryOutcome(False, detail)
+
+        result = RetryRunner(policy=policy).run(
+            "backup", path, attempt_fn=_attempt, verify_fn=_verify
+        )
+        return self._retry_result(result)
+
+    @staticmethod
+    def _retry_result(result: RetryResult) -> ApplicationResult:
+        message = ObservabilityApplicationHandler._render_retry(result)
+        data: dict[str, object] = {**result.to_dict(), "read_only": True}
+        if result.ok:
+            return ApplicationResult.success(
+                message,
+                data=data,
+                next_actions=("health",),
+            )
+        if result.succeeded:
+            error = f"Verification failed: {result.verification}"
+        else:
+            error = result.attempts[-1].detail if result.attempts else "Retry failed."
+        return ApplicationResult.failure(
+            message,
+            data=data,
+            errors=(error,),
+            next_actions=("runbooks diagnose", "runbooks"),
+        )
+
+    @staticmethod
+    def _render_retry(result: RetryResult) -> str:
+        lines = [
+            f"Retry: {result.operation} {result.target}",
+            "-" * 68,
+        ]
+        for attempt in result.attempts:
+            state = "OK" if attempt.ok else "FAILED"
+            lines.append(
+                f"Attempt {attempt.attempt}: {state} "
+                f"({attempt.duration_seconds:.2f}s) - {attempt.detail}"
+            )
+        lines.append(
+            f"Verified  : {'yes' if result.verified else 'no'} - {result.verification}"
+        )
+        if result.ok:
+            lines.append("Result    : succeeded and verified")
+        elif result.succeeded:
+            lines.append("Result    : operation succeeded but verification failed")
+        else:
+            lines.append("Result    : failed after all attempts")
+        return "\n".join(lines)
