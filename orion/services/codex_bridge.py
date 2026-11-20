@@ -35,6 +35,12 @@ from orion.services.team_documentation import (
     DocumentationReviewService,
     sanitized_documentation_error,
 )
+from orion.services.team_final_review import (
+    FINAL_REVIEW_DECISIONS,
+    FINAL_REVIEW_SCHEMA_VERSION,
+    MAX_FINAL_REVIEW_NOTE_LENGTH,
+    FinalReviewDecision,
+)
 from orion.services.execution_engines import (
     ExecutionEngine,
     ExecutionEngineUnavailable,
@@ -758,6 +764,8 @@ class CodexRun:
     validation_history: tuple[str, ...]
     documentation: DocumentationAttempt | None
     documentation_history: tuple[str, ...]
+    final_review: FinalReviewDecision | None
+    final_review_history: tuple[str, ...]
     error: str
     diagnostics: CodexRunDiagnostics
 
@@ -777,6 +785,10 @@ class CodexRun:
                 # Existing schema-v2 runs remain readable; a missing review is
                 # displayed as Documentation Not Run.
                 additions.update({"documentation": None, "documentation_history": []})
+            if "final_review" not in value:
+                # Existing schema-v2 runs remain readable; a missing decision is
+                # displayed as Final Review Not Recorded.
+                additions.update({"final_review": None, "final_review_history": []})
             value = {**value, **additions}
         value = _exact_mapping(
             value,
@@ -786,6 +798,7 @@ class CodexRun:
                 "artifacts", "started_at", "completed_at", "result", "changes", "error",
                 "diagnostics", "validation", "validation_history",
                 "documentation", "documentation_history",
+                "final_review", "final_review_history",
             },
             "Codex run",
         )
@@ -899,10 +912,44 @@ class CodexRun:
             or documentation_history[-1] != f"documentation/{documentation.attempt_id}.json"
         ):
             raise ValueError("Latest documentation attempt does not match documentation history.")
+        final_review_value = value["final_review"]
+        final_review = (
+            None
+            if final_review_value is None
+            else FinalReviewDecision.from_value(final_review_value)
+        )
+        if final_review is not None:
+            if final_review.run_id != _run_id(value["run_id"]):
+                raise ValueError("Final-review decision belongs to a different Codex run.")
+            if final_review.team_task_id != _team_task_id(value["team_task_id"]):
+                raise ValueError("Final-review decision belongs to a different AI Team task.")
+            if final_review.approval_id != _approval_id(value["approval_id"]):
+                raise ValueError("Final-review decision belongs to a different approval.")
+            if final_review.plan_sha256 != _plan_hash(value["plan_hash"]):
+                raise ValueError("Final-review decision belongs to a different plan.")
+        final_review_history = _bounded_strings(
+            value["final_review_history"],
+            "Codex final-review history",
+            maximum_items=1,
+            maximum_length=100,
+        )
+        if len(set(final_review_history)) != len(final_review_history) or any(
+            not re.fullmatch(r"final-review/final-review-[0-9]{4}\.json", item)
+            for item in final_review_history
+        ):
+            raise ValueError("Codex final-review history paths are invalid or duplicated.")
+        if final_review is None and final_review_history:
+            raise ValueError("Codex final-review history requires a decision record.")
+        if final_review is not None and (
+            not final_review_history
+            or final_review_history[-1] != f"final-review/{final_review.decision_id}.json"
+        ):
+            raise ValueError("Latest final-review decision does not match final-review history.")
         if status_value == RUN_STATUS_EXECUTING:
             if (
                 completed_at or result is not None or changes is not None
-                or validation is not None or documentation is not None or error
+                or validation is not None or documentation is not None
+                or final_review is not None or error
             ):
                 raise ValueError("Executing Codex runs cannot contain completion fields.")
             if diagnostics.exit_code is not None or diagnostics.timed_out:
@@ -922,7 +969,8 @@ class CodexRun:
         elif status_value == RUN_STATUS_FAILED:
             if (
                 not completed_at or result is not None or validation is not None
-                or documentation is not None or error not in RUN_ERROR_CATEGORIES
+                or documentation is not None or final_review is not None
+                or error not in RUN_ERROR_CATEGORIES
             ):
                 raise ValueError("Failed Codex runs require a sanitized error category.")
         elif status_value == RUN_STATUS_ROLLED_BACK:
@@ -949,6 +997,8 @@ class CodexRun:
             validation_history=validation_history,
             documentation=documentation,
             documentation_history=documentation_history,
+            final_review=final_review,
+            final_review_history=final_review_history,
             error=error,
             diagnostics=diagnostics,
         )
@@ -973,6 +1023,8 @@ class CodexRun:
             "validation_history": list(self.validation_history),
             "documentation": None if self.documentation is None else self.documentation.to_dict(),
             "documentation_history": list(self.documentation_history),
+            "final_review": None if self.final_review is None else self.final_review.to_dict(),
+            "final_review_history": list(self.final_review_history),
             "error": self.error,
             "diagnostics": self.diagnostics.to_dict(),
         }
@@ -1069,6 +1121,12 @@ class CodexBridgeStore:
                 run.documentation is None or attempt.to_dict() != run.documentation.to_dict()
             ):
                 raise ValueError("Latest documentation history artifact does not match run.json.")
+        for artifact_path in run.final_review_history:
+            decision = self.load_final_review_decision(run.run_id, artifact_path)
+            if artifact_path == run.final_review_history[-1] and (
+                run.final_review is None or decision.to_dict() != run.final_review.to_dict()
+            ):
+                raise ValueError("Latest final-review history artifact does not match run.json.")
         return run
 
     def claim_approval(
@@ -1315,6 +1373,55 @@ class CodexBridgeStore:
             if not (self.run_directory(normalized_run) / relative).is_file():
                 raise ValueError("Documentation attempt is missing an immutable artifact.")
         return attempt
+
+    def next_final_review_decision(self, run_id: str) -> tuple[str, tuple[str]]:
+        directory = self.run_directory(run_id) / "final-review"
+        existing = tuple(directory.glob("final-review-*.json")) if directory.is_dir() else ()
+        numbers = [
+            int(match.group(1))
+            for path in existing
+            if (match := re.fullmatch(r"final-review-([0-9]{4})\.json", path.name))
+        ]
+        number = (max(numbers) if numbers else 0) + 1
+        if number > 1:
+            raise ValueError("A Codex run cannot contain more than one final-review decision.")
+        decision_id = f"final-review-{number:04d}"
+        paths = (f"final-review/{decision_id}.json",)
+        return decision_id, paths
+
+    def write_final_review_decision(self, decision: FinalReviewDecision) -> Path:
+        validated = FinalReviewDecision.from_value(decision.to_dict())
+        expected_id, paths = self.next_final_review_decision(validated.run_id)
+        if validated.decision_id != expected_id or validated.artifact_paths != paths:
+            raise ValueError("Final-review decision does not match the next immutable history slot.")
+        directory = self.run_directory(validated.run_id)
+        return self._write_immutable(
+            directory / paths[0],
+            json.dumps(validated.to_dict(), indent=2, ensure_ascii=False) + "\n",
+        )
+
+    def load_final_review_decision(
+        self,
+        run_id: str,
+        artifact_path: str,
+    ) -> FinalReviewDecision:
+        normalized_run = _run_id(run_id)
+        if not re.fullmatch(
+            r"final-review/final-review-[0-9]{4}\.json",
+            str(artifact_path),
+        ):
+            raise ValueError("Final-review artifact path is invalid.")
+        value = self._read_json(
+            self.run_directory(normalized_run) / artifact_path,
+            "Final-review decision",
+        )
+        decision = FinalReviewDecision.from_value(value)
+        if decision.run_id != normalized_run:
+            raise ValueError("Final-review decision identity does not match its run path.")
+        for relative in decision.artifact_paths:
+            if not (self.run_directory(normalized_run) / relative).is_file():
+                raise ValueError("Final-review decision is missing an immutable artifact.")
+        return decision
 
     @staticmethod
     def _write_immutable(path: Path, content: str) -> Path:
@@ -2237,6 +2344,74 @@ class CodexBridge:
                 documentation_history=tuple(
                     (*run.documentation_history, artifact_paths[0])
                 ),
+            )
+            CodexRun.from_value(updated.to_dict())
+            self.store.save_run(updated)
+            return updated
+
+    def record_final_review(
+        self,
+        run_id: str,
+        *,
+        decision: str,
+        note: str = "",
+        actor: str = "user",
+    ) -> CodexRun:
+        """Record one immutable human final-review decision for a reviewed run.
+
+        A run accepts at most one decision. The decision is the human boundary
+        between a reviewed run and Mission completion: ``accepted`` completes
+        the Mission, ``changes_requested`` and ``rejected`` block it.
+        """
+        normalized_decision = str(decision or "").strip().lower()
+        if normalized_decision not in FINAL_REVIEW_DECISIONS:
+            raise ValueError(f"Final-review decision is not supported: {normalized_decision}")
+        normalized_note = " ".join(str(note or "").split())[:MAX_FINAL_REVIEW_NOTE_LENGTH]
+        normalized_actor = str(actor or "").strip()[:100] or "user"
+        with self._lock:
+            self._require_workspace()
+            run = self.store.load_run(run_id)
+            if run.status == RUN_STATUS_ROLLED_BACK:
+                raise ValueError("Rolled-back runs cannot receive a final-review decision.")
+            if run.status != RUN_STATUS_AWAITING_REVIEW or run.result is None or run.changes is None:
+                raise ValueError(
+                    "Only complete implementation runs awaiting review can receive "
+                    "a final-review decision."
+                )
+            if not _same_path(run.workspace_root, self._workspace_root):
+                raise PermissionError("Final-review run belongs to a different active workspace.")
+            if run.final_review is not None:
+                raise ValueError("This Codex run already has a final-review decision.")
+            if run.validation is None or run.validation.status not in {"passed", "warnings"}:
+                raise ValueError(
+                    "Final review requires passed or warning validation state."
+                )
+            if run.documentation is None or run.documentation.status not in {
+                "passed", "warnings", "not_required",
+            }:
+                raise ValueError(
+                    "Final review requires a passed, warnings, or not-required "
+                    "documentation review."
+                )
+            decision_id, artifact_paths = self.store.next_final_review_decision(run.run_id)
+            record = FinalReviewDecision(
+                schema_version=FINAL_REVIEW_SCHEMA_VERSION,
+                decision_id=decision_id,
+                run_id=run.run_id,
+                team_task_id=run.team_task_id,
+                approval_id=run.approval_id,
+                plan_sha256=run.plan_hash,
+                decision=normalized_decision,
+                note=normalized_note,
+                actor=normalized_actor,
+                completed_at=self._now().astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+                artifact_paths=artifact_paths,
+            )
+            self.store.write_final_review_decision(record)
+            updated = replace(
+                run,
+                final_review=record,
+                final_review_history=tuple((*run.final_review_history, artifact_paths[0])),
             )
             CodexRun.from_value(updated.to_dict())
             self.store.save_run(updated)
