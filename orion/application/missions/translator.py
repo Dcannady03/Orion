@@ -6,6 +6,7 @@ import re
 
 from orion.application.commands.ai_team_commands import (
     TeamApprovalRequest,
+    TeamFinalReviewRequest,
     TeamImplementationRequest,
     TeamRunRequest,
 )
@@ -30,14 +31,17 @@ class MissionOperationTranslator:
     TEAM_IMPLEMENT = "team.implement"
     TEAM_VALIDATE = "team.validate"
     TEAM_DOCUMENTATION_REVIEW = "team.documentation_review"
+    TEAM_FINAL_REVIEW = "team.final_review"
     TEAM_APPROVAL_REQUEST = "TeamApprovalRequest"
     TEAM_IMPLEMENTATION_REQUEST = "TeamImplementationRequest"
     TEAM_RUN_REQUEST = "TeamRunRequest"
+    TEAM_FINAL_REVIEW_REQUEST = "TeamFinalReviewRequest"
     SUPPORTED = frozenset({
         TEAM_APPROVE,
         TEAM_IMPLEMENT,
         TEAM_VALIDATE,
         TEAM_DOCUMENTATION_REVIEW,
+        TEAM_FINAL_REVIEW,
     })
 
     @classmethod
@@ -130,37 +134,97 @@ class MissionOperationTranslator:
                 capability, self.TEAM_RUN_REQUEST, request
             )
 
-        expected = {
-            "run_id", "team_task_id", "approval_id", "plan_sha256",
-            "implementation_completed_at", "validation_id",
-            "validation_status", "validation_completed_at",
-        }
-        if set(inputs) != expected:
-            raise MissionOperationTranslationError(
-                "team.documentation_review Mission inputs do not match the reviewed schema."
+        if capability == self.TEAM_DOCUMENTATION_REVIEW:
+            expected = {
+                "run_id", "team_task_id", "approval_id", "plan_sha256",
+                "implementation_completed_at", "validation_id",
+                "validation_status", "validation_completed_at",
+            }
+            if set(inputs) != expected:
+                raise MissionOperationTranslationError(
+                    "team.documentation_review Mission inputs do not match the reviewed schema."
+                )
+            run_id = self._subject_input(operation, inputs, "run_id", capability)
+            self._required(inputs, "team_task_id", capability)
+            self._required(inputs, "approval_id", capability)
+            self._plan_hash(inputs)
+            self._required(inputs, "implementation_completed_at", capability)
+            self._required(inputs, "validation_id", capability)
+            validation_status = self._required(
+                inputs, "validation_status", capability
             )
-        run_id = self._subject_input(operation, inputs, "run_id", capability)
-        self._required(inputs, "team_task_id", capability)
-        self._required(inputs, "approval_id", capability)
-        self._plan_hash(inputs)
-        self._required(inputs, "implementation_completed_at", capability)
-        self._required(inputs, "validation_id", capability)
-        validation_status = self._required(
-            inputs, "validation_status", capability
-        )
-        if validation_status not in {"passed", "warnings"}:
-            raise MissionOperationTranslationError(
-                "Documentation Review requires a passed or warning validation fact."
+            if validation_status not in {"passed", "warnings"}:
+                raise MissionOperationTranslationError(
+                    "Documentation Review requires a passed or warning validation fact."
+                )
+            self._required(inputs, "validation_completed_at", capability)
+            request = TeamRunRequest(
+                run_id=run_id,
+                run_followups=False,
+                correlation_id=correlation,
+                causation_id=causation,
             )
-        self._required(inputs, "validation_completed_at", capability)
-        request = TeamRunRequest(
-            run_id=run_id,
-            run_followups=False,
-            correlation_id=correlation,
-            causation_id=causation,
-        )
-        return MissionOperationTranslation(
-            capability, self.TEAM_RUN_REQUEST, request
+            return MissionOperationTranslation(
+                capability, self.TEAM_RUN_REQUEST, request
+            )
+
+        if capability == self.TEAM_FINAL_REVIEW:
+            expected = {
+                "run_id", "team_task_id", "approval_id", "plan_sha256",
+                "implementation_completed_at", "validation_id",
+                "validation_status", "validation_completed_at",
+                "documentation_review_id", "documentation_review_status",
+                "documentation_review_completed_at", "decision", "note",
+            }
+            if set(inputs) != expected:
+                raise MissionOperationTranslationError(
+                    "team.final_review Mission inputs do not match the reviewed schema."
+                )
+            run_id = self._subject_input(operation, inputs, "run_id", capability)
+            self._required(inputs, "team_task_id", capability)
+            self._required(inputs, "approval_id", capability)
+            self._plan_hash(inputs)
+            self._required(inputs, "implementation_completed_at", capability)
+            self._required(inputs, "validation_id", capability)
+            validation_status = self._required(
+                inputs, "validation_status", capability
+            )
+            if validation_status not in {"passed", "warnings"}:
+                raise MissionOperationTranslationError(
+                    "Final review requires a passed or warning validation fact."
+                )
+            self._required(inputs, "validation_completed_at", capability)
+            self._required(inputs, "documentation_review_id", capability)
+            documentation_status = self._required(
+                inputs, "documentation_review_status", capability
+            )
+            if documentation_status not in {"passed", "warnings", "not_required"}:
+                raise MissionOperationTranslationError(
+                    "Final review requires a passed, warnings, or not-required "
+                    "documentation review fact."
+                )
+            self._required(inputs, "documentation_review_completed_at", capability)
+            decision = self._required(inputs, "decision", capability).lower()
+            if decision not in {"accepted", "changes_requested", "rejected"}:
+                raise MissionOperationTranslationError(
+                    "Final review requires an accepted, changes requested, or "
+                    "rejected decision."
+                )
+            note = str(inputs.get("note", "")).strip()
+            request = TeamFinalReviewRequest(
+                run_id=run_id,
+                decision=decision,
+                note=note,
+                actor=str(actor).strip() or "user",
+                correlation_id=correlation,
+                causation_id=causation,
+            )
+            return MissionOperationTranslation(
+                capability, self.TEAM_FINAL_REVIEW_REQUEST, request
+            )
+        raise MissionOperationTranslationError(
+            "Mission capability translation is not supported: "
+            f"{capability or 'blocked'}"
         )
 
     def dispatch(
@@ -202,6 +266,12 @@ class MissionOperationTranslator:
             and isinstance(request, TeamRunRequest)
         ):
             result = team_application.documentation_review(request)
+        elif (
+            capability == self.TEAM_FINAL_REVIEW
+            and request_type == self.TEAM_FINAL_REVIEW_REQUEST
+            and isinstance(request, TeamFinalReviewRequest)
+        ):
+            result = team_application.final_review(request)
         else:
             raise MissionOperationTranslationError(
                 "Translated Mission request is not allowlisted."

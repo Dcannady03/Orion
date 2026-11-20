@@ -23,6 +23,7 @@ MISSION_LINK_TYPES = frozenset({
     "approval",
     "validation",
     "documentation_review",
+    "final_review",
 })
 
 

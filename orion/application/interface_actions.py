@@ -29,6 +29,7 @@ _ACTION_LABELS = {
     "team.implement": "Implement the approved AI Team plan",
     "team.validate": "Run AI Team validation",
     "team.documentation_review": "Run AI Team documentation review",
+    "team.final_review": "Record the AI Team final-review decision",
     "team.rollback": "Rollback the AI Team run",
     "team.sync": "Synchronize linked Command Center state",
     "mission.next": "Preview the next Mission operation",
@@ -70,6 +71,10 @@ def cli_command_for_action(
         return f"team test {run_id}" if run_id else None
     if capability == "team.documentation_review":
         return f"team docs {run_id}" if run_id else None
+    if capability == "team.final_review":
+        # The decision is captured only through the Mission advance flow;
+        # there is no direct team command for it.
+        return f"mission advance {mission_id}" if mission_id else None
     if capability == "team.rollback":
         return f"team rollback {run_id}" if run_id else None
     if capability == "team.sync":
