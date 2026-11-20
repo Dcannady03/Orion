@@ -96,13 +96,34 @@ class MissionCliAdapter:
         )
 
     def _advance(self, args: list[str]) -> ApplicationResult:
-        if len(args) != 1:
-            return self._usage("Usage: mission advance <mission-id>")
-        mission_id = args[0]
+        try:
+            options, positional = self._options(args, {"note"})
+            if len(positional) != 1:
+                raise ValueError(
+                    "Usage: mission advance <mission-id> [--note <text>]"
+                )
+        except ValueError as exc:
+            return self._usage(str(exc))
+        mission_id = positional[0]
+        note = options.get("note", "")
         preview = self.application.next(MissionReferenceRequest(mission_id))
         self.renderer.render(preview)
         if not preview.ok or preview.data.get("blocked") is True:
             return preview
+        decision = ""
+        if preview.data.get("capability_id") == "team.final_review":
+            decision = self._prompt_decision()
+            if decision is None:
+                return self._cancelled(mission_id)
+            # Re-preview with the decision so the advance token binds it.
+            preview = self.application.next(MissionReferenceRequest(
+                mission_id,
+                decision=decision,
+                note=note,
+            ))
+            self.renderer.render(preview)
+            if not preview.ok or preview.data.get("blocked") is True:
+                return preview
         token = str(preview.data.get("advance_token", "")).strip()
         if not token:
             return self._render(ApplicationResult.failure(
@@ -110,6 +131,11 @@ class MissionCliAdapter:
                 errors=("Mission preview token is unavailable.",),
             ))
         while True:
+            if decision:
+                detail = f"\nFinal-review decision: {decision.replace('_', ' ')}"
+                if note:
+                    detail += f" (note: {note})"
+                self.renderer.output(detail)
             self.renderer.output(
                 "\nAdvance this Mission by exactly one operation? [Y/N/D]:"
             )
@@ -128,9 +154,34 @@ class MissionCliAdapter:
                     advance_token=token,
                     confirmed=True,
                     actor="user",
+                    decision=decision,
+                    note=note,
                 )))
             self.renderer.output(
                 "Please enter Y, N, or D. No Mission operation was dispatched."
+            )
+
+    def _prompt_decision(self) -> str | None:
+        """Ask for the human final-review decision; None cancels the advance."""
+        while True:
+            self.renderer.output(
+                "\nFinal review: accept the run, request changes, or reject it?"
+                " [A/C/R/N]:"
+            )
+            try:
+                answer = self.input("> ").strip().lower()
+            except KeyboardInterrupt:
+                return None
+            if answer in {"", "n", "no"}:
+                return None
+            if answer in {"a", "accept", "accepted"}:
+                return "accepted"
+            if answer in {"c", "changes", "changes_requested"}:
+                return "changes_requested"
+            if answer in {"r", "reject", "rejected"}:
+                return "rejected"
+            self.renderer.output(
+                "Please enter A, C, R, or N. No Mission operation was dispatched."
             )
 
     def _cancelled(self, mission_id: str) -> ApplicationResult:
