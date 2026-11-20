@@ -1,6 +1,7 @@
 """Tests for Orion Docker integration (discovery, control, health, logs)."""
 from __future__ import annotations
 
+import copy
 import json
 import os
 import subprocess
@@ -135,14 +136,20 @@ class _FakeDocker:
         ps_rows=None,
         inspect_data=None,
         log_lines=None,
+        fail_actions=None,
+        sticky_state=False,
     ):
         self.daemon_down = daemon_down
         self.cli_missing = cli_missing
         self.timeout = timeout
         self.calls: list[list[str]] = []
-        self.ps_rows = list(_PS_ROWS if ps_rows is None else ps_rows)
-        self.inspect_data = dict(_INSPECT if inspect_data is None else inspect_data)
+        self.ps_rows = copy.deepcopy(_PS_ROWS if ps_rows is None else ps_rows)
+        self.inspect_data = copy.deepcopy(
+            _INSPECT if inspect_data is None else inspect_data
+        )
         self.log_lines = list(log_lines if log_lines is not None else [])
+        self.fail_actions = set(fail_actions or ())
+        self.sticky_state = sticky_state
         self.states = {
             row["ID"]: ("running" if row["Status"].startswith("Up") else "exited")
             for row in self.ps_rows
@@ -172,13 +179,16 @@ class _FakeDocker:
             target = args[-1]
             if target not in self.states:
                 return _Completed(1, "", f"Error: No such container: {target}\n")
-            if sub == "start":
-                self.states[target] = "running"
-            elif sub == "stop":
-                self.states[target] = "exited"
-            elif sub == "restart":
-                self.states[target] = "running"
-            self._sync_inspect(target)
+            if sub in self.fail_actions:
+                return _Completed(1, "", f"Error: failed to {sub} container {target}\n")
+            if not self.sticky_state:
+                if sub == "start":
+                    self.states[target] = "running"
+                elif sub == "stop":
+                    self.states[target] = "exited"
+                elif sub == "restart":
+                    self.states[target] = "running"
+                self._sync_inspect(target)
             name = next(
                 (row["Names"].lstrip("/") for row in self.ps_rows if row["ID"] == target),
                 target,
@@ -357,6 +367,70 @@ class DockerServiceTests(TestCase):
         data = detail.to_dict()
         self.assertEqual(json.loads(json.dumps(data)), data)
 
+    def test_control_stop_verifies(self):
+        outcome = _service().control("stop", "web")
+        self.assertTrue(outcome.applied)
+        self.assertTrue(outcome.verified)
+        self.assertEqual(outcome.state_before, "running")
+        self.assertEqual(outcome.state_after, "exited")
+        self.assertIn("web stopped", outcome.detail)
+
+    def test_control_start_verifies(self):
+        outcome = _service().control("start", "worker")
+        self.assertTrue(outcome.applied)
+        self.assertTrue(outcome.verified)
+        self.assertEqual(outcome.state_before, "exited")
+        self.assertEqual(outcome.state_after, "running")
+
+    def test_control_restart_verifies(self):
+        outcome = _service().control("restart", "web")
+        self.assertTrue(outcome.applied)
+        self.assertTrue(outcome.verified)
+        self.assertEqual(outcome.state_after, "running")
+
+    def test_control_start_already_running_is_verified(self):
+        outcome = _service().control("start", "web")
+        self.assertTrue(outcome.applied)
+        self.assertTrue(outcome.verified)
+        self.assertIn("already running", outcome.detail)
+
+    def test_control_stop_already_stopped_is_verified(self):
+        outcome = _service().control("stop", "worker")
+        self.assertTrue(outcome.applied)
+        self.assertTrue(outcome.verified)
+        self.assertIn("already stopped", outcome.detail)
+
+    def test_control_unknown_is_refused(self):
+        with self.assertRaises(UnknownContainerError):
+            _service().control("stop", "nope")
+
+    def test_control_daemon_down_fails_closed(self):
+        with self.assertRaises(DockerUnavailableError):
+            _service(_FakeDocker(daemon_down=True)).control("stop", "web")
+
+    def test_control_invalid_action_is_rejected(self):
+        with self.assertRaises(ValueError):
+            _service().control("pause", "web")
+
+    def test_control_command_failure_is_not_applied(self):
+        service = _service(_FakeDocker(fail_actions={"stop"}))
+        outcome = service.control("stop", "web")
+        self.assertFalse(outcome.applied)
+        self.assertFalse(outcome.verified)
+        self.assertEqual(outcome.state_after, "running")
+
+    def test_control_unverified_when_state_does_not_change(self):
+        service = _service(_FakeDocker(sticky_state=True))
+        outcome = service.control("stop", "web")
+        self.assertTrue(outcome.applied)
+        self.assertFalse(outcome.verified)
+        self.assertIn("expected exited", outcome.detail)
+
+    def test_control_serializes_to_json_safe_dict(self):
+        outcome = _service().control("stop", "web")
+        data = outcome.to_dict()
+        self.assertEqual(json.loads(json.dumps(data)), data)
+
 
 class DockerHandlerTests(TestCase):
     def setUp(self):
@@ -421,6 +495,56 @@ class DockerHandlerTests(TestCase):
         result = handler.docker_inspect("web")
         self.assertFalse(result.ok)
         self.assertIn("Docker is not available", result.message)
+
+    def test_docker_control_without_confirm_is_refused(self):
+        result = self.handler.docker_control("stop", "web")
+        self.assertFalse(result.ok)
+        self.assertIn("needs interactive approval", result.message)
+        self.assertEqual(self.fake.calls, [])
+
+    def test_docker_control_with_confirm_stops_and_records(self):
+        result = self.handler.docker_control("stop", "web", confirm=True)
+        self.assertTrue(result.ok)
+        self.assertTrue(result.data["applied"])
+        self.assertTrue(result.data["verified"])
+        history = self.handler.recovery_list(kind="docker")
+        self.assertTrue(history.ok)
+        self.assertEqual(history.data["total"], 1)
+        record = history.data["records"][0]
+        self.assertEqual(record["kind"], "docker")
+        self.assertEqual(record["target"], "web")
+        self.assertEqual(record["status"], "success")
+
+    def test_docker_control_unknown_with_confirm_is_refused(self):
+        result = self.handler.docker_control("stop", "nope", confirm=True)
+        self.assertFalse(result.ok)
+        self.assertIn("No container matches", result.message)
+        history = self.handler.recovery_list(kind="docker")
+        self.assertEqual(history.data["total"], 0)
+
+    def test_docker_control_daemon_down_with_confirm_is_failure(self):
+        handler = _handler(self.paths, _FakeDocker(daemon_down=True))
+        result = handler.docker_control("stop", "web", confirm=True)
+        self.assertFalse(result.ok)
+        self.assertIn("Docker is not available", result.message)
+
+    def test_docker_control_unverified_is_recorded_as_failed(self):
+        handler = _handler(self.paths, _FakeDocker(sticky_state=True))
+        result = handler.docker_control("stop", "web", confirm=True)
+        self.assertFalse(result.ok)
+        self.assertTrue(result.data["applied"])
+        self.assertFalse(result.data["verified"])
+        history = handler.recovery_list(kind="docker")
+        self.assertEqual(history.data["total"], 1)
+        self.assertEqual(history.data["records"][0]["status"], "failed")
+
+    def test_docker_control_failure_is_not_recorded(self):
+        handler = _handler(self.paths, _FakeDocker(fail_actions={"stop"}))
+        result = handler.docker_control("stop", "web", confirm=True)
+        self.assertFalse(result.ok)
+        self.assertFalse(result.data["applied"])
+        history = handler.recovery_list(kind="docker")
+        self.assertEqual(history.data["total"], 0)
 
 
 class DockerCliTests(TestCase):
@@ -510,3 +634,64 @@ class DockerCliTests(TestCase):
             str(call.args[0]) for call in output.call_args_list if call.args
         )
         self.assertIn("Docker Containers (3)", rendered)
+
+    def test_docker_stop_approved_applies(self):
+        self.answers = ["y"]
+        result = self._run("docker stop web")
+        self.assertTrue(result.ok)
+        self.assertIn("Docker stop: web", self.output.getvalue())
+        self.assertEqual(self.fake.states[_WEB_ID], "exited")
+
+    def test_docker_stop_yes_word_applies(self):
+        self.answers = ["yes"]
+        result = self._run("docker stop web")
+        self.assertTrue(result.ok)
+
+    def test_docker_stop_shows_plan_and_warning_first(self):
+        self.answers = ["y"]
+        self._run("docker stop web")
+        rendered = self.output.getvalue()
+        self.assertIn("Container: web", rendered)
+        self.assertIn("Sensitive action: docker stop 'web'", rendered)
+
+    def test_docker_stop_declined_cancels(self):
+        self.answers = ["n"]
+        result = self._run("docker stop web")
+        self.assertFalse(result.ok)
+        self.assertIn("Cancelled", result.message)
+        self.assertEqual(self.fake.states[_WEB_ID], "running")
+        self.assertFalse(
+            any(call[1] == "stop" for call in self.fake.calls if len(call) > 1)
+        )
+
+    def test_docker_stop_empty_answer_cancels(self):
+        self.answers = [""]
+        result = self._run("docker stop web")
+        self.assertFalse(result.ok)
+        self.assertIn("Cancelled", result.message)
+        self.assertEqual(self.fake.states[_WEB_ID], "running")
+
+    def test_docker_stop_unknown_never_prompts(self):
+        self.answers = ["y"]
+        result = self._run("docker stop nope")
+        self.assertFalse(result.ok)
+        self.assertIn("No container matches", result.message)
+        self.assertEqual(self.answers, ["y"])
+
+    def test_docker_stop_daemon_down_never_prompts(self):
+        down_handler = _handler(self.paths, _FakeDocker(daemon_down=True))
+        down_runtime = SimpleNamespace(observability_application=down_handler)
+        answers = ["y"]
+        output = StringIO()
+        adapter = ObservabilityCliAdapter(
+            down_runtime,
+            output_provider=output.write,
+            input_provider=lambda prompt: answers.pop(0),
+        )
+        result = adapter.handle("docker stop web")
+        self.assertFalse(result.ok)
+        self.assertIn("Docker is not available", result.message)
+        self.assertEqual(answers, ["y"])
+
+    def test_docker_start_needs_a_name(self):
+        self.assertFalse(self._run("docker start").ok)

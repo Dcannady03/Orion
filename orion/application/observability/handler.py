@@ -1179,3 +1179,69 @@ class ObservabilityApplicationHandler:
         else:
             lines.append("  -")
         return "\n".join(lines)
+
+    def docker_control(
+        self, action: str, name: str, *, confirm: bool = False
+    ) -> ApplicationResult:
+        """Start, stop, or restart one container (needs confirm=True).
+
+        Without confirm=True nothing is applied. Applied actions are
+        recorded in the recovery history, verified or not.
+        """
+        normalized = (action or "").strip().lower()
+        if not confirm:
+            message = (
+                f"docker {normalized} needs interactive approval; "
+                "nothing was changed."
+            )
+            return ApplicationResult.failure(
+                message,
+                data={"read_only": True, "action": normalized, "name": name},
+                errors=(message,),
+                next_actions=(f"docker {normalized} {name}",),
+            )
+        try:
+            outcome = self._docker().control(normalized, name)
+        except DockerUnavailableError as exc:
+            return self._docker_unavailable(exc)
+        except (UnknownContainerError, AmbiguousContainerError) as exc:
+            return self._docker_unknown(exc)
+        except ValueError as exc:
+            return ApplicationResult.failure(
+                str(exc),
+                data={"read_only": True},
+                errors=(str(exc),),
+                next_actions=("docker list",),
+            )
+        if outcome.applied:
+            self.record_recovery(
+                "docker",
+                outcome.name,
+                status="success" if outcome.verified else "failed",
+                detail=outcome.detail,
+            )
+        lines = [
+            f"Docker {outcome.action}: {outcome.name}",
+            "-" * 68,
+            f"Applied   : {'yes' if outcome.applied else 'no'}",
+            f"Verified  : {'yes' if outcome.verified else 'no'}",
+            f"State     : {outcome.state_before} -> {outcome.state_after}",
+            f"Detail    : {outcome.detail}",
+        ]
+        message = "\n".join(lines)
+        data: dict[str, object] = {
+            **outcome.to_dict(),
+            "read_only": not outcome.applied,
+        }
+        if outcome.applied and outcome.verified:
+            return ApplicationResult.success(
+                message,
+                data=data,
+                next_actions=("docker list", "recovery --kind docker"),
+            )
+        return ApplicationResult.failure(
+            message,
+            data=data,
+            errors=(outcome.detail,),
+            next_actions=(f"docker inspect {outcome.name}", "docker list"),
+        )

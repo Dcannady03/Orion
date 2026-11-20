@@ -454,7 +454,8 @@ class ObservabilityCliAdapter:
                 args.append(token)
         if not args:
             raise ValueError(
-                "Usage: docker list | docker inspect <name>"
+                "Usage: docker list | docker inspect <name> | "
+                "docker start|stop|restart <name>"
             )
         subcommand = args[0].casefold()
         if subcommand in {"list", "ps"}:
@@ -465,7 +466,29 @@ class ObservabilityCliAdapter:
             if len(args) != 2:
                 raise ValueError("Usage: docker inspect <name>")
             return self.application.docker_inspect(args[1]), as_json
+        if subcommand in {"start", "stop", "restart"}:
+            if len(args) != 2:
+                raise ValueError(f"Usage: docker {subcommand} <name>")
+            return self._docker_control(subcommand, args[1])
         raise ValueError(f"Unknown docker subcommand: {args[0]}")
+
+    def _docker_control(self, action: str, name: str) -> tuple[ApplicationResult, bool]:
+        detail = self.application.docker_inspect(name)
+        if not detail.ok:
+            return detail, False
+        self._render(detail)
+        self._output(
+            f"Sensitive action: docker {action} '{detail.data['name']}' "
+            f"(currently {detail.data['state']})."
+        )
+        answer = (self._input("Approve? [y/N]: ") or "").strip().lower()
+        if answer not in {"y", "yes"}:
+            return ApplicationResult.failure(
+                f"Cancelled: did not {action} '{detail.data['name']}'.",
+                data={"read_only": True},
+                errors=("Cancelled.",),
+            ), False
+        return self.application.docker_control(action, name, confirm=True), False
 
     def _diagnostics(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
@@ -501,6 +524,7 @@ class ObservabilityCliAdapter:
             "       remediate apply <id> | apply --all\n"
             "       docker list [--json]\n"
             "       docker inspect <name> [--json]\n"
+            "       docker start|stop|restart <name>\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
             "except `health --record`, which saves one snapshot for the graphs.\n"
             "Backup import replaces data and always asks for approval first."

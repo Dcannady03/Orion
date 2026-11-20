@@ -17,7 +17,10 @@ from typing import Any, Callable, Mapping
 
 AVAILABILITY_TIMEOUT_SECONDS = 15.0
 DEFAULT_TIMEOUT_SECONDS = 30.0
+CONTROL_TIMEOUT_SECONDS = 60.0
 MIN_ID_PREFIX = 4
+
+CONTROL_ACTIONS = ("start", "stop", "restart")
 
 _DAEMON_ERROR_MARKERS = (
     "cannot connect to the docker daemon",
@@ -170,6 +173,30 @@ class ContainerDetail:
         }
 
 
+@dataclass(frozen=True)
+class DockerControlOutcome:
+    """What happened when a control action ran (or was refused)."""
+
+    action: str
+    name: str
+    applied: bool
+    verified: bool
+    detail: str
+    state_before: str = ""
+    state_after: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "action": self.action,
+            "name": self.name,
+            "applied": self.applied,
+            "verified": self.verified,
+            "detail": self.detail,
+            "state_before": self.state_before,
+            "state_after": self.state_after,
+        }
+
+
 class DockerService:
     """Drive the `docker` CLI for discovery, control, and health checks.
 
@@ -314,6 +341,78 @@ class DockerService:
             )
         return _detail_from_inspect(data)
 
+    def control(self, action: str, name: str) -> DockerControlOutcome:
+        """Start, stop, or restart one container, then verify the result.
+
+        Re-resolves the container first, so a stale name can never act on
+        the wrong container, and re-inspects afterwards to verify the new
+        state. Raises UnknownContainerError, AmbiguousContainerError, or
+        DockerUnavailableError instead of acting on doubt.
+        """
+        normalized = (action or "").strip().lower()
+        if normalized not in CONTROL_ACTIONS:
+            raise ValueError(
+                f"Unknown docker control action: {action}. "
+                f"Expected one of: {', '.join(CONTROL_ACTIONS)}."
+            )
+        target = self.resolve(name)
+        before = target.state
+        try:
+            self._execute(
+                [normalized, target.container_id],
+                timeout=CONTROL_TIMEOUT_SECONDS,
+            )
+        except DockerCommandError as exc:
+            return DockerControlOutcome(
+                action=normalized,
+                name=target.name,
+                applied=False,
+                verified=False,
+                detail=str(exc),
+                state_before=before,
+                state_after=before,
+            )
+        try:
+            after = self.inspect_container(target.container_id)
+            after_state = after.state
+        except (UnknownContainerError, DockerCommandError, DockerUnavailableError):
+            return DockerControlOutcome(
+                action=normalized,
+                name=target.name,
+                applied=True,
+                verified=False,
+                detail=(
+                    f"{normalized} ran, but the container could not be "
+                    "re-inspected to verify the result."
+                ),
+                state_before=before,
+                state_after="unknown",
+            )
+        verified = _control_verified(normalized, after_state)
+        if normalized == "start" and before == "running":
+            detail = f"{target.name} is already running."
+        elif normalized == "stop" and before in {"exited", "created"}:
+            detail = f"{target.name} is already stopped."
+        elif verified:
+            past = {"start": "started", "stop": "stopped", "restart": "restarted"}[
+                normalized
+            ]
+            detail = f"{target.name} {past}: {before} -> {after_state}."
+        else:
+            detail = (
+                f"{normalized} ran, but {target.name} is {after_state} "
+                f"(expected {_expected_state(normalized)})."
+            )
+        return DockerControlOutcome(
+            action=normalized,
+            name=target.name,
+            applied=True,
+            verified=verified,
+            detail=detail,
+            state_before=before,
+            state_after=after_state,
+        )
+
 
 def _summary_from_ps(data: Mapping[str, Any]) -> ContainerSummary:
     raw_names = str(data.get("Names", "") or "")
@@ -390,6 +489,18 @@ def _detail_from_inspect(data: Mapping[str, Any]) -> ContainerDetail:
         ports=tuple(ports),
         mounts=tuple(mounts),
     )
+
+
+def _expected_state(action: str) -> str:
+    if action == "stop":
+        return "exited"
+    return "running"
+
+
+def _control_verified(action: str, state: str) -> bool:
+    if action == "stop":
+        return state in {"exited", "created"}
+    return state == "running"
 
 
 def _looks_like_daemon_error(stderr: str) -> bool:
