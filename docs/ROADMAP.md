@@ -40,7 +40,7 @@ tested, documented milestones.
 - [x] **Docker:** container discovery, control, and health checks
 - [ ] **Git:** repository status and approval-based operations
 - [ ] **Home Assistant:** entity discovery and device control
-- [ ] Approval-based shell execution
+- [x] Approval-based shell execution
 - [ ] Routines and multi-step workflows
 
 ## v0.4.x — Centers & Pathfinder

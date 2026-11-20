@@ -845,6 +845,29 @@ every docker command fails closed with a clear "Docker is not
 available" message and nothing is attempted. See
 [Docker integration](DOCKER.md) for the full reference.
 
+`shell` runs one shell command at a time (PowerShell on Windows, `sh`
+on POSIX) and reports its exit code, duration, and captured output.
+It is off by default and gated twice: `shell.arbitrary_commands` must
+be `true` in `~/.orion/config.yaml` (add `shell:` /
+`arbitrary_commands: true` and restart Orion), and every command asks
+`Approve? [y/N]` after showing the exact command, working directory
+(the Orion workspace), and timeout. There is no `--yes` bypass:
+
+```text
+shell hostname
+shell --timeout 120 Get-ChildItem -Recurse C:\Backups
+shell --json hostname
+```
+
+`--json` and `--timeout N` are leading options only; everything after
+them is the command, verbatim. The timeout defaults to 30 seconds
+and caps at 300; each output stream is truncated to the last 8,192
+characters. A non-zero exit comes back as a warning result carrying
+the exit code and output, not a crash; a timeout kills the process
+and reports it. Every execution — and every refusal — is recorded
+in the recovery history (`recovery --kind shell`). See
+[Shell execution](SHELL.md) for the full reference.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -2034,6 +2057,7 @@ or execute anything from the CLI.
 | `docker health` | Summarize container health across every container |
 | `docker logs <name>` | Show recent logs for one container |
 | `docker diagnose <name>` | Diagnose why one container cannot be reached |
+| `shell <command>` | Run one shell command (asks for approval) |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 
