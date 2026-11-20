@@ -18,7 +18,7 @@ from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
 _COMMAND_WORDS = frozenset(
-    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit", "runbooks", "retry", "remediate", "docker"}
+    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit", "runbooks", "retry", "remediate", "docker", "shell"}
 )
 
 
@@ -41,6 +41,52 @@ def _split_command(payload: str) -> list[str]:
         else:
             cleaned.append(token)
     return cleaned
+
+
+def _parse_shell_options(rest: str) -> tuple[bool, float | None, str]:
+    """Split leading `shell` options from the verbatim command text.
+
+    Only `--json` and `--timeout N` (or `--timeout=N`) are recognized,
+    and only before the command starts. Everything after the last
+    leading option is the command, untouched — including its own
+    `--flags`, pipes, and quotes.
+    """
+    as_json = False
+    timeout: float | None = None
+    while rest:
+        parts = rest.split(None, 1)
+        token = parts[0]
+        folded = token.casefold()
+        remainder = parts[1].strip() if len(parts) > 1 else ""
+        if folded == "--json":
+            as_json = True
+            rest = remainder
+            continue
+        if folded == "--timeout":
+            if not remainder:
+                raise ValueError("shell --timeout needs a value.")
+            value_parts = remainder.split(None, 1)
+            timeout = _shell_timeout_value(value_parts[0])
+            rest = value_parts[1].strip() if len(value_parts) > 1 else ""
+            continue
+        if folded.startswith("--timeout="):
+            value = token[len("--timeout="):]
+            if not value:
+                raise ValueError("shell --timeout needs a value.")
+            timeout = _shell_timeout_value(value)
+            rest = remainder
+            continue
+        break
+    return as_json, timeout, rest
+
+
+def _shell_timeout_value(value: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "shell --timeout must be a number of seconds."
+        ) from None
 
 
 class ObservabilityCliAdapter:
@@ -103,6 +149,8 @@ class ObservabilityCliAdapter:
                 result, as_json = self._remediate(tokens[1:])
             elif command == "docker":
                 result, as_json = self._docker(tokens[1:])
+            elif command == "shell":
+                result, as_json = self._shell_raw(payload)
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -530,6 +578,51 @@ class ObservabilityCliAdapter:
             ), False
         return self.application.docker_control(action, name, confirm=True), False
 
+    def _shell_raw(self, payload: str) -> tuple[ApplicationResult, bool]:
+        """Run one shell command with an approval prompt.
+
+        The command is taken verbatim from the raw input line (not
+        re-joined tokens) so pipes, quotes, and `--flags` inside the
+        command survive exactly as typed — the approval preview must show
+        the exact command that will run. `--json` and `--timeout N` are
+        recognized only as leading options, before the command.
+        """
+        parts = str(payload).strip().split(None, 1)
+        rest = parts[1].strip() if len(parts) > 1 else ""
+        as_json, timeout, command = _parse_shell_options(rest)
+        if not command:
+            raise ValueError(
+                "Usage: shell [--timeout N] [--json] <command>"
+            )
+        plan = self.application.shell_plan(command, timeout=timeout)
+        if not plan.ok:
+            return plan, False
+        if not plan.data.get("permitted"):
+            # The handler records the gate refusal; nothing is executed
+            # and no approval is asked for a command that cannot run.
+            return (
+                self.application.shell_execute(
+                    command, timeout=timeout, confirm=False
+                ),
+                False,
+            )
+        self._render(plan)
+        self._output("Sensitive action: run the shell command above.")
+        answer = (self._input("Approve? [y/N]: ") or "").strip().lower()
+        if answer not in {"y", "yes"}:
+            return (
+                self.application.shell_execute(
+                    command, timeout=timeout, confirm=False
+                ),
+                False,
+            )
+        return (
+            self.application.shell_execute(
+                command, timeout=timeout, confirm=True
+            ),
+            as_json,
+        )
+
     def _diagnostics(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
         for token in tokens:
@@ -568,6 +661,7 @@ class ObservabilityCliAdapter:
             "       docker health [--json]\n"
             "       docker logs <name> [--tail N] [--json]\n"
             "       docker diagnose <name> [--json]\n"
+            "       shell [--timeout N] [--json] <command>\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
             "except `health --record`, which saves one snapshot for the graphs.\n"
             "Backup import replaces data and always asks for approval first."

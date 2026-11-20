@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import zipfile
+from pathlib import Path
 
 from orion.application.observability.audit import (
     AuditReport,
@@ -50,6 +51,14 @@ from orion.application.observability.runbooks import (
     match_runbooks,
     suggest_runbooks,
 )
+from orion.application.observability.shell import (
+    MAX_OUTPUT_CHARS,
+    SHELL_CONFIG_KEY,
+    ShellExecution,
+    ShellPlan,
+    ShellService,
+    ShellUnavailableError,
+)
 from orion.application.observability.health import (
     HEALTH_SECTIONS,
     HealthChecker,
@@ -78,6 +87,7 @@ class ObservabilityApplicationHandler:
         clock=None,
         plugin_manager=None,
         docker_service=None,
+        shell_service=None,
     ) -> None:
         self._paths = paths
         self._config_manager = config_manager
@@ -87,6 +97,7 @@ class ObservabilityApplicationHandler:
         self._clock = clock
         self._plugin_manager = plugin_manager
         self._docker_service = docker_service
+        self._shell_service = shell_service
         self.checker = HealthChecker(
             paths,
             config_manager=config_manager,
@@ -1370,4 +1381,314 @@ class ObservabilityApplicationHandler:
             "\n".join(lines),
             data={**diagnosis.to_dict(), "read_only": True},
             next_actions=next_actions,
+        )
+
+    # -- Shell execution -------------------------------------------------
+
+    def _shell(self) -> ShellService:
+        if self._shell_service is not None:
+            return self._shell_service
+        return ShellService(default_cwd=self._workspace_root())
+
+    def _workspace_root(self):
+        """Return the active workspace root, or None when it is unknown."""
+        services = self._services
+        find = getattr(services, "find", None) if services is not None else None
+        if not callable(find):
+            return None
+        try:
+            workspace = find("workspace")
+        except Exception:
+            return None
+        root = getattr(workspace, "root", None)
+        if root is None:
+            return None
+        try:
+            return Path(root)
+        except (TypeError, ValueError):
+            return None
+
+    def _shell_permission(self) -> tuple[bool, str]:
+        """Return (permitted, reason) for shell execution. Fail closed.
+
+        The console operator is not an agent, so agent permissions do not
+        apply here; the operator-level `shell.arbitrary_commands` setting
+        mirrors the agent model's `arbitrary_commands` boolean (same name,
+        same default-deny, same explicit opt-in). Only a literal boolean
+        True permits execution.
+        """
+        manager = self._config_manager
+        if manager is None:
+            return False, "no configuration is loaded"
+        try:
+            value = manager.get(SHELL_CONFIG_KEY, False)
+        except Exception:
+            return False, "the permission could not be read"
+        if value is True:
+            return True, ""
+        if value is False or value is None:
+            return False, "off"
+        return False, f"unclear (the value is {value!r}, expected true or false)"
+
+    def _shell_gate_message(self, reason: str) -> str:
+        return (
+            "Shell execution is disabled: "
+            f"{SHELL_CONFIG_KEY} is {reason}.\n"
+            "To enable it, add this to "
+            f"{self._paths.config} and restart Orion:\n"
+            "  shell:\n"
+            "    arbitrary_commands: true\n"
+            "Shell commands still ask for approval every time; enabling "
+            "only permits Orion to run them at all."
+        )
+
+    def shell_plan(
+        self, command: str, *, timeout=None, cwd=None
+    ) -> ApplicationResult:
+        """Resolve a shell command into an approval preview. Never runs it.
+
+        The plan shows the exact command, the shell that will run it, the
+        working directory, and the effective timeout, so approval is
+        informed. The permission state rides along in the data; a plan for
+        a refused command is still a successful plan — the refusal itself
+        is shell_execute's job, so it gets recorded exactly once.
+        """
+        try:
+            plan = self._shell().plan(command, timeout=timeout, cwd=cwd)
+        except ValueError as exc:
+            return ApplicationResult.failure(
+                str(exc),
+                data={"read_only": True},
+                errors=(str(exc),),
+                next_actions=("shell <command>",),
+            )
+        permitted, reason = self._shell_permission()
+        return ApplicationResult.success(
+            self._render_shell_plan(plan, permitted, reason),
+            data={
+                **plan.to_dict(),
+                "read_only": True,
+                "permitted": permitted,
+                "permission_reason": reason,
+            },
+            next_actions=("shell <command>",),
+        )
+
+    @staticmethod
+    def _render_shell_plan(
+        plan: ShellPlan, permitted: bool, reason: str
+    ) -> str:
+        if permitted:
+            permission = f"{SHELL_CONFIG_KEY} is on"
+        else:
+            permission = (
+                f"{SHELL_CONFIG_KEY} is {reason} — "
+                "this command will be refused"
+            )
+        return "\n".join(
+            [
+                "Shell Command (not run yet)",
+                "-" * 68,
+                f"Command   : {plan.command}",
+                f"Shell     : {plan.shell} ({plan.shell_binary})",
+                f"Directory : {plan.cwd}",
+                f"Timeout   : {plan.timeout:g}s",
+                f"Permission: {permission}",
+            ]
+        )
+
+    def shell_execute(
+        self, command: str, *, timeout=None, cwd=None, confirm: bool = False
+    ) -> ApplicationResult:
+        """Run one shell command (needs confirm=True and the permission on).
+
+        Without confirm=True nothing runs. Refusals — permission off or
+        approval not given — are recorded in the recovery history, as is
+        every attempted execution. A non-zero exit is a complete,
+        reportable outcome, not a crash: it comes back as a warning
+        result carrying the exit code and the captured output.
+        """
+        try:
+            plan = self._shell().plan(command, timeout=timeout, cwd=cwd)
+        except ValueError as exc:
+            return ApplicationResult.failure(
+                str(exc),
+                data={"read_only": True},
+                errors=(str(exc),),
+                next_actions=("shell <command>",),
+            )
+        permitted, reason = self._shell_permission()
+        if not permitted:
+            self._record_shell_refusal(
+                plan, f"{SHELL_CONFIG_KEY} is {reason}"
+            )
+            message = self._shell_gate_message(reason)
+            return ApplicationResult.failure(
+                message,
+                data={
+                    **plan.to_dict(),
+                    "read_only": True,
+                    "permitted": False,
+                    "permission_reason": reason,
+                },
+                errors=(message,),
+                next_actions=("shell <command>",),
+            )
+        if not confirm:
+            self._record_shell_refusal(plan, "approval not given")
+            message = (
+                "Shell execution needs interactive approval; nothing was run."
+            )
+            return ApplicationResult.failure(
+                message,
+                data={**plan.to_dict(), "read_only": True, "permitted": True},
+                errors=(message,),
+                next_actions=(f"shell {plan.command}",),
+            )
+        try:
+            execution = self._shell().execute(command, timeout=timeout, cwd=cwd)
+        except ShellUnavailableError as exc:
+            self._record_shell_attempt(plan, None, str(exc))
+            return ApplicationResult.failure(
+                str(exc),
+                data={**plan.to_dict(), "read_only": True, "permitted": True},
+                errors=(str(exc),),
+                next_actions=("shell <command>",),
+            )
+        self._record_shell_attempt(plan, execution, None)
+        message = self._render_shell_execution(execution)
+        data: dict[str, object] = {
+            **execution.to_dict(),
+            "read_only": False,
+            "permitted": True,
+        }
+        if execution.timed_out:
+            detail = (
+                f"Command timed out after {execution.timeout:g}s "
+                "and was killed."
+            )
+            return ApplicationResult.failure(
+                message,
+                data=data,
+                errors=(detail,),
+                next_actions=("recovery --kind shell",),
+            )
+        if execution.exit_code != 0:
+            return ApplicationResult.success(
+                message,
+                data=data,
+                warnings=(
+                    f"Command exited with code {execution.exit_code}.",
+                ),
+                next_actions=("recovery --kind shell",),
+            )
+        return ApplicationResult.success(
+            message,
+            data=data,
+            next_actions=("recovery --kind shell",),
+        )
+
+    @staticmethod
+    def _render_shell_execution(execution: ShellExecution) -> str:
+        exit_code = (
+            str(execution.exit_code)
+            if execution.exit_code is not None
+            else "-"
+        )
+        lines = [
+            f"Shell: {execution.command}",
+            "-" * 68,
+            f"Shell     : {execution.shell} ({execution.shell_binary})",
+            f"Directory : {execution.cwd}",
+            f"Timeout   : {execution.timeout:g}s",
+            f"Exit code : {exit_code}",
+            f"Duration  : {execution.duration_seconds:.2f}s",
+        ]
+        if execution.timed_out:
+            lines.append(
+                f"Timed out : yes (killed after {execution.timeout:g}s)"
+            )
+        if execution.stdout:
+            lines.append("")
+            lines.append("stdout:")
+            lines.append(execution.stdout)
+            if execution.stdout_truncated:
+                lines.append(
+                    "[stdout truncated to the last "
+                    f"{MAX_OUTPUT_CHARS} characters]"
+                )
+        if execution.stderr:
+            lines.append("")
+            lines.append("stderr:")
+            lines.append(execution.stderr)
+            if execution.stderr_truncated:
+                lines.append(
+                    "[stderr truncated to the last "
+                    f"{MAX_OUTPUT_CHARS} characters]"
+                )
+        if not execution.stdout and not execution.stderr:
+            lines.append("")
+            lines.append("(no output)")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _shell_record_target(command: str) -> str:
+        if len(command) > 200:
+            return command[:197] + "..."
+        return command
+
+    @staticmethod
+    def _shell_output_sample(text: str) -> str:
+        stripped = (text or "").strip()
+        if not stripped:
+            return "(empty)"
+        if len(stripped) > 500:
+            return stripped[:497] + "..."
+        return stripped
+
+    def _record_shell_refusal(self, plan: ShellPlan, reason: str) -> None:
+        self.record_recovery(
+            "shell",
+            self._shell_record_target(plan.command),
+            status="failed",
+            detail=(
+                f"Refused: {reason}. "
+                f"cwd: {plan.cwd}; timeout: {plan.timeout:g}s."
+            ),
+        )
+
+    def _record_shell_attempt(
+        self,
+        plan: ShellPlan,
+        execution: ShellExecution | None,
+        error: str | None,
+    ) -> None:
+        target = self._shell_record_target(plan.command)
+        if execution is None:
+            self.record_recovery(
+                "shell",
+                target,
+                status="failed",
+                detail=(
+                    f"Could not run: {error}. "
+                    f"cwd: {plan.cwd}; timeout: {plan.timeout:g}s."
+                ),
+            )
+            return
+        if execution.timed_out:
+            outcome = f"timed out after {execution.timeout:g}s (killed)"
+            status = "failed"
+        else:
+            outcome = f"exit {execution.exit_code}"
+            status = "success" if execution.exit_code == 0 else "failed"
+        self.record_recovery(
+            "shell",
+            target,
+            status=status,
+            detail=(
+                f"cwd: {execution.cwd}; {outcome}; "
+                f"duration: {execution.duration_seconds:.2f}s; "
+                f"stdout: {self._shell_output_sample(execution.stdout)}; "
+                f"stderr: {self._shell_output_sample(execution.stderr)}"
+            ),
         )

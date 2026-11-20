@@ -37,6 +37,8 @@ safety:
   - restart_service
   - shutdown
   - run_shell_command
+shell:
+  arbitrary_commands: false
 plugins:
   path: plugins
   enabled: true

@@ -101,6 +101,12 @@ from orion.application.observability.runbooks import (
     match_runbooks,
     suggest_runbooks,
 )
+from orion.application.observability.shell import (
+    ShellExecution,
+    ShellPlan,
+    ShellService,
+    ShellUnavailableError,
+)
 
 
 __all__ = [
@@ -164,6 +170,10 @@ __all__ = [
     "RunbookStep",
     "SectionTimeline",
     "SecurityAudit",
+    "ShellExecution",
+    "ShellPlan",
+    "ShellService",
+    "ShellUnavailableError",
     "UnknownContainerError",
     "build_dependency_graph",
     "build_timelines",

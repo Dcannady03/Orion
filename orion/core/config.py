@@ -29,6 +29,7 @@ class ConfigManager:
         "memory",
         "voice",
         "safety",
+        "shell",
         "plugins",
         "weather",
         "calendar",

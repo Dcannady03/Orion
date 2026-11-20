@@ -829,6 +829,7 @@ class CommandRouter:
         print("    docker health              Summarize container health")
         print("    docker logs <name>         Show recent logs for one container")
         print("    docker diagnose <name>     Diagnose why one container cannot be reached")
+        print("    shell <command>            Run one shell command (asks for approval)")
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
         print("    vault                      Open Orion Vault")

@@ -68,6 +68,7 @@ BASE_COMMANDS = (
     "docker", "docker list", "docker ps", "docker inspect",
     "docker start", "docker stop", "docker restart",
     "docker health", "docker logs", "docker diagnose",
+    "shell",
     "command-center", "command-center status", "command-center snapshot",
     "command-center departments", "command-center department show",
     "command-center department create", "command-center department add-agent",
