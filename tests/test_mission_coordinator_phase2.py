@@ -43,6 +43,7 @@ from tests.test_mission_engine import (
 RUN_ID = "run-mission-phase2-001"
 VALIDATION_ID = "validation-0001"
 DOCUMENTATION_ID = "documentation-0001"
+FINAL_REVIEW_ID = "final-review-0001"
 
 
 class Phase2TeamApplication:
@@ -325,6 +326,7 @@ class Phase2TeamApplication:
                 "plan_sha256": self.plan_hash,
                 "validation_id": VALIDATION_ID,
                 "documentation_review_id": DOCUMENTATION_ID,
+                "final_review_id": FINAL_REVIEW_ID,
                 "status": "completed" if completed else "blocked",
                 "decision": "accepted" if completed else "changes_requested",
             },
@@ -455,9 +457,12 @@ class MissionCoordinatorPhase2LifecycleTests(MissionCoordinatorPhase2Fixture):
         self.document()
         documentation = self.team_application.documentation_calls[0]
         self.assertFalse(documentation.run_followups)
-        blocked = self.coordinator.preview(self.mission.mission_id)
-        self.assertTrue(blocked.operation.blocked)
-        self.assertIn("no typed completion operation", blocked.operation.blocked_reason)
+        final_review = self.coordinator.preview(self.mission.mission_id)
+        self.assertFalse(final_review.operation.blocked)
+        self.assertEqual(
+            final_review.operation.capability_id, "team.final_review"
+        )
+        self.assertEqual(final_review.operation.subject_id, RUN_ID)
         self.assertEqual(
             (
                 len(self.team_application.implement_calls),
@@ -466,7 +471,7 @@ class MissionCoordinatorPhase2LifecycleTests(MissionCoordinatorPhase2Fixture):
             ),
             (1, 1, 1),
         )
-        json.dumps(blocked.to_dict(), allow_nan=False)
+        json.dumps(final_review.to_dict(), allow_nan=False)
 
     def test_restart_preserves_next_token_when_authoritative_state_is_unchanged(self):
         self.implement()
@@ -580,7 +585,7 @@ class MissionCoordinatorPhase2ProjectionTests(MissionCoordinatorPhase2Fixture):
         self.assertEqual(mission.status, MissionStatus.BLOCKED)
         self.assertEqual(mission.stage, MissionStage.DOCUMENTATION_REVIEW)
 
-    def test_final_review_events_are_observed_but_not_dispatched(self):
+    def test_final_review_completed_event_completes_mission_and_links_decision(self):
         self.implement()
         self.validate()
         self.document()
@@ -590,6 +595,9 @@ class MissionCoordinatorPhase2ProjectionTests(MissionCoordinatorPhase2Fixture):
         self.assertEqual(completed.stage, MissionStage.COMPLETED)
         self.assertEqual(completed.progress, 100)
         self.assertTrue(completed.completed_at)
+        link = completed.link("final_review")
+        self.assertIsNotNone(link)
+        self.assertEqual(link.subject_id, FINAL_REVIEW_ID)
         self.assertTrue(
             self.coordinator.preview(completed.mission_id).operation.blocked
         )
@@ -602,6 +610,10 @@ class MissionCoordinatorPhase2ProjectionTests(MissionCoordinatorPhase2Fixture):
         blocked = self.service.reconcile(self.mission.mission_id).mission
         self.assertEqual(blocked.status, MissionStatus.BLOCKED)
         self.assertEqual(blocked.stage, MissionStage.FINAL_REVIEW)
+        self.assertEqual(blocked.progress, 95)
+        link = blocked.link("final_review")
+        self.assertIsNotNone(link)
+        self.assertEqual(link.subject_id, FINAL_REVIEW_ID)
         preview = self.coordinator.preview(blocked.mission_id)
         self.assertTrue(preview.operation.blocked)
 

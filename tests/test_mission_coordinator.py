@@ -201,7 +201,10 @@ class MissionNextOperationTests(MissionCoordinatorFixture):
             (without_task, "no authoritative Team task"),
             (failed, "cannot be advanced"),
             (planning, "No supported operation"),
-            (awaiting_review, "no typed completion operation"),
+            # This fixture mission lacks approval/run links, so final review
+            # still blocks — but on the missing links, not on a missing
+            # operation. A fully linked mission resolves team.final_review.
+            (awaiting_review, "missing authoritative Team lifecycle links"),
             (approved, "coordination inspection is unavailable"),
         )
         for mission, expected in cases:
