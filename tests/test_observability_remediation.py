@@ -14,6 +14,15 @@ from orion.application.commands.observability_cli import (
     ObservabilityCliAdapter,
     dispatch_observability,
 )
+from orion.application.observability.docker import (
+    ContainerDetail,
+    ContainerList,
+    ContainerSummary,
+    DockerControlOutcome,
+    DockerUnavailableError,
+    PublishedPort,
+    UnknownContainerError,
+)
 from orion.application.observability.handler import ObservabilityApplicationHandler
 from orion.application.observability.health import (
     HealthCheck,
@@ -27,6 +36,7 @@ from orion.application.observability.remediation import (
     PROPOSAL_CREATE_WORKSPACE,
     PROPOSAL_PRUNE_BACKUPS,
     PROPOSAL_PRUNE_EVENTS,
+    PROPOSAL_START_CONTAINER_PREFIX,
     PROPOSAL_SWITCH_PROVIDER,
     RemediationEngine,
 )
@@ -81,7 +91,7 @@ def _provider_manager(active="openai", activate_ok=True):
     )
 
 
-def _make_handler(tmpdir, checker=None, config_manager=None, provider_manager=None):
+def _make_handler(tmpdir, checker=None, config_manager=None, provider_manager=None, docker_service=None):
     paths = OrionPaths(user_root=Path(tmpdir))
     handler = ObservabilityApplicationHandler(
         paths=paths,
@@ -94,10 +104,113 @@ def _make_handler(tmpdir, checker=None, config_manager=None, provider_manager=No
             latest=None,
             history=lambda **kwargs: SimpleNamespace(events=[], total=0, limit=0),
         ),
+        # An empty stub by default, so handler tests never depend on the
+        # ambient machine's Docker state.
+        docker_service=(
+            docker_service if docker_service is not None else _StubDockerService()
+        ),
     )
     if checker is not None:
         handler.checker = checker
     return handler
+
+
+class _StubDockerService:
+    """In-memory DockerService stand-in for remediation tests.
+
+    Containers are dicts: id, name, image, state, and published (a list
+    of (host_ip, host_port, container_port) bindings).
+    """
+
+    def __init__(self, containers=None, *, unavailable=False):
+        self.containers = {c["id"]: dict(c) for c in (containers or [])}
+        self.unavailable = unavailable
+        self.control_calls: list[tuple[str, str]] = []
+
+    def list_containers(self):
+        if self.unavailable:
+            raise DockerUnavailableError("daemon_unreachable", "daemon is down")
+        return ContainerList(
+            tuple(
+                ContainerSummary(
+                    container_id=c["id"],
+                    name=c["name"],
+                    image=c["image"],
+                    status=c["state"],
+                    state=c["state"],
+                    health="none",
+                )
+                for c in self.containers.values()
+            )
+        )
+
+    def inspect_container(self, name):
+        if self.unavailable:
+            raise DockerUnavailableError("daemon_unreachable", "daemon is down")
+        target = self._resolve(name)
+        return ContainerDetail(
+            container_id=target["id"],
+            name=target["name"],
+            image=target["image"],
+            created="",
+            status=target["state"],
+            state=target["state"],
+            running=target["state"] == "running",
+            health="none",
+            exit_code=target.get("exit_code", 0),
+            started_at="",
+            finished_at="",
+            published_ports=tuple(
+                PublishedPort(*binding)
+                for binding in target.get("published", ())
+            ),
+        )
+
+    def control(self, action, name):
+        target = self._resolve(name)
+        self.control_calls.append((action, target["name"]))
+        before = target["state"]
+        if action == "start":
+            target["state"] = "running"
+        elif action == "stop":
+            target["state"] = "exited"
+        return DockerControlOutcome(
+            action=action,
+            name=target["name"],
+            applied=True,
+            verified=True,
+            detail=(
+                f"{target['name']} {action}ed: {before} -> {target['state']}."
+            ),
+            state_before=before,
+            state_after=target["state"],
+        )
+
+    def _resolve(self, name):
+        for container in self.containers.values():
+            if container["name"] == name or container["id"] == name:
+                return container
+        raise UnknownContainerError(f"No container matches: {name}")
+
+
+def _n8n(state="exited"):
+    return {
+        "id": "n8n-id",
+        "name": "n8n",
+        "image": "docker.n8n.io/n8nio/n8n",
+        "state": state,
+        "published": [("0.0.0.0", 5678, "5678/tcp")],
+    }
+
+
+def _jellyfin(state="exited"):
+    return {
+        "id": "jellyfin-id",
+        "name": "jellyfin",
+        "image": "jellyfin/jellyfin:latest",
+        "state": state,
+        "published": [],
+    }
 
 
 def _write_zip(path, mtime):
@@ -124,6 +237,7 @@ class ProposeTests(unittest.TestCase):
             checker=checker,
             config_manager=kwargs.get("config_manager"),
             provider_manager=kwargs.get("provider_manager", _provider_manager()),
+            docker_service=kwargs.get("docker_service"),
         )
 
     def test_all_ok_proposes_nothing(self):
@@ -237,6 +351,82 @@ class ProposeTests(unittest.TestCase):
         self.assertEqual(len(data["proposals"]), 1)
 
 
+class DockerProposeTests(unittest.TestCase):
+    def setUp(self):
+        self._env = patch.dict(os.environ)
+        self._env.start()
+        os.environ.pop("OPENAI_API_KEY", None)
+        os.environ.pop("GEMINI_API_KEY", None)
+        self.addCleanup(self._env.stop)
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self.paths = OrionPaths(user_root=Path(self._tmpdir.name))
+
+    def _engine(self, docker_service):
+        return RemediationEngine(
+            paths=self.paths,
+            checker=_FakeChecker(_report({"disk": HealthState.OK})),
+            provider_manager=_provider_manager(),
+            docker_service=docker_service,
+        )
+
+    def test_exited_with_published_port_proposes_start(self):
+        engine = self._engine(_StubDockerService([_n8n()]))
+        plan = engine.propose()
+        self.assertEqual(len(plan.proposals), 1)
+        proposal = plan.proposals[0]
+        self.assertEqual(
+            proposal.proposal_id,
+            PROPOSAL_START_CONTAINER_PREFIX + "n8n",
+        )
+        self.assertEqual(proposal.risk, "low")
+        self.assertTrue(proposal.reversible)
+        self.assertIn("5678", proposal.problem)
+
+    def test_exited_without_published_port_proposes_nothing(self):
+        engine = self._engine(_StubDockerService([_jellyfin()]))
+        self.assertEqual(engine.propose().proposals, ())
+
+    def test_running_with_published_port_proposes_nothing(self):
+        engine = self._engine(_StubDockerService([_n8n(state="running")]))
+        self.assertEqual(engine.propose().proposals, ())
+
+    def test_created_with_published_port_proposes_start(self):
+        engine = self._engine(_StubDockerService([_n8n(state="created")]))
+        plan = engine.propose()
+        self.assertEqual(len(plan.proposals), 1)
+        self.assertEqual(
+            plan.proposals[0].proposal_id,
+            PROPOSAL_START_CONTAINER_PREFIX + "n8n",
+        )
+
+    def test_docker_unavailable_proposes_nothing_and_does_not_crash(self):
+        engine = self._engine(_StubDockerService(unavailable=True))
+        self.assertEqual(engine.propose().proposals, ())
+
+    def test_no_docker_service_proposes_nothing(self):
+        engine = self._engine(None)
+        self.assertEqual(engine.propose().proposals, ())
+
+    def test_mixed_containers_propose_only_qualifying_ones(self):
+        web_running = {
+            "id": "web-id",
+            "name": "web",
+            "image": "nginx:latest",
+            "state": "running",
+            "published": [("0.0.0.0", 8080, "80/tcp")],
+        }
+        engine = self._engine(
+            _StubDockerService([_n8n(), _jellyfin(), web_running])
+        )
+        plan = engine.propose()
+        self.assertEqual(len(plan.proposals), 1)
+        self.assertEqual(
+            plan.proposals[0].proposal_id,
+            PROPOSAL_START_CONTAINER_PREFIX + "n8n",
+        )
+
+
 class ApplyTests(unittest.TestCase):
     def setUp(self):
         self._env = patch.dict(os.environ)
@@ -255,6 +445,7 @@ class ApplyTests(unittest.TestCase):
             checker=checker,
             config_manager=kwargs.get("config_manager"),
             provider_manager=kwargs.get("provider_manager", _provider_manager()),
+            docker_service=kwargs.get("docker_service"),
         )
 
     def test_apply_without_confirm_does_nothing(self):
@@ -351,6 +542,78 @@ class ApplyTests(unittest.TestCase):
         self.assertTrue(missing.is_dir())
 
 
+class DockerApplyTests(unittest.TestCase):
+    def setUp(self):
+        self._env = patch.dict(os.environ)
+        self._env.start()
+        os.environ.pop("OPENAI_API_KEY", None)
+        os.environ.pop("GEMINI_API_KEY", None)
+        self.addCleanup(self._env.stop)
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self.paths = OrionPaths(user_root=Path(self._tmpdir.name))
+
+    def _engine(self, docker_service):
+        return RemediationEngine(
+            paths=self.paths,
+            checker=_FakeChecker(_report({"disk": HealthState.OK})),
+            provider_manager=_provider_manager(),
+            docker_service=docker_service,
+        )
+
+    def test_apply_start_container_verifies(self):
+        stub = _StubDockerService([_n8n()])
+        engine = self._engine(stub)
+        outcome = engine.apply(
+            PROPOSAL_START_CONTAINER_PREFIX + "n8n", confirm=True
+        )
+        self.assertTrue(outcome.applied)
+        self.assertTrue(outcome.verified)
+        self.assertEqual(stub.control_calls, [("start", "n8n")])
+        self.assertEqual(stub.containers["n8n-id"]["state"], "running")
+
+    def test_apply_start_container_without_confirm_does_nothing(self):
+        stub = _StubDockerService([_n8n()])
+        engine = self._engine(stub)
+        outcome = engine.apply(
+            PROPOSAL_START_CONTAINER_PREFIX + "n8n", confirm=False
+        )
+        self.assertFalse(outcome.applied)
+        self.assertEqual(stub.control_calls, [])
+        self.assertEqual(stub.containers["n8n-id"]["state"], "exited")
+
+    def test_apply_start_container_no_longer_needed_when_running(self):
+        stub = _StubDockerService([_n8n()])
+        engine = self._engine(stub)
+        plan = engine.propose()
+        self.assertEqual(len(plan.proposals), 1)
+        # The container started between the proposal and the apply.
+        stub.containers["n8n-id"]["state"] = "running"
+        outcome = engine.apply(
+            PROPOSAL_START_CONTAINER_PREFIX + "n8n", confirm=True
+        )
+        self.assertFalse(outcome.applied)
+        self.assertIn("No longer needed", outcome.detail)
+        self.assertEqual(stub.control_calls, [])
+
+    def test_apply_unknown_container_id_is_no_longer_needed(self):
+        stub = _StubDockerService([_n8n()])
+        engine = self._engine(stub)
+        outcome = engine.apply(
+            PROPOSAL_START_CONTAINER_PREFIX + "ghost", confirm=True
+        )
+        self.assertFalse(outcome.applied)
+        self.assertIn("No longer needed", outcome.detail)
+        self.assertEqual(stub.control_calls, [])
+
+    def test_apply_bare_start_prefix_is_unknown(self):
+        stub = _StubDockerService([_n8n()])
+        engine = self._engine(stub)
+        outcome = engine.apply(PROPOSAL_START_CONTAINER_PREFIX, confirm=True)
+        self.assertFalse(outcome.applied)
+        self.assertIn("Unknown", outcome.detail)
+
+
 class RemediateHandlerTests(unittest.TestCase):
     def setUp(self):
         self._env = patch.dict(os.environ)
@@ -421,6 +684,41 @@ class RemediateHandlerTests(unittest.TestCase):
         result = self.handler.remediate_apply_all()
         self.assertFalse(result.ok)
         self.assertFalse(self.missing.exists())
+
+    def test_plan_includes_stopped_container_with_published_port(self):
+        handler = _make_handler(
+            self._tmpdir.name,
+            checker=_FakeChecker(_report({"disk": HealthState.OK})),
+            config_manager=self.config,
+            docker_service=_StubDockerService([_n8n(), _jellyfin()]),
+        )
+        result = handler.remediate_plan()
+        self.assertTrue(result.ok)
+        ids = [item["id"] for item in result.data["proposals"]]
+        self.assertIn(PROPOSAL_START_CONTAINER_PREFIX + "n8n", ids)
+        self.assertNotIn(PROPOSAL_START_CONTAINER_PREFIX + "jellyfin", ids)
+
+    def test_apply_start_container_records_once_as_remediation(self):
+        stub = _StubDockerService([_n8n()])
+        handler = _make_handler(
+            self._tmpdir.name,
+            checker=_FakeChecker(_report({"disk": HealthState.OK})),
+            config_manager=self.config,
+            docker_service=stub,
+        )
+        result = handler.remediate_apply(
+            PROPOSAL_START_CONTAINER_PREFIX + "n8n", confirm=True
+        )
+        self.assertTrue(result.ok)
+        store = RecoveryHistoryStore(handler._paths.observability)
+        remediation = store.query(kind="remediation").records
+        self.assertEqual(len(remediation), 1)
+        self.assertEqual(
+            remediation[0].target, PROPOSAL_START_CONTAINER_PREFIX + "n8n"
+        )
+        self.assertEqual(remediation[0].status, "success")
+        # No second record as kind "docker": one applied fix, one record.
+        self.assertEqual(len(store.query(kind="docker").records), 0)
 
 
 class RemediateCliTests(unittest.TestCase):

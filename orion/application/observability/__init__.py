@@ -76,6 +76,7 @@ from orion.application.observability.remediation import (
     PROPOSAL_CREATE_WORKSPACE,
     PROPOSAL_PRUNE_BACKUPS,
     PROPOSAL_PRUNE_EVENTS,
+    PROPOSAL_START_CONTAINER_PREFIX,
     PROPOSAL_SWITCH_PROVIDER,
     RemediationEngine,
     RemediationOutcome,

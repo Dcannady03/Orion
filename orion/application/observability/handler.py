@@ -930,6 +930,7 @@ class ObservabilityApplicationHandler:
             config_manager=self._config_manager,
             provider_manager=self._provider_manager,
             clock=self._clock,
+            docker_service=self._docker(),
         )
 
     def remediate_plan(self) -> ApplicationResult:

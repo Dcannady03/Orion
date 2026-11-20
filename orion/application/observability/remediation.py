@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from orion.application.observability.backup import BackupService
+from orion.application.observability.docker import DockerService
 from orion.application.observability.health import (
     HealthReport,
     HealthState,
@@ -27,6 +28,7 @@ PROPOSAL_SWITCH_PROVIDER = "switch-provider-ollama"
 PROPOSAL_PRUNE_BACKUPS = "prune-old-backups"
 PROPOSAL_PRUNE_EVENTS = "prune-old-events"
 PROPOSAL_CREATE_WORKSPACE = "create-workspace"
+PROPOSAL_START_CONTAINER_PREFIX = "start-container-"
 
 KNOWN_PROPOSALS = (
     PROPOSAL_SWITCH_PROVIDER,
@@ -111,12 +113,14 @@ class RemediationEngine:
         config_manager: Any = None,
         provider_manager: Any = None,
         clock: Callable[[], _datetime.datetime] | None = None,
+        docker_service: DockerService | None = None,
     ) -> None:
         self._paths = paths
         self._checker = checker
         self._config_manager = config_manager
         self._provider_manager = provider_manager
         self._clock = clock or _datetime.datetime.now
+        self._docker_service = docker_service
 
     def propose(self, report: HealthReport | None = None) -> RemediationPlan:
         """Build a remediation plan from a fresh (or supplied) health report."""
@@ -146,6 +150,10 @@ class RemediationEngine:
             proposal = self._propose_create_workspace(checks["workspace"].detail)
             if proposal is not None:
                 proposals.append(proposal)
+        # Docker proposals are independent of the health report: a stopped
+        # container with a published port is unreachable whether or not
+        # Orion itself is healthy.
+        proposals.extend(self._propose_start_containers())
         return RemediationPlan(
             generated_at=self._clock().isoformat(),
             proposals=tuple(proposals),
@@ -164,7 +172,10 @@ class RemediationEngine:
                 False,
                 "Approval required: this fix was not applied.",
             )
-        if proposal_id not in KNOWN_PROPOSALS:
+        is_docker_proposal = proposal_id.startswith(
+            PROPOSAL_START_CONTAINER_PREFIX
+        ) and len(proposal_id) > len(PROPOSAL_START_CONTAINER_PREFIX)
+        if proposal_id not in KNOWN_PROPOSALS and not is_docker_proposal:
             return RemediationOutcome(
                 proposal_id,
                 False,
@@ -192,6 +203,10 @@ class RemediationEngine:
                 return self._apply_prune_events()
             if proposal_id == PROPOSAL_CREATE_WORKSPACE:
                 return self._apply_create_workspace()
+            if is_docker_proposal:
+                return self._apply_start_container(
+                    proposal_id[len(PROPOSAL_START_CONTAINER_PREFIX):]
+                )
         except Exception as exc:  # noqa: BLE001 - a failed fix must report, not crash
             return RemediationOutcome(
                 proposal_id, False, False, f"{type(exc).__name__}: {exc}"
@@ -311,6 +326,67 @@ class RemediationEngine:
             details={"path": str(path)},
         )
 
+    def _propose_start_containers(self) -> list[RemediationProposal]:
+        """Propose starting stopped containers that publish a host port.
+
+        A stopped container with a published port was reachable once and
+        is not now, so starting it is a plausible fix. A stopped
+        container with no published port was probably stopped on purpose
+        and never produces a proposal. Docker problems fail closed: no
+        proposals, no crash, other proposals unaffected.
+        """
+        if self._docker_service is None:
+            return []
+        try:
+            listing = self._docker_service.list_containers()
+        except Exception:  # noqa: BLE001 - docker problems must not break the plan
+            return []
+        proposals: list[RemediationProposal] = []
+        for item in listing.containers:
+            if item.state not in {"exited", "created"}:
+                continue
+            try:
+                detail = self._docker_service.inspect_container(
+                    item.container_id
+                )
+            except Exception:  # noqa: BLE001 - one bad container must not break the plan
+                continue
+            if not detail.published_ports:
+                continue
+            ports = ", ".join(
+                f"{port.host_port}->{port.container_port}"
+                for port in detail.published_ports
+            )
+            proposals.append(
+                RemediationProposal(
+                    proposal_id=(
+                        PROPOSAL_START_CONTAINER_PREFIX + detail.name
+                    ),
+                    title=f"Start the stopped container '{detail.name}'",
+                    problem=(
+                        f"Container '{detail.name}' ({detail.image}) is "
+                        f"{detail.state} but publishes port(s) {ports}, so "
+                        "something that used to reach it cannot."
+                    ),
+                    fix=(
+                        f"Start '{detail.name}' with `docker start`. "
+                        f"Reversible with `docker stop {detail.name}`."
+                    ),
+                    risk="low",
+                    reversible=True,
+                    details={
+                        "container": detail.name,
+                        "image": detail.image,
+                        "ports": [
+                            f"{port.host_port}->{port.container_port}"
+                            for port in detail.published_ports
+                        ],
+                        "state": detail.state,
+                    },
+                )
+            )
+        return proposals
+
     def _apply_switch_provider(self) -> RemediationOutcome:
         active = self._provider_manager.activate("ollama")
         report = self._checker.check("providers")
@@ -410,4 +486,30 @@ class RemediationEngine:
             False,
             f"Created {path}, but the workspace check is still "
             f"{report.overall.value}.",
+        )
+
+    def _apply_start_container(self, name: str) -> RemediationOutcome:
+        """Start one stopped container, verified via the Docker service.
+
+        apply() already re-diagnosed: this only runs when a fresh plan
+        still proposes starting this container, so a container that is
+        running by apply time reports "No longer needed" instead of
+        reaching here. The handler records the applied fix once, as
+        kind "remediation" — not as kind "docker" — because it was
+        applied as a remediation.
+        """
+        proposal_id = PROPOSAL_START_CONTAINER_PREFIX + name
+        if self._docker_service is None:
+            return RemediationOutcome(
+                proposal_id,
+                False,
+                False,
+                "Docker is not available.",
+            )
+        outcome = self._docker_service.control("start", name)
+        return RemediationOutcome(
+            proposal_id,
+            outcome.applied,
+            outcome.verified,
+            outcome.detail,
         )
