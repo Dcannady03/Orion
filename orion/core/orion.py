@@ -617,6 +617,7 @@ class Orion:
                 provider_manager=self.provider_manager,
                 services=self.services,
                 event_store=self.event_store,
+                plugin_manager=self.plugin_manager,
             ),
         )
 

@@ -809,6 +809,8 @@ class CommandRouter:
         print("    backup import PATH         Restore a backup (asks for approval)")
         print("    recovery                   List recorded recoveries and rollbacks")
         print("    recovery <id>              Show one recovery record in detail")
+        print("    audit                      Run the read-only security audit")
+        print("    audit --json               Same audit report as JSON")
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
         print("    vault                      Open Orion Vault")

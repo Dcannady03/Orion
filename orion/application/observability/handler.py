@@ -4,6 +4,10 @@ from __future__ import annotations
 import json
 import zipfile
 
+from orion.application.observability.audit import (
+    AuditReport,
+    SecurityAudit,
+)
 from orion.application.observability.backup import (
     EXCLUDED_PATHS,
     BackupService,
@@ -48,6 +52,7 @@ class ObservabilityApplicationHandler:
         services=None,
         event_store=None,
         clock=None,
+        plugin_manager=None,
     ) -> None:
         self._paths = paths
         self._config_manager = config_manager
@@ -55,6 +60,7 @@ class ObservabilityApplicationHandler:
         self._services = services
         self._event_store = event_store
         self._clock = clock
+        self._plugin_manager = plugin_manager
         self.checker = HealthChecker(
             paths,
             config_manager=config_manager,
@@ -525,3 +531,38 @@ class ObservabilityApplicationHandler:
             data={**record.to_dict(), "read_only": True},
             next_actions=("recovery",),
         )
+
+    def audit(self) -> ApplicationResult:
+        """Run the read-only security audit."""
+        report = SecurityAudit(
+            self._paths,
+            config_manager=self._config_manager,
+            provider_manager=self._provider_manager,
+            services=self._services,
+            plugin_manager=self._plugin_manager,
+            clock=self._clock,
+        ).run()
+        return ApplicationResult.success(
+            self._render_audit(report),
+            data={**report.to_dict(), "read_only": True},
+            warnings=tuple(
+                f"{finding.check}: {finding.detail}"
+                for finding in report.findings
+                if finding.state in {HealthState.WARNING, HealthState.ERROR}
+            ),
+            next_actions=("diagnostics", "health"),
+        )
+
+    @staticmethod
+    def _render_audit(report: AuditReport) -> str:
+        lines = [
+            "Orion Security Audit",
+            "-" * 68,
+            f"Overall     : {report.overall.value.upper()}",
+            f"Generated   : {report.generated_at}",
+        ]
+        for finding in report.findings:
+            lines.append(
+                f"{finding.check:<20}: {finding.state.value.upper()} - {finding.detail}"
+            )
+        return "\n".join(lines)

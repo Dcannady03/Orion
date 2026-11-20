@@ -18,7 +18,7 @@ from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
 _COMMAND_WORDS = frozenset(
-    {"health", "logs", "diagnostics", "graphs", "backup", "recovery"}
+    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit"}
 )
 
 
@@ -93,6 +93,8 @@ class ObservabilityCliAdapter:
                 result, as_json = self._backup(tokens[1:])
             elif command == "recovery":
                 result, as_json = self._recovery(tokens[1:])
+            elif command == "audit":
+                result, as_json = self._audit(tokens[1:])
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -237,6 +239,15 @@ class ObservabilityCliAdapter:
             limit=limit,
         ), as_json
 
+    def _audit(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
+        as_json = False
+        for token in tokens:
+            if token.casefold() == "--json":
+                as_json = True
+            else:
+                raise ValueError(f"Unknown audit option: {token}")
+        return self.application.audit(), as_json
+
     def _logs(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
         options: dict[str, str] = {}
@@ -300,6 +311,7 @@ class ObservabilityCliAdapter:
             "       backup verify PATH [--json]\n"
             "       backup import PATH\n"
             "       recovery [ID] [--kind K] [--status S] [--limit N] [--json]\n"
+            "       audit [--json]\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
             "except `health --record`, which saves one snapshot for the graphs.\n"
             "Backup import replaces data and always asks for approval first."

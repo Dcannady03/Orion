@@ -717,6 +717,21 @@ newest first, with what was restored, whether it succeeded, and the safety
 backup when one was written. Failed attempts are recorded too. Recording
 never blocks the recovery itself.
 
+`audit` runs a read-only security audit: Vault and token storage, secrets
+in configuration files and recent events, provider credential sources,
+Ollama and cloud endpoints, the Discord bot token, loaded plugins, and
+explicit approval policies.
+
+```text
+audit
+audit --json
+```
+
+The report never contains secret values — findings name files, keys, and
+counts only, so it is safe to paste into an issue report. On Windows, file
+access is controlled by ACLs, so the audit verifies storage locations
+instead of POSIX permission bits.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1886,6 +1901,8 @@ or execute anything from the CLI.
 | `backup import PATH` | Restore a backup (asks for approval first) |
 | `recovery` | List recorded recoveries and rollbacks |
 | `recovery <id>` | Show one recovery record in detail |
+| `audit` | Run the read-only security audit |
+| `audit --json` | Same audit report as JSON |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 

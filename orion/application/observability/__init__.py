@@ -1,5 +1,10 @@
 """Typed observability application package (Phase 4)."""
 
+from orion.application.observability.audit import (
+    AuditFinding,
+    AuditReport,
+    SecurityAudit,
+)
 from orion.application.observability.backup import (
     EXCLUDED_PATHS,
     EXPORTED_PATHS,
@@ -50,6 +55,8 @@ from orion.application.observability.recovery import (
 
 
 __all__ = [
+    "AuditFinding",
+    "AuditReport",
     "BackupExport",
     "BackupImportPlan",
     "BackupImportResult",
@@ -80,6 +87,7 @@ __all__ = [
     "RecoveryQuery",
     "RecoveryRecord",
     "SectionTimeline",
+    "SecurityAudit",
     "build_dependency_graph",
     "build_timelines",
 ]
