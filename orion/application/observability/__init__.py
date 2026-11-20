@@ -10,6 +10,12 @@ from orion.application.observability.health import (
     HealthReport,
     HealthState,
 )
+from orion.application.observability.logs import (
+    LogEntry,
+    LogSearchRequest,
+    LogSearchResult,
+    LogViewer,
+)
 
 
 __all__ = [
@@ -18,5 +24,9 @@ __all__ = [
     "HealthChecker",
     "HealthReport",
     "HealthState",
+    "LogEntry",
+    "LogSearchRequest",
+    "LogSearchResult",
+    "LogViewer",
     "ObservabilityApplicationHandler",
 ]

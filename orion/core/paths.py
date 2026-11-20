@@ -73,13 +73,17 @@ class OrionPaths:
     def missions(self) -> Path:
         return self.user_root / "missions"
 
+    @property
+    def logs(self) -> Path:
+        return self.user_root / "logs"
+
     def ensure(self) -> None:
         for path in (
             self.user_root,
             self.user_root / "vault",
             self.tokens,
             self.user_root / "memory",
-            self.user_root / "logs",
+            self.logs,
             self.user_root / "cache",
             self.backups,
         ):

@@ -633,6 +633,25 @@ worst section. A failing check reports UNKNOWN instead of hiding the remaining
 sections. Health checks are read-only and never change runtime state.
 `health --json` prints the same report as JSON for scripts and issue reports.
 
+Search the runtime logs with `logs`. It covers both the Event Store and
+plain text files under `logs/`:
+
+```text
+logs
+logs --severity error
+logs --type test.service.failed
+logs --search "disk"
+logs --start 2026-11-20T10:00:00Z --end 2026-11-20T11:00:00Z
+logs --source files --limit 20
+logs --json
+```
+
+Entries are newest first. `--severity` matches exactly (debug, info, notice,
+warning, error, critical); plain log lines get their severity from the first
+severity keyword in the line, defaulting to info. `--source` limits the
+search to `events`, `files`, or `all` (the default). Log searches are
+read-only and never modify any log file.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1786,6 +1805,10 @@ or execute anything from the CLI.
 | `health config` | Check the loaded configuration |
 | `health workspace` | Check the active workspace path |
 | `health events` | Check the Event Store and latest event |
+| `logs` | Search runtime logs (Event Store + log files), newest first |
+| `logs --severity error` | Show only error log entries |
+| `logs --search TEXT` | Show entries containing TEXT |
+| `logs --source files` | Search only plain log files |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 

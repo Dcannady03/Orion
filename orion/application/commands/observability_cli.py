@@ -8,11 +8,15 @@ from orion.application.observability.handler import (
     ObservabilityApplicationHandler,
 )
 from orion.application.observability.health import HEALTH_SECTIONS
+from orion.application.observability.logs import (
+    DEFAULT_LOG_LIMIT,
+    LogSearchRequest,
+)
 from orion.application.results import ApplicationResult
 from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
-_COMMAND_WORDS = frozenset({"health"})
+_COMMAND_WORDS = frozenset({"health", "logs"})
 
 
 class ObservabilityCliAdapter:
@@ -53,6 +57,8 @@ class ObservabilityCliAdapter:
         try:
             if command == "health":
                 result, as_json = self._health(tokens[1:])
+            elif command == "logs":
+                result, as_json = self._logs(tokens[1:])
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -77,13 +83,54 @@ class ObservabilityCliAdapter:
         section = sections[0] if sections else None
         return self.application.health(section), as_json
 
+    def _logs(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
+        as_json = False
+        options: dict[str, str] = {}
+        value_options = {
+            "--severity", "--type", "--search", "--start", "--end",
+            "--limit", "--source",
+        }
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            folded = token.casefold()
+            if folded == "--json":
+                as_json = True
+                index += 1
+            elif folded in value_options:
+                if index + 1 >= len(tokens):
+                    raise ValueError(f"logs {token} needs a value.")
+                options[folded] = tokens[index + 1]
+                index += 2
+            else:
+                raise ValueError(f"Unknown logs option: {token}")
+        limit = DEFAULT_LOG_LIMIT
+        if "--limit" in options:
+            try:
+                limit = int(options["--limit"])
+            except ValueError:
+                raise ValueError("logs --limit must be an integer.")
+        request = LogSearchRequest(
+            severity=options.get("--severity"),
+            event_type=options.get("--type"),
+            search=options.get("--search"),
+            start_time=options.get("--start"),
+            end_time=options.get("--end"),
+            limit=limit,
+            source=options.get("--source", "all"),
+        )
+        return self.application.logs(request), as_json
+
     @staticmethod
     def _usage(detail: str = "") -> ApplicationResult:
         message = (
             f"{detail}\n" if detail else ""
         ) + (
             "Usage: health [disk|providers|services|config|workspace|events] [--json]\n"
-            "Health checks are read-only and never change runtime state."
+            "       logs [--severity S] [--type T] [--search TEXT]\n"
+            "            [--start ISO] [--end ISO] [--limit N]\n"
+            "            [--source all|events|files] [--json]\n"
+            "Health checks and log searches are read-only and never change runtime state."
         )
         return ApplicationResult.failure(
             message,

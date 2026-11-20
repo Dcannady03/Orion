@@ -796,6 +796,8 @@ class CommandRouter:
         print("    health config              Check the loaded configuration")
         print("    health workspace           Check the active workspace path")
         print("    health events              Check the Event Store")
+        print("    logs                       Search runtime logs")
+        print("    logs --severity error      Show only error log entries")
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
         print("    vault                      Open Orion Vault")

@@ -7,6 +7,11 @@ from orion.application.observability.health import (
     HealthReport,
     HealthState,
 )
+from orion.application.observability.logs import (
+    LogSearchRequest,
+    LogSearchResult,
+    LogViewer,
+)
 from orion.application.results import ApplicationResult
 
 
@@ -23,6 +28,8 @@ class ObservabilityApplicationHandler:
         event_store=None,
         clock=None,
     ) -> None:
+        self._paths = paths
+        self._event_store = event_store
         self.checker = HealthChecker(
             paths,
             config_manager=config_manager,
@@ -65,5 +72,51 @@ class ObservabilityApplicationHandler:
         for check in report.checks:
             lines.append(
                 f"{check.name.title():<12}: {check.state.value.upper()} - {check.detail}"
+            )
+        return "\n".join(lines)
+
+    def logs(self, request: LogSearchRequest | None = None) -> ApplicationResult:
+        """Search the runtime logs (Event Store plus plain log files)."""
+        search = request or LogSearchRequest()
+        viewer = LogViewer(self._paths.logs, self._event_store)
+        try:
+            result = viewer.search(search)
+        except ValueError as exc:
+            return ApplicationResult.failure(
+                f"Log search failed: {exc}",
+                data={"read_only": True},
+                errors=(str(exc),),
+                next_actions=("logs",),
+            )
+        return ApplicationResult.success(
+            self._render_logs(result),
+            data={
+                **result.to_dict(),
+                "read_only": True,
+                "filters": {
+                    "severity": search.severity or "",
+                    "event_type": search.event_type or "",
+                    "search": search.search or "",
+                    "start_time": search.start_time or "",
+                    "end_time": search.end_time or "",
+                    "source": search.source,
+                },
+            },
+            warnings=result.warnings,
+            next_actions=("logs --severity error",),
+        )
+
+    @staticmethod
+    def _render_logs(result: LogSearchResult) -> str:
+        lines = ["Orion Log Search", "-" * 68]
+        if not result.entries:
+            lines.append("No log entries matched the filters.")
+            return "\n".join(lines)
+        lines.append(f"Found {len(result.entries)} log entries (newest first).")
+        for entry in result.entries:
+            timestamp = entry.occurred_at or "unknown time"
+            lines.append(
+                f"{timestamp} [{entry.severity.upper()}] "
+                f"({entry.source}) {entry.message}"
             )
         return "\n".join(lines)
