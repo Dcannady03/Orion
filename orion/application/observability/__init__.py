@@ -39,6 +39,14 @@ from orion.application.observability.logs import (
     LogSearchResult,
     LogViewer,
 )
+from orion.application.observability.recovery import (
+    DEFAULT_RECOVERY_LIMIT,
+    RECOVERY_KINDS,
+    RECOVERY_STATUSES,
+    RecoveryHistoryStore,
+    RecoveryQuery,
+    RecoveryRecord,
+)
 
 
 __all__ = [
@@ -66,6 +74,11 @@ __all__ = [
     "LogSearchResult",
     "LogViewer",
     "ObservabilityApplicationHandler",
+    "RECOVERY_KINDS",
+    "RECOVERY_STATUSES",
+    "RecoveryHistoryStore",
+    "RecoveryQuery",
+    "RecoveryRecord",
     "SectionTimeline",
     "build_dependency_graph",
     "build_timelines",

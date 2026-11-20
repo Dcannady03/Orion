@@ -807,6 +807,8 @@ class CommandRouter:
         print("    backup list                List backup archives")
         print("    backup verify PATH         Verify a backup against its manifest")
         print("    backup import PATH         Restore a backup (asks for approval)")
+        print("    recovery                   List recorded recoveries and rollbacks")
+        print("    recovery <id>              Show one recovery record in detail")
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
         print("    vault                      Open Orion Vault")
@@ -3236,16 +3238,42 @@ class CommandRouter:
         except Exception as exc:
             print(f"Update failed: {exc}")
 
+    def _record_recovery(self, kind, target, *, status, detail):
+        """Append a recovery-history record when observability is available.
+
+        Recording must never break the action it records.
+        """
+        application = getattr(self.orion, "observability_application", None)
+        recorder = getattr(application, "record_recovery", None)
+        if not callable(recorder):
+            return
+        try:
+            recorder(kind, target, status=status, detail=detail)
+        except Exception:  # noqa: BLE001 - recording must never break the action
+            pass
+
     def update_rollback(self):
         if not self._confirm_sensitive_git("restore the most recent Orion application backup"):
             print("Rollback cancelled.")
             return
         try:
             result = self.orion.update_service.rollback()
+            self._record_recovery(
+                "update-rollback",
+                result.current[:12],
+                status="success",
+                detail=(
+                    f"Restored application backup {result.current[:12]}; "
+                    f"safety backup {result.backup}."
+                ),
+            )
             print("Orion Rollback")
             print("-" * 62)
             print(f"Restored  : {result.current[:12]}")
             print(f"Safety backup: {result.backup}")
             print("Restart Orion to load the restored application.")
         except Exception as exc:
+            self._record_recovery(
+                "update-rollback", "", status="failed", detail=str(exc)
+            )
             print(f"Rollback failed: {exc}")

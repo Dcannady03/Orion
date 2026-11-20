@@ -18,6 +18,10 @@ from orion.application.observability.graphs import (
     build_dependency_graph,
     build_timelines,
 )
+from orion.application.observability.recovery import (
+    DEFAULT_RECOVERY_LIMIT,
+    RecoveryHistoryStore,
+)
 from orion.application.observability.health import (
     HEALTH_SECTIONS,
     HealthChecker,
@@ -396,17 +400,128 @@ class ObservabilityApplicationHandler:
         try:
             result = service.import_backup(path, confirm=True)
         except (ValueError, OSError, zipfile.BadZipFile) as exc:
+            self.record_recovery(
+                "backup-import", path, status="failed", detail=str(exc)
+            )
             return ApplicationResult.failure(
                 f"Backup import failed: {exc}",
                 data={"read_only": False},
                 errors=(str(exc),),
                 next_actions=(f"backup verify {path}",),
             )
+        recorded = self.record_recovery(
+            "backup-import",
+            path,
+            status="success",
+            detail=f"{result.restored} file(s) restored.",
+            safety_backup=str(result.safety_backup or ""),
+        )
+        warnings: tuple[str, ...] = ()
+        if recorded is None:
+            warnings = ("Recovery history could not be updated.",)
         lines = [f"Backup imported: {result.restored} file(s) restored."]
         if result.safety_backup:
             lines.append(f"Safety backup: {result.safety_backup}")
         return ApplicationResult.success(
             "\n".join(lines),
             data={**result.to_dict(), "read_only": False},
-            next_actions=("health",),
+            warnings=warnings,
+            next_actions=("health", "recovery"),
+        )
+
+    def record_recovery(
+        self,
+        kind: str,
+        target: str,
+        *,
+        status: str = "success",
+        detail: str = "",
+        safety_backup: str = "",
+    ):
+        """Append a recovery record. Returns it, or None when the write failed.
+
+        Raises ValueError for an unknown kind or status (a programming error).
+        Callers in recovery paths must never let a recording failure break
+        the recovery itself; this method only raises for bad arguments.
+        """
+        store = RecoveryHistoryStore(self._paths.observability, clock=self._clock)
+        try:
+            return store.record(
+                kind,
+                target,
+                status=status,
+                detail=detail,
+                safety_backup=safety_backup,
+            )
+        except OSError:
+            return None
+
+    def recovery_list(
+        self,
+        kind: str | None = None,
+        status: str | None = None,
+        limit: int = DEFAULT_RECOVERY_LIMIT,
+    ) -> ApplicationResult:
+        """List recorded recoveries, newest first, optionally filtered."""
+        store = RecoveryHistoryStore(self._paths.observability, clock=self._clock)
+        try:
+            result = store.query(kind=kind, status=status, limit=limit)
+        except ValueError as exc:
+            return ApplicationResult.failure(
+                f"Recovery list failed: {exc}",
+                data={"read_only": True},
+                errors=(str(exc),),
+                next_actions=("recovery",),
+            )
+        if not result.records:
+            return ApplicationResult.success(
+                "No recoveries recorded yet.",
+                data={"read_only": True, "records": [], "total": 0},
+                next_actions=("backup export",),
+            )
+        lines = ["Orion Recovery History", "-" * 68]
+        for record in result.records:
+            lines.append(
+                f"{record.occurred_at} [{record.status.upper()}] "
+                f"{record.kind} - {record.target} ({record.record_id})"
+            )
+        if result.skipped:
+            lines.append(f"{result.skipped} malformed record(s) ignored.")
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={
+                "read_only": True,
+                "records": [record.to_dict() for record in result.records],
+                "skipped": result.skipped,
+                "total": result.total,
+            },
+            next_actions=("recovery <id>",),
+        )
+
+    def recovery_show(self, record_id: str) -> ApplicationResult:
+        """Show one recovery record in detail."""
+        store = RecoveryHistoryStore(self._paths.observability, clock=self._clock)
+        record = store.get((record_id or "").strip())
+        if record is None:
+            return ApplicationResult.failure(
+                f"No recovery record: {record_id}",
+                data={"read_only": True},
+                errors=(f"No recovery record: {record_id}",),
+                next_actions=("recovery",),
+            )
+        lines = [
+            f"Recovery {record.record_id}",
+            "-" * 68,
+            f"When    : {record.occurred_at}",
+            f"Kind    : {record.kind}",
+            f"Target  : {record.target}",
+            f"Status  : {record.status}",
+            f"Detail  : {record.detail}",
+        ]
+        if record.safety_backup:
+            lines.append(f"Safety backup: {record.safety_backup}")
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={**record.to_dict(), "read_only": True},
+            next_actions=("recovery",),
         )

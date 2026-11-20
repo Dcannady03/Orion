@@ -56,7 +56,7 @@ tested, documented milestones.
 - Root-cause-oriented diagnostic runbooks
 - Safe, approval-based remediation
 - Retry and end-to-end verification
-- Transparent recovery history and rollback where possible (rollback done via `team rollback` in v0.5.9; recovery history still open)
+- Transparent recovery history and rollback where possible (rollback done via `team rollback` in v0.5.9; history recorded and queryable via `recovery`)
 
 ## Phase 4 — Voice
 

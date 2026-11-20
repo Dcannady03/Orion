@@ -373,6 +373,20 @@ class AiTeamApplicationHandler:
             raise RuntimeError("Codex Bridge service is not available.")
         return service
 
+    def _record_recovery(self, kind, target, *, status, detail):
+        """Append a recovery-history record when observability is available.
+
+        Recording must never break a rollback, so every failure is swallowed.
+        """
+        application = getattr(self.runtime, "observability_application", None)
+        recorder = getattr(application, "record_recovery", None)
+        if not callable(recorder):
+            return
+        try:
+            recorder(kind, target, status=status, detail=detail)
+        except Exception:  # noqa: BLE001 - recording must never break a rollback
+            pass
+
     def list(self, *, limit: int = 5) -> ApplicationResult:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
             return ApplicationResult.failure(
@@ -1044,7 +1058,16 @@ class AiTeamApplicationHandler:
             ValueError,
             WorkspaceRollbackError,
         ) as exc:
+            self._record_recovery(
+                "team-rollback", run_id, status="failed", detail=str(exc)
+            )
             return self._failure("Team rollback refused", exc, run_id=run_id)
+        self._record_recovery(
+            "team-rollback",
+            rolled_back.run_id,
+            status="success",
+            detail="Workspace changes restored from saved preimages.",
+        )
         sync_warnings = self._sync(run_id=rolled_back.run_id)
         return ApplicationResult.success(
             (

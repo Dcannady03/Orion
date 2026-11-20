@@ -12,11 +12,14 @@ from orion.application.observability.logs import (
     DEFAULT_LOG_LIMIT,
     LogSearchRequest,
 )
+from orion.application.observability.recovery import DEFAULT_RECOVERY_LIMIT
 from orion.application.results import ApplicationResult
 from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
-_COMMAND_WORDS = frozenset({"health", "logs", "diagnostics", "graphs", "backup"})
+_COMMAND_WORDS = frozenset(
+    {"health", "logs", "diagnostics", "graphs", "backup", "recovery"}
+)
 
 
 def _split_command(payload: str) -> list[str]:
@@ -88,6 +91,8 @@ class ObservabilityCliAdapter:
                 result, as_json = self._graphs(tokens[1:])
             elif command == "backup":
                 result, as_json = self._backup(tokens[1:])
+            elif command == "recovery":
+                result, as_json = self._recovery(tokens[1:])
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -194,6 +199,44 @@ class ObservabilityCliAdapter:
             ), False
         return self.application.backup_import(path, confirm=True), False
 
+    def _recovery(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
+        as_json = False
+        positional: list[str] = []
+        options: dict[str, str] = {}
+        value_options = {"--kind", "--status", "--limit"}
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            folded = token.casefold()
+            if folded == "--json":
+                as_json = True
+                index += 1
+            elif folded in value_options:
+                if index + 1 >= len(tokens):
+                    raise ValueError(f"recovery {token} needs a value.")
+                options[folded] = tokens[index + 1]
+                index += 2
+            elif token.startswith("--"):
+                raise ValueError(f"Unknown recovery option: {token}")
+            else:
+                positional.append(token)
+                index += 1
+        if len(positional) > 1:
+            raise ValueError("recovery accepts at most one record id.")
+        limit = DEFAULT_RECOVERY_LIMIT
+        if "--limit" in options:
+            try:
+                limit = int(options["--limit"])
+            except ValueError:
+                raise ValueError("recovery --limit must be an integer.")
+        if positional:
+            return self.application.recovery_show(positional[0]), as_json
+        return self.application.recovery_list(
+            kind=options.get("--kind"),
+            status=options.get("--status"),
+            limit=limit,
+        ), as_json
+
     def _logs(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
         options: dict[str, str] = {}
@@ -256,6 +299,7 @@ class ObservabilityCliAdapter:
             "       backup list [--json]\n"
             "       backup verify PATH [--json]\n"
             "       backup import PATH\n"
+            "       recovery [ID] [--kind K] [--status S] [--limit N] [--json]\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
             "except `health --record`, which saves one snapshot for the graphs.\n"
             "Backup import replaces data and always asks for approval first."

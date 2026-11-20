@@ -697,6 +697,21 @@ of the files it will replace, shows a plan, and only restores after an
 explicit `Approve? [y/N]` confirmation. A failed verification aborts the
 import before anything changes.
 
+Every recovery Orion performs is recorded in a transparent history:
+
+```text
+recovery
+recovery --kind backup-import
+recovery --status failed
+recovery rec-a1b2c3d4e5f6
+recovery --json
+```
+
+`recovery` lists backup imports, update rollbacks, and team rollbacks,
+newest first, with what was restored, whether it succeeded, and the safety
+backup when one was written. Failed attempts are recorded too. Recording
+never blocks the recovery itself.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1864,6 +1879,8 @@ or execute anything from the CLI.
 | `backup list` | List backup archives |
 | `backup verify PATH` | Verify a backup against its manifest |
 | `backup import PATH` | Restore a backup (asks for approval first) |
+| `recovery` | List recorded recoveries and rollbacks |
+| `recovery <id>` | Show one recovery record in detail |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 
