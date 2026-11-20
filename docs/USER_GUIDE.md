@@ -785,6 +785,52 @@ older than 90 days, and create a missing workspace directory.
 Applying re-diagnoses first, so a fix whose problem is already gone
 reports "No longer needed" instead of acting on stale information.
 
+`docker` talks to the Docker daemon on this machine through the
+`docker` CLI (no new dependencies). Discovery and logs are read-only;
+control asks for approval first, like `remediate apply` and
+`backup import`:
+
+```text
+docker list
+docker ps
+docker inspect web
+docker start web
+docker stop web
+docker restart web
+docker health
+docker logs web
+docker logs web --tail 20
+docker list --json
+```
+
+`docker list` (alias `docker ps`) shows every container, running or
+stopped, with name, image, status, health, and ports. `docker inspect
+<name>` shows one container in detail: state, health, image, creation
+time, ports, and mounts. Containers are matched by exact name, exact
+container id, or a unique id prefix of at least four characters — an
+unknown or ambiguous name is refused, never guessed.
+
+`docker start`, `docker stop`, and `docker restart` show the
+container's current state first, then ask `Approve? [y/N]`. Answering
+anything but `y` or `yes` cancels with nothing changed. The action
+re-resolves the container before acting and re-inspects it afterwards
+to verify the new state; every applied action is recorded in the
+recovery history (`recovery --kind docker`). There is no `--yes`
+bypass.
+
+`docker health` summarizes container health across every container:
+running and exited counts, healthy, unhealthy, starting, and
+no-healthcheck counts, with the unhealthy containers listed by name.
+It reports an error when any container is unhealthy. `docker logs
+<name>` shows recent log lines for one container (default 50, `--tail
+N` up to 500); output is capped at 20,000 characters, keeping the
+newest lines.
+
+When the `docker` command is missing or the daemon is unreachable,
+every docker command fails closed with a clear "Docker is not
+available" message and nothing is attempted. See
+[Docker integration](DOCKER.md) for the full reference.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1966,6 +2012,13 @@ or execute anything from the CLI.
 | `remediate` | Propose fixes for current problems |
 | `remediate apply <id>` | Apply one fix (asks for approval) |
 | `remediate apply --all` | Apply all proposed fixes |
+| `docker list` | List Docker containers (running and stopped) |
+| `docker inspect <name>` | Show one container in detail |
+| `docker start <name>` | Start one container (asks for approval) |
+| `docker stop <name>` | Stop one container (asks for approval) |
+| `docker restart <name>` | Restart one container (asks for approval) |
+| `docker health` | Summarize container health across every container |
+| `docker logs <name>` | Show recent logs for one container |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 

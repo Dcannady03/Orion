@@ -28,6 +28,7 @@ from orion.application.observability import (
 )
 from orion.core.paths import OrionPaths
 from orion.core.router import CommandRouter
+from orion.ui.console import BASE_COMMANDS
 
 _WEB_ID = "a1b2c3d4e5f6" + "0" * 52
 _DB_ID = "b2c3d4e5f6a7" + "1" * 52
@@ -894,3 +895,59 @@ class DockerCliTests(TestCase):
 
     def test_docker_list_rejects_tail(self):
         self.assertFalse(self._run("docker list --tail 5").ok)
+
+
+class DockerCoverageTests(TestCase):
+    def test_docker_in_router_help_base_commands_and_guide(self):
+        router = CommandRouter(SimpleNamespace(plugin_manager=SimpleNamespace(help_lines=lambda: ())))
+        with patch("builtins.print") as output:
+            router.show_help()
+        help_text = "\n".join(
+            str(call.args[0]) for call in output.call_args_list if call.args
+        )
+        for command in (
+            "docker list",
+            "docker inspect",
+            "docker start",
+            "docker stop",
+            "docker restart",
+            "docker health",
+            "docker logs",
+        ):
+            self.assertIn(command, help_text)
+        for command in (
+            "docker",
+            "docker list",
+            "docker ps",
+            "docker inspect",
+            "docker start",
+            "docker stop",
+            "docker restart",
+            "docker health",
+            "docker logs",
+        ):
+            self.assertIn(command, BASE_COMMANDS)
+        guide = Path(__file__).resolve().parents[1] / "docs" / "USER_GUIDE.md"
+        guide_text = guide.read_text(encoding="utf-8")
+        for command in (
+            "docker list",
+            "docker inspect",
+            "docker start",
+            "docker stop",
+            "docker restart",
+            "docker health",
+            "docker logs",
+        ):
+            self.assertIn(command, guide_text)
+
+    def test_docker_feature_page_exists(self):
+        page = Path(__file__).resolve().parents[1] / "docs" / "DOCKER.md"
+        text = page.read_text(encoding="utf-8")
+        self.assertIn("docker health", text)
+        self.assertIn("Approve? [y/N]", text)
+        self.assertIn("recovery --kind docker", text)
+
+    def test_roadmap_checks_off_docker(self):
+        roadmap = Path(__file__).resolve().parents[1] / "docs" / "ROADMAP.md"
+        text = roadmap.read_text(encoding="utf-8")
+        self.assertIn("- [x] **Docker:**", text)

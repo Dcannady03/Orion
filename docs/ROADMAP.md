@@ -37,7 +37,7 @@ tested, documented milestones.
 - [x] **v0.3.5 — Weather:** current conditions, forecasts, location lookup, and briefing provider
 - [x] **v0.3.6 — Calendar:** agenda access, availability, next-event queries, and briefing provider
 - [x] **v0.6.0 — Email Phase A:** provider-neutral Gmail and Microsoft read-only mail
-- [ ] **Docker:** container discovery, control, and health checks
+- [x] **Docker:** container discovery, control, and health checks
 - [ ] **Git:** repository status and approval-based operations
 - [ ] **Home Assistant:** entity discovery and device control
 - [ ] Approval-based shell execution
