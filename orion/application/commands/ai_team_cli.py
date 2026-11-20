@@ -14,6 +14,11 @@ from orion.application.commands.ai_team_commands import (
     TeamRunRequest,
     TeamTaskRequest,
 )
+from orion.application.interface_actions import (
+    cli_next_actions,
+    interface_action,
+    interface_actions_data,
+)
 from orion.application.results import ApplicationResult
 from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
@@ -161,10 +166,11 @@ class AiTeamCliAdapter:
         if not preview.ok:
             return preview
         if self.input("Approve rollback? [y/N]: ").strip().lower() not in {"y", "yes"}:
+            actions = (interface_action("team.show", {"run_id": run_id}),)
             return self._render(ApplicationResult.success(
                 "Team rollback cancelled.",
-                data=preview.data,
-                next_actions=(f"team.show {run_id}",),
+                data={**preview.data, **interface_actions_data(actions)},
+                next_actions=cli_next_actions(actions),
             ))
         return self._render(self.application.rollback(
             TeamRollbackRequest(run_id, confirmed=True)
@@ -212,22 +218,37 @@ class AiTeamCliAdapter:
                 reader = self.approval_input or self.input
                 answer = reader("> ").strip().lower()
             except KeyboardInterrupt:
+                actions = self._awaiting_approval_actions(task_id)
                 return self._render(ApplicationResult.success(
                     "\nApproval cancelled. The plan remains Awaiting Approval.",
-                    data={"team_task_id": task_id, "status": "awaiting_approval"},
-                    next_actions=(f"team.approve {task_id}",),
+                    data={
+                        "team_task_id": task_id,
+                        "status": "awaiting_approval",
+                        **interface_actions_data(actions),
+                    },
+                    next_actions=cli_next_actions(actions),
                 ))
             if not answer:
+                actions = self._awaiting_approval_actions(task_id)
                 return self._render(ApplicationResult.success(
                     "No approval recorded. The plan remains Awaiting Approval.",
-                    data={"team_task_id": task_id, "status": "awaiting_approval"},
-                    next_actions=(f"team.approve {task_id}",),
+                    data={
+                        "team_task_id": task_id,
+                        "status": "awaiting_approval",
+                        **interface_actions_data(actions),
+                    },
+                    next_actions=cli_next_actions(actions),
                 ))
             if answer in {"n", "no"}:
+                actions = self._awaiting_approval_actions(task_id)
                 return self._render(ApplicationResult.success(
                     "Plan not approved. No implementation was performed.",
-                    data={"team_task_id": task_id, "status": "awaiting_approval"},
-                    next_actions=(f"team.approve {task_id}",),
+                    data={
+                        "team_task_id": task_id,
+                        "status": "awaiting_approval",
+                        **interface_actions_data(actions),
+                    },
+                    next_actions=cli_next_actions(actions),
                 ))
             if answer in {"d", "details"}:
                 self.renderer.render(self.application.approval_details(
@@ -250,6 +271,14 @@ class AiTeamCliAdapter:
             self.renderer.output(
                 "Please enter Y, N, or D. No approval has been recorded."
             )
+
+    @staticmethod
+    def _awaiting_approval_actions(task_id: str):
+        context = {"team_task_id": task_id}
+        return (
+            interface_action("team.approve", context),
+            interface_action("team.show", context),
+        )
 
     def _agent_run(self, payload: str) -> ApplicationResult:
         goal = ""

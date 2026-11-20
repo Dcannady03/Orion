@@ -19,7 +19,14 @@ workspace, execution-engine, Git, subprocess, or application-handler dependency.
 
 There are no asynchronous workers, automatic reactions, Mission Engine hooks,
 external streams, REST endpoints, WebSockets, Discord notifications, email
-notifications, or voice notifications in v0.8.4.
+notifications, or voice notifications in v0.8.4. Mission Engine Phase 1 later
+reads persisted Event Store history through bounded queries; it is not a live
+subscriber and does not publish reaction events. See [Mission Engine](MISSION_ENGINE.md).
+
+Mission Coordinator Phase 2 also does not react to live events. It dispatches one
+typed operation only after explicit confirmation, then performs one read-based
+reconciliation and stops. The bus is evidence for projection, never permission to
+coordinate another operation.
 
 ## Event model
 
@@ -56,7 +63,7 @@ Unsupported values are never silently stringified.
 
 ## Naming and supported event types
 
-The v0.8.4 public event contracts are:
+The current public event contracts are:
 
 ```text
 goal.plan.created
@@ -68,9 +75,22 @@ goal.proposal.expired
 goal.proposal.consumed
 goal.proposal.failed
 team.plan.created
+team.plan.approved
+team.implementation.started
+team.implementation.completed
+team.implementation.failed
+team.validation.completed
+team.documentation_review.completed
+team.final_review.completed
+team.final_review.blocked
 ```
 
-Only these existing operations are instrumented. Command Center, agents, providers,
+Only these existing operations are instrumented. Only reviewed application boundaries may publish these contracts.
+`team.plan.approved` follows creation of the immutable plan-hash-bound approval.
+Implementation, validation, and documentation facts are derived from persisted Team
+run and attempt records returned by their existing handlers. The final-review
+completed/blocked types are registered for strict Mission projection, but the current
+AI Team layer has no typed final-decision producer. Command Center, agents, providers,
 workspaces, and other domains do not emit Event Bus records yet.
 
 ## Severity
@@ -106,6 +126,32 @@ Standalone AI Team plans use their Team task ID as correlation unless a typed ca
 supplies an existing correlation. Separate `goal plan` and
 `goal proposal create` commands each create a new Goal Plan, so Orion does not invent
 a causal link between those independently requested commands.
+
+A Mission-coordinated Team approval preserves the Mission Goal as correlation and
+uses the latest observed Mission event as causation where available:
+
+```text
+team.plan.approved       correlation = goal_id
+                         causation = latest Mission event ID
+                         subject = authoritative Team task ID
+```
+
+Mission projection additionally requires the subject/payload task to match its
+authoritative Team-task link plus a valid approval ID and plan SHA-256. Correlation
+alone is insufficient.
+
+Mission-coordinated post-approval operations preserve the same Goal correlation and
+latest-Mission-event causation while retaining authoritative Team identity:
+
+```text
+team.implementation.started/completed/failed
+  -> team.validation.completed
+  -> team.documentation_review.completed
+```
+
+Projection additionally verifies the approval, plan hash, run, attempt ID, status,
+UTC timestamps, and legal lifecycle order. A later event cannot manufacture a missed
+earlier phase.
 
 ## Event Factory and publisher
 
@@ -276,9 +322,11 @@ handler, and CLI:
 - cannot return commands or actions from subscribers;
 - cannot accept arbitrary user-published lifecycle events.
 
-The only domain activity in the integrated acceptance flow remains the one typed,
-explicitly accepted `team.plan` operation already authorized by Goal Proposals.
-Events merely record its transitions.
+Domain activity remains limited to operations explicitly authorized outside the bus:
+Goal Proposal acceptance may dispatch one typed `team.plan`, and each Mission
+Coordinator confirmation may dispatch at most one allowlisted typed Team approval,
+implementation, validation, or Documentation Review request. Events merely record the
+resulting authoritative transitions and never authorize the next one.
 
 ## Schema compatibility
 
@@ -299,7 +347,6 @@ Future schema work must preserve existing event identities and public type meani
   activity identity.
 - Legacy clients that parse messages should migrate to structured event fields.
 
-The recommended next milestone is **Orion v0.8.5 — Mission Engine Phase 1**:
-persistent mission lifecycle records and event-based observation only, with no
-automatic progression.
-
+Mission Engine and Mission Coordinator Phase 2 consume this history without adding
+reactions. A safer Phase 3 starts with a reviewed typed human final-decision producer;
+autonomy and a server over incomplete lifecycle facts remain premature.

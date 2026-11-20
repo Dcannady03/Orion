@@ -1708,7 +1708,10 @@ class CodexBridge:
         approval_id: str | None = None,
         *,
         execution_engine: ExecutionEngine | None = None,
+        run_followups: bool = True,
     ) -> CodexRun:
+        if not isinstance(run_followups, bool):
+            raise TypeError("Codex execution follow-up control must be a boolean.")
         self._require_enabled()
         with self._lock:
             self._require_workspace()
@@ -2024,7 +2027,7 @@ class CodexBridge:
             )
             CodexRun.from_value(completed.to_dict())
             self.store.save_run(completed)
-            if self.team_roles is None:
+            if not run_followups or self.team_roles is None:
                 return completed
             return self.validate(completed.run_id)
 
@@ -2059,8 +2062,10 @@ class CodexBridge:
                 raise PermissionError("Documentation run belongs to a different active workspace.")
             return run
 
-    def validate(self, run_id: str) -> CodexRun:
+    def validate(self, run_id: str, *, run_followups: bool = True) -> CodexRun:
         """Run one bounded Tester attempt without consuming another approval."""
+        if not isinstance(run_followups, bool):
+            raise TypeError("Validation follow-up control must be a boolean.")
         with self._lock:
             self._require_workspace()
             run = self.store.load_run(run_id)
@@ -2134,7 +2139,7 @@ class CodexBridge:
             )
             CodexRun.from_value(updated.to_dict())
             self.store.save_run(updated)
-            if self.documentation_service is None or not bool(
+            if not run_followups or self.documentation_service is None or not bool(
                 self.config.get("team.documentation_review.enabled", True)
             ):
                 return updated

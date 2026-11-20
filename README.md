@@ -21,8 +21,9 @@ Awaiting Review, and rollback boundaries remain unchanged.
 ## Current development branch
 
 The development branch contains the unreleased Goal Engine, Goal Proposals, Event
-Bus, Command Center, Agent System, Image Center, Automatic Validation, Documentation
-Review, and application-core stabilization work.
+Bus, Mission Engine Phase 1, Mission Coordinator Phase 2, Command Center, Agent
+System, Image Center, Automatic Validation, Documentation Review, and
+application-core stabilization work.
 These capabilities are tested development features; they are not part of the v0.7.0
 stable release.
 
@@ -74,6 +75,31 @@ bounded filtering and replay, and a read-only `events` CLI. Initial events cover
 Plans, Goal Proposal lifecycle transitions, and successful AI Team plan creation.
 Subscribers observe facts only and cannot advance workflows. See
 [Event Bus](docs/EVENT_BUS.md).
+
+The unreleased v0.8.5 Mission Engine Phase 1 creates one immutable, restart-safe
+Mission for an accepted or consumed Goal Proposal and projects strictly correlated
+Event Store facts into status, stage, fixed progress, identity links, history, and a
+recommended human command. Missions persist under `~/.orion/missions/`; explicit
+creation and reconciliation write only Mission state. There is no subscriber,
+automatic advancement, approval consumption, agent/job/provider launch, Git,
+subprocess, or workspace mutation. See [Mission Engine](docs/MISSION_ENGINE.md).
+
+The unreleased v0.8.6 Mission Coordinator Phase 1 adds a human-controlled gearbox above the
+Mission projection: `mission next` previews one deterministic operation, while
+`mission advance` requires explicit state-token-bound confirmation, dispatches at
+most one typed operation, reconciles once, and stops. The initial allowlist supports
+only the existing plan-hash-protected `team.approve` handler. Cross-process locks and
+external audit reservations block duplicate or uncertain replay; there is no
+autonomous continuation. See [Mission Coordinator](docs/MISSION_COORDINATOR.md).
+
+The unreleased v0.8.7 Mission Coordinator Phase 2 extends that same boundary through
+the existing typed `team.implement`, `team.validate`, and
+`team.documentation_review` application handlers. Strict persisted lifecycle events
+drive deterministic implementation, validation, documentation, blocked/failed, final
+review, and completion projection. Coordinated stages disable automatic follow-up
+cascades, so one confirmation remains one operation, one reconciliation, and a stop.
+The current Team layer has no typed final-review decision command, and the Coordinator
+does not invent one.
 
 ### Experimental and planned interfaces
 
@@ -268,11 +294,13 @@ source, user data, workspace-generated state, and sanitized test fixtures.
 ## Roadmap
 
 The active development work combines the **v0.8.2 Goal Engine**, **v0.8.3 Goal
-Proposals**, **v0.8.4 Event Bus**, and **Orion v1.0 Command Center** with incremental
-application-core stabilization: deterministic planning, an explicit single-operation
-trust bridge, observation-only lifecycle facts, and a persistent organization/job
-control workflow over the existing Agent System, AI Team, routing, workspace,
-immutable approval, validation, documentation, and execution services.
+Proposals**, **v0.8.4 Event Bus**, **v0.8.5 Mission Engine Phase 1**, **v0.8.6 Mission
+Coordinator Phase 1**, **v0.8.7 Mission Coordinator Phase 2**, and **Orion v1.0
+Command Center** with incremental application-core stabilization: deterministic
+planning, an explicit single-operation trust bridge, observation-only lifecycle
+facts, durable Mission projection, and a persistent organization/job control workflow
+over the existing Agent System, AI Team, routing, workspace, immutable approval,
+validation, documentation, and execution services.
 See `docs/ROADMAP.md` for the complete plan.
 
 ## v0.3.6.2 — Constellation Polish

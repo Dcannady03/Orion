@@ -19,8 +19,9 @@ service or provider objects. `CapabilityRegistry` publishes deterministic metada
 about a deliberately limited representative set of operations; definitions describe
 permissions, approval requirements, and schemas but never execute work.
 
-Command Center, AI Team, and the Goal Engine use this boundary. Command Center's application handler
-coordinates `CommandCenterService` and its Team integration. AI Team uses typed
+Command Center, AI Team, the Goal Engine, Event Bus, Mission Engine, and Mission
+Coordinator use this boundary. Command Center's application handler coordinates `CommandCenterService`
+and its Team integration. AI Team uses typed
 requests in `orion/application/commands/ai_team_commands.py`; its separate CLI adapter
 owns legacy syntax and interactive prompts. Both return `ApplicationResult` and use
 `orion/interfaces/cli/renderer.py`, preventing lifecycle services from depending on
@@ -29,9 +30,10 @@ owns legacy syntax and interactive prompts. Both return `ApplicationResult` and 
 ```text
 CLI input
   -> core router
-  -> Goal, Event, Command Center, or AI Team CLI adapter
+  -> Goal, Event, Mission, Command Center, or AI Team CLI adapter
   -> application handler
-  -> Goal planner, read-only Event Store, or Command Center / Team / Codex services
+  -> Goal planner, read-only Event Store / Mission projection,
+     or Command Center / Team / Codex services
   -> ApplicationResult
   -> CLI renderer
 ```
@@ -41,6 +43,49 @@ uses its structured `TeamPlanRequest` rather than simulating a CLI command, then
 projects organization-facing state from authoritative Team records. Shared
 reconciliation is isolated in `orion/application/team_reconciliation.py`, avoiding
 handler recursion and circular imports.
+
+Mission Engine Phase 1 is a projection boundary, not another workflow engine:
+
+```text
+Goal -> Goal Proposal -> Mission
+                         ^
+                         |
+                 correlated Event Store facts
+```
+
+It persists restart-safe state under external user data and rebuilds it only on an
+explicit create or reconcile. It does not subscribe to events, publish reaction
+events, or call any mutation handler. See [Mission Engine](MISSION_ENGINE.md).
+
+Mission Coordinator Phase 2 is a human-controlled gearbox layered above that
+projection:
+
+```text
+Mission -> Preview -> Confirm -> One typed operation -> Reconcile -> STOP
+```
+
+The Coordinator determines operations without an LLM and explicitly allowlists the
+existing typed Team approval, implementation, validation, and Documentation Review
+application methods. Coordinated implementation and validation requests disable the
+Team layer's automatic follow-ups, preventing one dispatch from cascading into later
+stages. A canonical state token binds Mission/proposal identity, projection, cursor,
+links, and the exact authoritative plan, approval, run, and review facts needed by the
+selected operation.
+
+The Coordinator verifies that token while holding a per-Mission cross-process lock,
+reserves the attempt in bounded external audit storage, dispatches once, reconciles
+once, and never continues from the new state. Existing Team plan-hash, immutable
+approval, run, validation, and documentation rules remain authoritative. No typed
+Team final-decision operation currently exists, so coordination stops at final review.
+
+The Event Bus remains observational: approval, implementation, validation, and
+documentation events record persisted Team transitions, but no subscriber invokes
+the Coordinator or treats an event as permission. Strict final-review completed and
+blocked contracts are projection inputs only until a reviewed producer exists.
+Reserved or uncertain attempts block replay for operator inspection. Prompting stays
+in the CLI adapter, and the Coordinator has no direct provider, agent,
+execution-engine, Git, subprocess, workspace, or CLI dependency. See
+[Mission Coordinator](MISSION_COORDINATOR.md).
 
 Future GUI, REST, voice, Discord, mobile, or server clients must call application
 commands or domain services and consume structured results; they must not scrape CLI

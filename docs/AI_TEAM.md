@@ -37,6 +37,33 @@ implementation, the configured Tester runs deterministic validation. The configu
 Documentation Reviewer then assesses applicable documentation before Orion renders the
 final human-review state, regardless of whether validation passed, warned, or failed.
 
+## Mission observation boundary
+
+Mission Engine Phase 1 may observe the existing `team.plan.created` event and link its
+authoritative Team task ID. When that event explicitly reports an approval
+requirement, the Mission can recommend the mapped `team approve <task-id>` and
+read-only `team status <task-id>` commands.
+
+Mission Coordinator Phase 2 may dispatch approval, implementation, validation, and
+Documentation Review only after a fresh preview, exact state-token verification, and
+explicit user confirmation. It uses `coordination_details()` as a bounded read-only
+boundary for persisted plan, approval, run, validation, and documentation facts, then
+translates through exact typed requests to the existing application handlers. AI Team
+still owns every domain validation and record; Mission never manufactures an
+approval, run, or review attempt.
+
+Coordinated implementation and validation requests set `run_followups=False`. This
+preserves ordinary Team CLI automatic follow-ups while ensuring that one Mission
+confirmation runs at most one stage. The Coordinator reconciles once and stops even
+when the next lifecycle operation becomes eligible.
+
+Successful persisted transitions publish `team.plan.approved`, implementation
+started/completed/failed, validation-completed, and
+documentation-review-completed events. Mission projection can therefore reach final
+human review, or a blocked/failed state, from authoritative facts. AI Team still has
+no typed final-accept or completion command; Mission cannot dispatch one. See
+[Mission Engine](MISSION_ENGINE.md) and [Mission Coordinator](MISSION_COORDINATOR.md).
+
 ## Application-core boundary
 
 All Team CLI commands now pass through a thin adapter and the reusable
@@ -59,9 +86,9 @@ Documentation Review.
 
 Approval prediction simply copies the registry's flags. A predicted
 `team.implement` boundary does not satisfy AI Team's immutable plan-hash, workspace,
-actor, and single-use approval checks. Future acceptance of a Goal Proposal must
-still enter the existing typed AI Team application boundary and preserve its
-interactive approval and execution safeguards. See `GOAL_ENGINE.md`.
+actor, and single-use approval checks. Goal Proposal acceptance and Mission
+confirmation must still enter existing typed AI Team application boundaries and
+preserve approval and execution safeguards. See `GOAL_ENGINE.md`.
 
 v0.8.3 Goal Proposals add one narrow bridge to AI Team. The only supported
 translation is `team.plan` to the existing immutable `TeamPlanRequest`, dispatched
@@ -89,10 +116,18 @@ correlation and the `goal.proposal.accepted` event ID is preserved as causation.
 Standalone Team planning uses the Team task ID as correlation. A planning failure
 emits no success event.
 
+After `AiTeamApplicationHandler.approve` has successfully created the existing
+immutable approval, it publishes `team.plan.approved` with the Team task, approval
+ID, approved state, and exact plan SHA-256. Implementation publishes started and
+completed or failed facts only from the persisted run returned by the bridge.
+Validation and Documentation Review likewise publish completed facts only from their
+persisted attempt summaries. A failed operation emits no contradictory success fact.
+
 The Event Bus observes the existing Team result only. It cannot approve the plan,
 invoke implementation, launch Codex, run validation or Documentation Review, retry,
-or progress the Team workflow. An Event Store failure leaves the Team task intact
-and adds a bounded observability warning. See `EVENT_BUS.md`.
+or progress the Team workflow. An event is not permission for the next stage and no
+subscriber invokes Mission Coordinator. An Event Store failure leaves the Team record
+intact and adds a bounded observability warning. See `EVENT_BUS.md`.
 
 The handler accepts typed plan, task, approval, implementation, run, rollback, role,
 and synchronization requests. It returns JSON-safe semantic lifecycle data as well as
@@ -108,9 +143,31 @@ and rollback metadata identifies their human-approval boundary. Validation and
 documentation review may persist bounded audit attempts but receive read-only
 workspace permissions.
 
+Capability IDs remain application semantics and are not executable commands. Team
+results preserve them in structured `interface_actions` and render the following
+explicit CLI representations in `next_actions`:
+
+| Capability ID | Current CLI representation |
+| --- | --- |
+| `team.list` | `team` |
+| `team.show` (task) | `team status <task-id>` |
+| `team.show` (run) | `team run <run-id>` |
+| `team.plan` | `team plan "<goal>"` |
+| `team.approve` | `team approve <task-id>` |
+| `team.implement` | `team implement <task-id> <approval-id>` |
+| `team.validate` | `team test <run-id>` |
+| `team.documentation_review` | `team docs <run-id>` |
+| `team.rollback` | `team rollback <run-id>` |
+| `team.sync` | no public CLI representation |
+
+The mapping follows the existing Team CLI adapter and does not add commands, aliases,
+workflow transitions, or approval behavior.
+
 Team does not currently expose cancel, final-accept, or completion operations, so no
 aspirational capability IDs were added. `awaiting_review` with both bounded reviews
-present is projected as `final_review`; the next decision remains human.
+present is projected as `final_review`; the next decision remains human. Mission
+Coordinator recognizes reviewed final-review completed/blocked event contracts but
+does not publish or dispatch them.
 
 ## Commands
 

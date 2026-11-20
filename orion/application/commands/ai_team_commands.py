@@ -3,9 +3,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any, Mapping
 
 from orion.application.events import EventTypes
+from orion.application.interface_actions import (
+    InterfaceAction,
+    cli_next_actions,
+    interface_action,
+    interface_actions_data,
+)
 from orion.application.results import ApplicationResult
 from orion.application.team_reconciliation import synchronize_command_center_team
 from orion.services.codex_bridge import (
@@ -47,6 +54,8 @@ class TeamApprovalRequest:
     team_task_id: str
     actor: str = "user"
     plan_sha256: str | None = None
+    correlation_id: str | None = None
+    causation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +64,9 @@ class TeamImplementationRequest:
 
     team_task_id: str
     approval_id: str
+    run_followups: bool = True
+    correlation_id: str | None = None
+    causation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +74,9 @@ class TeamRunRequest:
     """Structured request for one persisted implementation run."""
 
     run_id: str
+    run_followups: bool = True
+    correlation_id: str | None = None
+    causation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,16 +103,37 @@ class TeamSyncRequest:
     run_id: str = ""
 
 
-def team_task_next_actions(task: Any) -> tuple[str, ...]:
-    """Return capability-oriented next actions for an authoritative Team task."""
+_PLAN_STEP_MARKER = re.compile(
+    r"^\s*(?:step\s+\d+\s*[:.)-]|\d+\s*(?:[.)]|-\s+))\s*",
+    re.IGNORECASE,
+)
+
+
+def _display_plan_step(value: object) -> str:
+    """Strip one generated step marker before Orion adds display numbering."""
+    text = str(value).strip()
+    match = _PLAN_STEP_MARKER.match(text)
+    if match:
+        text = text[match.end():].strip()
+    return text or "(empty step)"
+
+
+def team_task_interface_actions(task: Any) -> tuple[InterfaceAction, ...]:
+    """Return semantic actions available for an authoritative Team task."""
     task_id = str(getattr(task, "task_id", "")).strip()
+    if not task_id:
+        return ()
+    context = {"team_task_id": task_id}
+    show = interface_action("team.show", context)
     status = str(getattr(task, "status", "")).strip().lower()
-    show = f"team.show {task_id}" if task_id else "team.show"
-    if status == "planning":
-        return (show,)
     if status == "awaiting_approval":
-        return (f"team.approve {task_id}", show)
-    return (show,) if task_id else ()
+        return (interface_action("team.approve", context), show)
+    return (show,)
+
+
+def team_task_next_actions(task: Any) -> tuple[str, ...]:
+    """Return valid CLI representations for authoritative Team task actions."""
+    return cli_next_actions(team_task_interface_actions(task))
 
 
 def team_run_stage(run: Any) -> str:
@@ -112,33 +148,39 @@ def team_run_stage(run: Any) -> str:
     return "final_review"
 
 
-def team_run_next_actions(run: Any) -> tuple[str, ...]:
-    """Return only actions that are valid for the current persisted run."""
+def team_run_interface_actions(run: Any) -> tuple[InterfaceAction, ...]:
+    """Return semantic actions valid for the current persisted Team run."""
     run_id = str(getattr(run, "run_id", "")).strip()
     if not run_id:
         return ()
+    context = {"run_id": run_id}
     status = str(getattr(run, "status", "")).strip().lower()
-    show = f"team.show {run_id}"
+    show = interface_action("team.show", context)
     if status == "executing":
         return (show,)
     if status == "rolled_back":
         return (show,)
     if status == "failed":
         if getattr(run, "changes", None) is not None:
-            return (show, f"team.rollback {run_id}")
+            return (show, interface_action("team.rollback", context))
         return (show,)
     if status != "awaiting_review":
         return (show,)
 
-    actions: list[str] = [show]
+    actions: list[InterfaceAction] = [show]
     validation = getattr(run, "validation", None)
     documentation = getattr(run, "documentation", None)
     if validation is None:
-        actions.append(f"team.validate {run_id}")
+        actions.append(interface_action("team.validate", context))
     if documentation is None:
-        actions.append(f"team.documentation_review {run_id}")
-    actions.append(f"team.rollback {run_id}")
+        actions.append(interface_action("team.documentation_review", context))
+    actions.append(interface_action("team.rollback", context))
     return tuple(actions)
+
+
+def team_run_next_actions(run: Any) -> tuple[str, ...]:
+    """Return valid CLI representations for persisted Team run actions."""
+    return cli_next_actions(team_run_interface_actions(run))
 
 
 def team_task_lifecycle_data(task: Any) -> dict[str, object]:
@@ -166,7 +208,7 @@ def team_task_lifecycle_data(task: Any) -> dict[str, object]:
             if risk not in risks:
                 risks.append(str(risk))
     status = str(getattr(task, "status", "")).strip()
-    actions = team_task_next_actions(task)
+    actions = team_task_interface_actions(task)
     data: dict[str, object] = {
         "team_task_id": str(getattr(task, "task_id", "")),
         "status": status,
@@ -179,7 +221,7 @@ def team_task_lifecycle_data(task: Any) -> dict[str, object]:
         "resolved_agents": selected_agents,
         "provider_routes": routes,
         "risks": risks,
-        "next_actions": list(actions),
+        **interface_actions_data(actions),
         "created_at": str(getattr(task, "created_at", "")),
         "updated_at": str(getattr(task, "updated_at", "")),
     }
@@ -201,7 +243,7 @@ def team_run_lifecycle_data(run: Any) -> dict[str, object]:
     result = getattr(run, "result", None)
     changes = getattr(run, "changes", None)
     workspace = getattr(run, "workspace", None)
-    actions = team_run_next_actions(run)
+    actions = team_run_interface_actions(run)
     data: dict[str, object] = {
         "run_id": str(getattr(run, "run_id", "")),
         "team_task_id": str(getattr(run, "team_task_id", "")),
@@ -218,7 +260,7 @@ def team_run_lifecycle_data(run: Any) -> dict[str, object]:
         "review_status": (
             "awaiting_review" if status == "awaiting_review" else status
         ),
-        "next_actions": list(actions),
+        **interface_actions_data(actions),
         "created_at": str(getattr(run, "started_at", "")),
         "updated_at": (
             str(getattr(run, "completed_at", ""))
@@ -235,10 +277,14 @@ def team_run_lifecycle_data(run: Any) -> dict[str, object]:
             data["commit"] = commit
     if validation is not None:
         data["validation_status"] = str(getattr(validation, "status", ""))
+        data["validation_id"] = str(getattr(validation, "attempt_id", ""))
         data["validation"] = validation.to_dict()
     if documentation is not None:
         data["documentation_review_status"] = str(
             getattr(documentation, "status", "")
+        )
+        data["documentation_review_id"] = str(
+            getattr(documentation, "attempt_id", "")
         )
         data["documentation_review"] = documentation.to_dict()
     if result is not None:
@@ -255,6 +301,54 @@ def team_run_lifecycle_data(run: Any) -> dict[str, object]:
         data["error"] = error
     if hasattr(run, "to_dict") and callable(run.to_dict):
         data["run"] = run.to_dict()
+    return data
+
+
+def team_run_coordination_data(run: Any) -> dict[str, object]:
+    """Return the bounded persisted facts used for Mission coordination."""
+    validation = getattr(run, "validation", None)
+    documentation = getattr(run, "documentation", None)
+    result = getattr(run, "result", None)
+    data: dict[str, object] = {
+        "run_id": str(getattr(run, "run_id", "")),
+        "team_task_id": str(getattr(run, "team_task_id", "")),
+        "approval_id": str(getattr(run, "approval_id", "")),
+        "plan_sha256": str(getattr(run, "plan_hash", "")),
+        "status": str(getattr(run, "status", "")),
+        "stage": team_run_stage(run),
+        "implementation_status": (
+            "complete" if result is not None else str(getattr(run, "status", ""))
+        ),
+        "started_at": str(getattr(run, "started_at", "")),
+        "completed_at": str(getattr(run, "completed_at", "")),
+        "validation_status": "",
+        "validation_id": "",
+        "validation_completed_at": "",
+        "documentation_review_status": "",
+        "documentation_review_id": "",
+        "documentation_review_completed_at": "",
+        "error": str(getattr(run, "error", "")),
+    }
+    if validation is not None:
+        data.update({
+            "validation_status": str(getattr(validation, "status", "")),
+            "validation_id": str(getattr(validation, "attempt_id", "")),
+            "validation_completed_at": str(
+                getattr(validation, "completed_at", "")
+            ),
+        })
+    if documentation is not None:
+        data.update({
+            "documentation_review_status": str(
+                getattr(documentation, "status", "")
+            ),
+            "documentation_review_id": str(
+                getattr(documentation, "attempt_id", "")
+            ),
+            "documentation_review_completed_at": str(
+                getattr(documentation, "completed_at", "")
+            ),
+        })
     return data
 
 
@@ -319,10 +413,15 @@ class AiTeamApplicationHandler:
                 "team test <run-id|last> | team rollback <run-id>"
             ),
         ])
+        actions = (interface_action("team.plan"),)
         return ApplicationResult.success(
             "\n".join(lines),
-            data={"tasks": payload, "count": len(payload)},
-            next_actions=("team.plan",),
+            data={
+                "tasks": payload,
+                "count": len(payload),
+                **interface_actions_data(actions),
+            },
+            next_actions=cli_next_actions(actions),
         )
 
     def show_task(self, request: TeamTaskRequest) -> ApplicationResult:
@@ -362,11 +461,15 @@ class AiTeamApplicationHandler:
                 )
         except (OSError, PermissionError, TeamPlanningError, ValueError) as exc:
             task_id = str(getattr(exc, "task_id", "")).strip()
+            actions = (
+                (interface_action("team.show", {"team_task_id": task_id}),)
+                if task_id else ()
+            )
             return self._failure(
                 "AI Team planning failed",
                 exc,
                 team_task_id=task_id,
-                next_actions=((f"team.show {task_id}",) if task_id else ()),
+                interface_actions=actions,
             )
         result = self._task_result(task)
         publisher = getattr(self.runtime, "event_publisher", None)
@@ -433,6 +536,20 @@ class AiTeamApplicationHandler:
                     if risk not in risks:
                         risks.append(risk)
         plan_hash = PlanSnapshot.from_team_task(task).hash
+        approvals = ()
+        approval_inspection_available = False
+        inspection_warnings: tuple[str, ...] = ()
+        try:
+            inspector = getattr(self.bridge, "approvals_for_task", None)
+            if callable(inspector):
+                approvals = tuple(inspector(task_id))
+                approval_inspection_available = True
+        except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
+            inspection_warnings = (
+                "Existing Team approvals could not be inspected safely "
+                f"({type(exc).__name__}).",
+            )
+        latest_approval = approvals[0] if approvals else None
         lines = [
             "AI Team Approval Details",
             "-" * 72,
@@ -449,9 +566,13 @@ class AiTeamApplicationHandler:
             "  - .git, .codex, and .agents protected; no commit, push, merge, or PR",
             "Final Plan:",
         ]
-        lines.extend(f"  {index}. {item}" for index, item in enumerate(task.final_plan, 1))
+        lines.extend(
+            f"  {index}. {_display_plan_step(item)}"
+            for index, item in enumerate(task.final_plan, 1)
+        )
         lines.append("Risks:")
         lines.extend((f"  - {item}" for item in risks) if risks else ("  none reported",))
+        actions = team_task_interface_actions(task)
         return ApplicationResult.success(
             "\n".join(lines),
             data={
@@ -461,8 +582,101 @@ class AiTeamApplicationHandler:
                 "plan_sha256": plan_hash,
                 "execution_engine": "codex",
                 "risks": list(risks),
+                "approval_inspection_available": approval_inspection_available,
+                "existing_approval_count": len(approvals),
+                "latest_approval_id": str(
+                    getattr(latest_approval, "approval_id", "")
+                ),
+                "latest_approval_plan_sha256": str(
+                    getattr(latest_approval, "plan_hash", "")
+                ),
             },
-            next_actions=(f"team.approve {task.task_id}",),
+            warnings=inspection_warnings,
+            next_actions=cli_next_actions(actions),
+        )
+
+    def coordination_details(self, request: TeamTaskRequest) -> ApplicationResult:
+        """Inspect bounded approval and run facts without mutating Team state."""
+        try:
+            task_id = self._required(request.team_task_id, "AI Team task ID")
+            task = self.team.task(task_id)
+            if str(getattr(task, "task_id", "")).strip() != task_id:
+                raise ValueError("AI Team task identity does not match the request.")
+            plan_sha256 = PlanSnapshot.from_team_task(task).hash
+        except (
+            FileNotFoundError,
+            OSError,
+            PermissionError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            return self._failure("AI Team coordination details are unavailable", exc)
+
+        warnings: list[str] = []
+        approvals: tuple[Any, ...] = ()
+        approval_inspection_available = False
+        try:
+            inspector = getattr(self.bridge, "approvals_for_task", None)
+            if callable(inspector):
+                approvals = tuple(inspector(task_id))[:100]
+                approval_inspection_available = True
+        except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
+            warnings.append(
+                "Team approvals could not be inspected safely "
+                f"({type(exc).__name__})."
+            )
+
+        runs: tuple[Any, ...] = ()
+        unresolved: tuple[Any, ...] = ()
+        run_inspection_available = False
+        try:
+            inspector = getattr(self.bridge, "inspect_runs_for_task", None)
+            if callable(inspector):
+                inspection = inspector(task_id)
+                if str(getattr(inspection, "team_task_id", "")).strip() != task_id:
+                    raise ValueError("Team run inspection returned a different task.")
+                runs = tuple(getattr(inspection, "runs", ()))[:100]
+                unresolved = tuple(getattr(inspection, "unresolved", ()))[:100]
+                run_inspection_available = True
+        except (OSError, PermissionError, RuntimeError, TypeError, ValueError) as exc:
+            warnings.append(
+                "Team implementation runs could not be inspected safely "
+                f"({type(exc).__name__})."
+            )
+
+        approval_summaries = [
+            {
+                "team_task_id": str(getattr(item, "team_task_id", "")),
+                "approval_id": str(getattr(item, "approval_id", "")),
+                "plan_sha256": str(getattr(item, "plan_hash", "")),
+                "workspace": str(getattr(item, "workspace_root", "")),
+                "approved_at": str(getattr(item, "approved_at", "")),
+            }
+            for item in approvals
+        ]
+        unresolved_summaries = [
+            {
+                "run_id": str(getattr(item, "run_id", "")),
+                "started_at": str(getattr(item, "started_at", "")),
+                "category": str(getattr(item, "category", "")),
+            }
+            for item in unresolved
+        ]
+        return ApplicationResult.success(
+            "AI Team coordination facts inspected without mutation.",
+            data={
+                "team_task_id": task_id,
+                "task_status": str(getattr(task, "status", "")),
+                "plan_sha256": plan_sha256,
+                "approval_inspection_available": approval_inspection_available,
+                "approvals": approval_summaries,
+                "run_inspection_available": run_inspection_available,
+                "runs": [team_run_coordination_data(item) for item in runs],
+                "unresolved_runs": unresolved_summaries,
+                "read_only": True,
+            },
+            warnings=tuple(warnings),
         )
 
     def approve(self, request: TeamApprovalRequest) -> ApplicationResult:
@@ -479,13 +693,20 @@ class AiTeamApplicationHandler:
             self._bind_workspace()
             approval = self.bridge.approve(task_id, actor=str(request.actor or "user"))
         except (FileNotFoundError, OSError, PermissionError, ValueError) as exc:
+            actions = (
+                interface_action("team.show", {"team_task_id": task_id}),
+            )
             return self._failure(
                 "Codex Bridge approval failed",
                 exc,
                 team_task_id=task_id,
-                next_actions=(f"team.show {task_id}",),
+                interface_actions=actions,
             )
         sync_warnings = self._sync(team_task_id=approval.team_task_id)
+        actions = (interface_action("team.implement", {
+            "team_task_id": approval.team_task_id,
+            "approval_id": approval.approval_id,
+        }),)
         data: dict[str, object] = {
             "team_task_id": approval.team_task_id,
             "status": "approved",
@@ -499,21 +720,39 @@ class AiTeamApplicationHandler:
             "execution_engine": approval.execution_engine,
             "created_at": approval.approved_at,
             "updated_at": approval.approved_at,
-            "next_actions": [
-                f"team.implement {approval.team_task_id} {approval.approval_id}"
-            ],
+            **interface_actions_data(actions),
             "approval": approval.to_dict(),
         }
         if approval.workspace.branch:
             data["branch"] = approval.workspace.branch
         if approval.workspace.commit:
             data["commit"] = approval.workspace.commit
-        return ApplicationResult.success(
+        result = ApplicationResult.success(
             self._format_approval(approval, show_manual_command=True),
             data=data,
             warnings=sync_warnings,
-            next_actions=tuple(data["next_actions"]),
+            next_actions=cli_next_actions(actions),
         )
+        publisher = getattr(self.runtime, "event_publisher", None)
+        if publisher is None:
+            return result
+        publication = publisher.publish_lifecycle_event(
+            event_type=EventTypes.TEAM_PLAN_APPROVED,
+            source="ai_team",
+            severity="notice",
+            correlation_id=request.correlation_id or approval.team_task_id,
+            causation_id=request.causation_id,
+            subject_id=approval.team_task_id,
+            data={
+                "team_task_id": approval.team_task_id,
+                "approval_id": approval.approval_id,
+                "status": "approved",
+                "approval_required": True,
+                "approval_status": "approved",
+                "plan_sha256": approval.plan_hash,
+            },
+        )
+        return publisher.attach(result, publication)
 
     def implement(self, request: TeamImplementationRequest) -> ApplicationResult:
         try:
@@ -558,7 +797,10 @@ class AiTeamApplicationHandler:
                 execution_engine,
                 capabilities,
             )
-            run = self.bridge.execute(context)
+            run = self.bridge.execute(
+                context,
+                run_followups=request.run_followups,
+            )
         except ExecutionEngineUnavailable as exc:
             return ApplicationResult.failure(
                 self._no_execution_engine_message(engines),
@@ -584,24 +826,53 @@ class AiTeamApplicationHandler:
                 message = self._no_execution_engine_message(engines)
             if run_id:
                 message += f"\nSaved run: {run_id}"
-            return ApplicationResult.failure(
+            actions = (
+                (interface_action("team.show", {"run_id": run_id}),)
+                if run_id else ()
+            )
+            failure = ApplicationResult.failure(
                 message,
                 data={
                     "team_task_id": task_id,
                     "approval_id": approval_id,
                     **({"run_id": run_id} if run_id else {}),
+                    **interface_actions_data(actions),
                 },
                 errors=(str(exc),),
                 warnings=sync_warnings,
-                next_actions=((f"team.show {run_id}",) if run_id else ()),
+                next_actions=cli_next_actions(actions),
+            )
+            if not run_id:
+                return failure
+            try:
+                observed_run = self.bridge.run(run_id)
+            except (FileNotFoundError, OSError, PermissionError, ValueError):
+                return failure
+            return self._attach_run_lifecycle_events(
+                failure,
+                observed_run,
+                operation="implementation",
+                correlation_id=request.correlation_id,
+                causation_id=request.causation_id,
+                include_started=True,
+                include_followups=False,
             )
         sync_warnings = self._sync(run_id=run.run_id)
         result = self._run_result(run, warnings=sync_warnings)
-        return ApplicationResult.success(
+        completed = ApplicationResult.success(
             "Starting one approval-bound local Codex execution...\n" + result.message,
             data=result.data,
             warnings=result.warnings,
             next_actions=result.next_actions,
+        )
+        return self._attach_run_lifecycle_events(
+            completed,
+            run,
+            operation="implementation",
+            correlation_id=request.correlation_id,
+            causation_id=request.causation_id,
+            include_started=True,
+            include_followups=request.run_followups,
         )
 
     def show_run(self, request: TeamRunRequest) -> ApplicationResult:
@@ -627,7 +898,10 @@ class AiTeamApplicationHandler:
                 if run_id.lower() == "last"
                 else self.bridge.run(run_id)
             )
-            run = self.bridge.validate(selected.run_id)
+            run = self.bridge.validate(
+                selected.run_id,
+                run_followups=request.run_followups,
+            )
         except (
             FileNotFoundError,
             OSError,
@@ -637,7 +911,15 @@ class AiTeamApplicationHandler:
         ) as exc:
             return self._failure("Automatic validation refused", exc, run_id=run_id)
         sync_warnings = self._sync(run_id=run.run_id)
-        return self._run_result(run, warnings=sync_warnings)
+        result = self._run_result(run, warnings=sync_warnings)
+        return self._attach_run_lifecycle_events(
+            result,
+            run,
+            operation="validation",
+            correlation_id=request.correlation_id,
+            causation_id=request.causation_id,
+            include_followups=request.run_followups,
+        )
 
     def documentation_review(self, request: TeamRunRequest) -> ApplicationResult:
         try:
@@ -667,11 +949,18 @@ class AiTeamApplicationHandler:
             if selected_latest else ""
         )
         result = self._run_result(run, warnings=sync_warnings)
-        return ApplicationResult.success(
+        completed = ApplicationResult.success(
             prefix + result.message,
             data=result.data,
             warnings=result.warnings,
             next_actions=result.next_actions,
+        )
+        return self._attach_run_lifecycle_events(
+            completed,
+            run,
+            operation="documentation_review",
+            correlation_id=request.correlation_id,
+            causation_id=request.causation_id,
         )
 
     def documentation_status(self, request: TeamRunRequest) -> ApplicationResult:
@@ -714,13 +1003,19 @@ class AiTeamApplicationHandler:
             run = self.bridge.run(run_id)
         except (FileNotFoundError, OSError, PermissionError, ValueError) as exc:
             return self._failure("Codex Bridge Error", exc, run_id=run_id)
+        actions = (
+            interface_action("team.rollback", {"run_id": run.run_id}),
+        )
         return ApplicationResult.success(
             (
                 f"Rollback workspace changes from {run.run_id}?\n"
                 "This removes files created by the run and restores its saved preimages."
             ),
-            data=team_run_lifecycle_data(run),
-            next_actions=(f"team.rollback {run.run_id}",),
+            data={
+                **team_run_lifecycle_data(run),
+                **interface_actions_data(actions),
+            },
+            next_actions=cli_next_actions(actions),
         )
 
     def rollback(self, request: TeamRollbackRequest) -> ApplicationResult:
@@ -729,11 +1024,16 @@ class AiTeamApplicationHandler:
         except ValueError as exc:
             return self._failure("Team rollback refused", exc)
         if not request.confirmed:
+            actions = (interface_action("team.show", {"run_id": run_id}),)
             return ApplicationResult.failure(
                 "Team rollback requires explicit confirmation.",
-                data={"run_id": run_id, "approval_required": True},
+                data={
+                    "run_id": run_id,
+                    "approval_required": True,
+                    **interface_actions_data(actions),
+                },
                 errors=("Rollback was not explicitly confirmed.",),
-                next_actions=(f"team.show {run_id}",),
+                next_actions=cli_next_actions(actions),
             )
         try:
             rolled_back = self.bridge.rollback(run_id)
@@ -1014,6 +1314,145 @@ class AiTeamApplicationHandler:
             next_actions=team_run_next_actions(run),
         )
 
+    def _attach_run_lifecycle_events(
+        self,
+        result: ApplicationResult,
+        run: Any,
+        *,
+        operation: str,
+        correlation_id: str | None,
+        causation_id: str | None,
+        include_started: bool = False,
+        include_followups: bool = False,
+    ) -> ApplicationResult:
+        """Publish only persisted run facts after one application operation."""
+        publisher = getattr(self.runtime, "event_publisher", None)
+        if publisher is None:
+            return result
+        facts = team_run_coordination_data(run)
+        task_id = str(facts.get("team_task_id", "")).strip()
+        run_id = str(facts.get("run_id", "")).strip()
+        approval_id = str(facts.get("approval_id", "")).strip()
+        plan_sha256 = str(facts.get("plan_sha256", "")).strip().lower()
+        if not task_id or not run_id or not approval_id or not plan_sha256:
+            return result
+        correlation = str(correlation_id or task_id).strip()
+        cause = str(causation_id or "").strip() or None
+        publications = []
+
+        def publish(event_type: str, severity: str, data: Mapping[str, object]):
+            nonlocal cause
+            publication = publisher.publish_lifecycle_event(
+                event_type=event_type,
+                source="ai_team",
+                severity=severity,
+                correlation_id=correlation,
+                causation_id=cause,
+                subject_id=run_id,
+                data=data,
+            )
+            publications.append(publication)
+            if publication.event_id:
+                cause = publication.event_id
+
+        identity = {
+            "team_task_id": task_id,
+            "run_id": run_id,
+            "approval_id": approval_id,
+            "plan_sha256": plan_sha256,
+        }
+        if include_started:
+            publish(
+                EventTypes.TEAM_IMPLEMENTATION_STARTED,
+                "notice",
+                {
+                    **identity,
+                    "status": "executing",
+                    "stage": "implementation",
+                    "implementation_status": "executing",
+                    "started_at": str(facts.get("started_at", "")),
+                },
+            )
+
+        status = str(facts.get("status", "")).strip().lower()
+        if operation == "implementation":
+            if status == "awaiting_review" and facts.get("implementation_status") == "complete":
+                publish(
+                    EventTypes.TEAM_IMPLEMENTATION_COMPLETED,
+                    "notice",
+                    {
+                        **identity,
+                        "status": "awaiting_review",
+                        "stage": "validation",
+                        "implementation_status": "complete",
+                        "started_at": str(facts.get("started_at", "")),
+                        "completed_at": str(facts.get("completed_at", "")),
+                    },
+                )
+            elif status == "failed":
+                publish(
+                    EventTypes.TEAM_IMPLEMENTATION_FAILED,
+                    "error",
+                    {
+                        **identity,
+                        "status": "failed",
+                        "stage": "implementation",
+                        "implementation_status": "failed",
+                        "started_at": str(facts.get("started_at", "")),
+                        "completed_at": str(facts.get("completed_at", "")),
+                        "error_category": str(facts.get("error", "")),
+                    },
+                )
+
+        validation_status = str(facts.get("validation_status", "")).strip().lower()
+        validation_id = str(facts.get("validation_id", "")).strip()
+        if (
+            operation == "validation"
+            or (operation == "implementation" and include_followups)
+        ) and validation_status and validation_id:
+            publish(
+                EventTypes.TEAM_VALIDATION_COMPLETED,
+                "warning" if validation_status in {"failed", "unavailable", "error"} else "notice",
+                {
+                    **identity,
+                    "status": "awaiting_review",
+                    "stage": "documentation_review",
+                    "validation_id": validation_id,
+                    "validation_status": validation_status,
+                    "completed_at": str(
+                        facts.get("validation_completed_at", "")
+                    ),
+                },
+            )
+
+        documentation_status = str(
+            facts.get("documentation_review_status", "")
+        ).strip().lower()
+        documentation_id = str(
+            facts.get("documentation_review_id", "")
+        ).strip()
+        if (
+            operation == "documentation_review"
+            or include_followups
+        ) and documentation_status and documentation_id:
+            publish(
+                EventTypes.TEAM_DOCUMENTATION_REVIEW_COMPLETED,
+                "warning"
+                if documentation_status in {"failed", "unavailable", "error"}
+                else "notice",
+                {
+                    **identity,
+                    "status": "awaiting_review",
+                    "stage": "final_review",
+                    "documentation_review_id": documentation_id,
+                    "documentation_review_status": documentation_status,
+                    "completed_at": str(
+                        facts.get("documentation_review_completed_at", "")
+                    ),
+                },
+            )
+        return publisher.attach(result, *publications)
+
     def _artifact_directory(self, run: Any) -> Path | None:
         store = getattr(self.bridge, "store", None)
         resolver = getattr(store, "run_directory", None)
@@ -1069,10 +1508,13 @@ class AiTeamApplicationHandler:
         *,
         team_task_id: str = "",
         run_id: str = "",
-        next_actions: tuple[str, ...] = (),
+        interface_actions: tuple[InterfaceAction, ...] = (),
     ) -> ApplicationResult:
         message = f"{prefix}: {exc}"
-        data: dict[str, object] = {"error_type": type(exc).__name__}
+        data: dict[str, object] = {
+            "error_type": type(exc).__name__,
+            **interface_actions_data(interface_actions),
+        }
         if team_task_id:
             data["team_task_id"] = team_task_id
         if run_id:
@@ -1081,7 +1523,7 @@ class AiTeamApplicationHandler:
             message,
             data=data,
             errors=(str(exc),),
-            next_actions=next_actions,
+            next_actions=cli_next_actions(interface_actions),
         )
 
     @staticmethod
@@ -1176,10 +1618,8 @@ class AiTeamApplicationHandler:
                 lines.extend(f"    - {risk}" for risk in artifact.output.risks)
             metadata = getattr(artifact, "role_metadata", None)
             if metadata is not None:
-                lines.append(
-                    f"  Assignment: {metadata.requested_assignment} -> "
-                    f"{metadata.actual_assignment}"
-                )
+                lines.append(f"  Requested: {metadata.requested_assignment}")
+                lines.append(f"  Route: {metadata.actual_assignment}")
                 if metadata.fallback_reason:
                     lines.append(f"  Fallback: {metadata.fallback_reason}")
                 lines.append(f"  Duration: {metadata.duration_seconds:.3f}s")
@@ -1197,16 +1637,14 @@ class AiTeamApplicationHandler:
                 lines.extend(f"    - {risk}" for risk in artifact.output.risks)
             metadata = getattr(artifact, "role_metadata", None)
             if metadata is not None:
-                lines.append(
-                    f"  Assignment: {metadata.requested_assignment} -> "
-                    f"{metadata.actual_assignment}"
-                )
+                lines.append(f"  Requested: {metadata.requested_assignment}")
+                lines.append(f"  Route: {metadata.actual_assignment}")
                 if metadata.fallback_reason:
                     lines.append(f"  Fallback: {metadata.fallback_reason}")
         if task.final_plan:
             lines.append("\nFinal Plan")
             lines.extend(
-                f"  {index}. {item}"
+                f"  {index}. {_display_plan_step(item)}"
                 for index, item in enumerate(task.final_plan, start=1)
             )
         if task.usage:

@@ -5,8 +5,8 @@
 **Project:** Orion — Personal AI Operating System
 
 **Documentation baseline:** v0.7.0 — Conductor plus unreleased Goal Engine, Goal
-Proposals, Event Bus, Automatic Validation, Documentation Review, Image Center, and
-Command Center workflow integration
+Proposals, Event Bus, Mission Engine Phase 1, Mission Coordinator, Automatic
+Validation, Documentation Review, Image Center, and Command Center workflow integration
 
 Orion is a local-first personal intelligence operating system. It coordinates local
 and cloud AI providers, project knowledge, communication services, applications, and
@@ -560,6 +560,54 @@ Subscribers observe events synchronously after persistence; they cannot return
 actions, consume approvals, launch agents or jobs, invoke providers, change
 workspaces, or advance Goal Proposals or AI Team. Replay is an internal bounded
 observer API that preserves original IDs and never republishes. See `EVENT_BUS.md`.
+
+### Mission Engine and Coordinator
+
+Create one durable observation record after a Goal Proposal is accepted or consumed:
+
+```text
+mission create <proposal-id>
+mission show <mission-id>
+mission list --status awaiting_approval
+mission history <mission-id>
+mission validate <mission-id>
+mission reconcile <mission-id>
+mission next <mission-id>
+mission advance <mission-id>
+```
+
+Missions live under `~/.orion/missions/` and remain bound to the exact Goal Proposal
+ID and version. Creation verifies the proposal hash and catches up from already
+persisted events. Reconciliation deterministically rebuilds status, stage, fixed
+progress, Team task links, and recommended commands from strictly correlated Event
+Store facts.
+
+Mission Engine remains observation-only. `mission next` reconciles, validates, and
+previews one safe operation without executing it. Mission Coordinator Phase 2 can
+select one of `team.approve`, `team.implement`, `team.validate`, or
+`team.documentation_review` when the exact authoritative Team lifecycle facts make
+that operation legal. `mission advance` repeats that preview, displays target,
+mutation, and downstream-approval details, then prompts:
+
+```text
+Advance this Mission by exactly one operation? [Y/N/D]:
+```
+
+`N`, empty input, or interruption cancels; `D` displays details only; `Y` verifies
+the exact state-bound token and may call one existing typed Team handler once. Team
+still owns the plan, immutable approval, implementation run, validation, and
+documentation attempt. Coordinated implementation and validation disable their
+automatic follow-ups. The Coordinator reconciles once and stops even when another
+stage becomes eligible.
+
+Coordination audit and locks persist under `~/.orion/missions/coordination/` so a
+restart, duplicate request, stale token, stale lock, unresolved Team run, authoritative
+mismatch, or uncertain prior dispatch fails closed. Validation and documentation
+failures project a blocked state; implementation failure is terminal. Successful
+documentation reaches final human review at 90%. The current Team application layer
+has no typed final-decision operation, so the Coordinator stops there. A strict
+reviewed final-completion event can project 100% but is not produced or dispatched by
+Phase 2. See `MISSION_ENGINE.md` and `MISSION_COORDINATOR.md`.
 
 ## 7. Memory, conversations, search, and knowledge
 
@@ -1702,6 +1750,26 @@ continues automatically. `goal validate "<goal>"` validates an ephemeral Goal Pl
 `events list` supports `--type`, `--correlation`, `--subject`, `--source`,
 `--severity`, `--start`, `--end`, and `--limit`. It cannot publish, replay, subscribe,
 or execute anything from the CLI.
+
+### Mission Engine and Coordinator
+
+| Command | Purpose |
+| --- | --- |
+| `mission create <proposal-id>` | Create or return one Mission and reconcile existing events |
+| `mission show <mission-id>` | Load persisted restart-safe projection state |
+| `mission list [--status ...] [--goal ...] [--proposal ...]` | List bounded Mission summaries |
+| `mission history <mission-id> [--limit n]` | Read relevant events newest first without replay |
+| `mission validate <mission-id>` | Check identity, storage, cursor, and projection without repair |
+| `mission reconcile <mission-id>` | Explicitly rebuild and persist Mission projection only |
+| `mission next <mission-id>` | Preview the one eligible operation and state-bound token; execute nothing |
+| `mission advance <mission-id>` | Confirm and dispatch at most one current allowlisted operation, reconcile, and stop |
+
+Only `mission advance` can dispatch, and only after explicit Y/N/D confirmation. The
+Phase 2 allowlist contains `team.approve`, `team.implement`, `team.validate`, and
+`team.documentation_review`. Each confirmation performs at most one mutation, one
+reconciliation, and then stops. Fixed progress can reach final review from persisted
+Team lifecycle events; the current Team layer still has no typed final-decision
+command.
 
 ### AI Team
 

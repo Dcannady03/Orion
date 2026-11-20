@@ -37,6 +37,40 @@ application handler. Its CLI adapter only parses the `goal` command family and u
 the shared renderer. It never calls a capability or domain service that can mutate
 state.
 
+Mission Engine Phase 1 adds a second observation-only application flow:
+
+```text
+Accepted Goal Proposal + correlated Event Store facts
+  -> deterministic Mission projection
+  -> external Mission JSON
+  -> ApplicationResult
+```
+
+`orion/application/missions/` owns strict models, persistence, projection,
+reconciliation, validation, and history selection. The Phase 1 Engine path never
+calls Goal Proposal acceptance, AI Team, Command Center, providers, or execution
+engines. Only explicit create and reconcile operations may write, and they write
+Mission persistence exclusively. See [Mission Engine](MISSION_ENGINE.md).
+
+Mission Coordinator v0.8.6 adds one explicit application flow without changing the
+Engine's authority:
+
+```text
+Mission projection -> immutable preview + advance token
+  -> explicit confirmation
+  -> allowlisted team.approve translation
+  -> AiTeamApplicationHandler.approve
+  -> ApplicationResult -> Mission reconcile -> stop
+```
+
+`MissionApplicationHandler.next()` is preview-only.
+`MissionApplicationHandler.advance()` verifies the exact current state under a
+per-Mission cross-process lock, persists a non-authoritative reservation, dispatches
+at most one typed request, reconciles once, and stops. It blocks stale tokens,
+duplicate attempts, unsupported stages, and uncertain prior dispatches. Prompting
+remains in `mission_cli.py`; the Coordinator never parses or invokes CLI syntax. See
+[Mission Coordinator](MISSION_COORDINATOR.md).
+
 ## Structured results
 
 `orion/application/results.py` defines an immutable result with:
@@ -50,6 +84,28 @@ state.
 `to_dict()` and `to_json()` produce ordinary JSON-safe structures. Construction
 rejects live services, provider clients, paths, or other non-JSON objects so a future
 API cannot accidentally serialize internal process state.
+
+### Capability IDs and interface actions
+
+A capability ID is not CLI syntax. The application core keeps stable semantic IDs,
+while an explicit interface-action mapping supplies a label and an optional command
+that the current CLI actually accepts. For example:
+
+```text
+Capability ID:      team.show
+CLI representation: team status <task-id>
+```
+
+The mapping is explicit rather than derived by replacing dots with spaces because a
+Team run uses `team run <run-id>`, validation uses `team test <run-id>`, and some
+internal capabilities such as `team.sync` have no public CLI representation. Team
+results expose structured `interface_actions` in `data`; compatibility
+`next_actions` contain only valid CLI strings. The shared result renderer remains
+domain-neutral and prints those strings without interpreting capability IDs.
+
+Another interface could label or present the same capability differently (for
+example, a graphical interface could label `team.show` as “View Team”). This only
+documents the separation; no additional interface or API is implemented here.
 
 ## Capability registry
 
@@ -149,11 +205,13 @@ ordered subscriber snapshot. Subscriber failures are isolated. An event-store fa
 does not roll back the already successful domain operation; the original
 `ApplicationResult` receives an observability warning instead.
 
-The only initial publishers are successful Goal Plan creation, Goal Proposal
-lifecycle transitions, and successful AI Team plan creation. Proposal acceptance
-passes correlation and causation through the typed `TeamPlanRequest` without
-changing approval semantics. `event_cli.py` exposes history only and has no arbitrary
-publish command. See `EVENT_BUS.md`.
+Publishers cover successful Goal Plan creation, Goal Proposal lifecycle transitions,
+successful AI Team plan creation, and successful AI Team plan approval. Approval
+publishing occurs only after the existing plan-hash-bound approval succeeds; it does
+not grant approval or change consumption semantics. Proposal acceptance passes
+correlation and causation through the typed `TeamPlanRequest` without changing
+approval semantics. `event_cli.py` exposes history only and has no arbitrary publish
+command. See `EVENT_BUS.md`.
 
 ## AI Team lifecycle results
 

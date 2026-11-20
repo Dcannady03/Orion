@@ -18,7 +18,7 @@ User-owned application state belongs under:
 
 This includes configuration overrides, profiles, Vault data, OAuth caches, permanent
 agents, Command Center records, Team tasks, Codex artifacts, image artifacts, caches,
-logs, Goal Proposals, Event Bus history, and approval artifacts.
+logs, Goal Proposals, Missions, Event Bus history, and approval artifacts.
 `ORION_USER_DATA` may explicitly override this root. A
 repository-local `.orion/` directory is never used as the global user-data root.
 
@@ -34,6 +34,19 @@ safe dispatch summaries. They contain no Vault values, provider credentials, raw
 Python objects, stack traces, or workspace file content. Proposal records use atomic
 replacement and owner-only permissions where supported. Rejected, expired, invalid,
 superseded, consumed, and failed records remain as audit history.
+
+Mission records use:
+
+```text
+~/.orion/missions/<mission-id>.json
+```
+
+They contain one stable Goal/Proposal identity, safe copied context, deterministic
+status/stage/progress, authoritative identity links, bounded Event references, and
+validation-safe warnings/risks. Mission files contain no full event payloads,
+credentials, providers, live domain objects, or workspace content. Writes are
+bounded, atomic, owner-restricted where supported, and reject repository-local or
+symlinked storage. See [Mission Engine](MISSION_ENGINE.md).
 
 Event Bus records use:
 

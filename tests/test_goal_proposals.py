@@ -711,6 +711,9 @@ class GoalProposalTests(unittest.TestCase):
             "not AI Team implementation approval",
             result.message,
         )
+        self.assertIn("team approve team-task-proposal-test", result.next_actions)
+        self.assertIn("team status team-task-proposal-test", result.next_actions)
+        self.assertFalse(any("team." in item for item in result.next_actions))
 
     def test_cli_create_list_validate_reject_and_accept_confirmation(self) -> None:
         runtime = SimpleNamespace(

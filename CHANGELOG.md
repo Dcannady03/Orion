@@ -1,5 +1,64 @@
-# Unreleased — Event Bus, Goal Engine, Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
+# Unreleased — Mission Coordinator, Mission Engine, Event Bus, Goal Engine, Command Center, Agent System, Image Center, Automatic Validation, and Documentation Review
 
+- Added Orion v0.8.7 Mission Coordinator Phase 2 using the existing typed
+  `team.implement`, `team.validate`, and `team.documentation_review` application
+  boundaries after the Phase 1 `team.approve` operation.
+- Added bounded read-only Team coordination inspection and exact lifecycle bindings
+  for persisted plan hashes, approvals, runs, validation attempts, documentation
+  attempts, statuses, and completion timestamps.
+- Added persisted Team implementation started/completed/failed, validation-completed,
+  and documentation-review-completed events plus strict final-review
+  completed/blocked projection contracts.
+- Extended deterministic Mission state through implementation, validation,
+  Documentation Review, failed/blocked states, final review, and reviewed completion,
+  with strict correlation and legal event-order checks.
+- Prevented coordinated implementation and validation from cascading into automatic
+  follow-ups: one explicit confirmation still invokes at most one typed mutation,
+  reconciles authoritative state once, and stops.
+- Extended stale-token, duplicate, uncertain-dispatch, restart, authoritative
+  mismatch, failure/blocked, unsupported-state, read-only, and exactly-one-operation
+  safety coverage. Final-review completion remains observation-only because AI Team
+  exposes no typed final-decision command.
+
+- Added Orion v0.8.6 Mission Coordinator with frozen JSON-safe previews, exact
+  canonical advance tokens, deterministic blocked/eligible rules, and preview-only
+  `mission next` plus CLI-confirmed `mission advance` commands.
+- Added an explicit allowlist supporting only
+  `team.approve -> TeamApprovalRequest -> AiTeamApplicationHandler.approve`, with no
+  reflection, CLI invocation, approval fabrication, or automatic continuation.
+- Added bounded external coordination audit records, per-Mission cross-process locks,
+  pre-dispatch reservations, duplicate protection, restart-safe state verification,
+  and fail-closed uncertain-dispatch replay handling.
+- Added successful `team.plan.approved` observation after the existing plan-hash-bound
+  approval transition and deterministic Mission projection to
+  `approved / implementation` at 35%; approval failure emits no success event.
+- Preserved the one-confirmation/one-operation/reconcile/stop boundary and blocked
+  implementation, final review, unsupported stages, retries, workers, providers,
+  agents, Git, subprocesses, workspace mutation, server, GUI, REST, and autonomy.
+
+- Added Orion v0.8.5 Mission Engine Phase 1 with immutable schema-versioned Mission,
+  identity-link, event-reference, projection, and validation models permanently bound
+  to one accepted or consumed Goal Proposal version.
+- Added strict external `~/.orion/missions/` JSON persistence with atomic replacement,
+  owner-restricted permissions where supported, cross-process locking, duplicate
+  protection, bounded records, malformed/future-schema failure, and repository and
+  symlink rejection.
+- Added deterministic replay of existing Goal Proposal and Team-plan events using
+  strict Goal, Proposal, version, subject, and causation correlation; fixed progress
+  stops at 30% because no implementation or completion event is currently available.
+- Added restart-safe explicit reconciliation, read-only validation and newest-first
+  history, structured application results, and thin
+  `mission create/show/list/history/validate/reconcile` CLI delegation.
+- Kept the Mission boundary observation-only: no automatic progression, subscribers,
+  Mission events, capability execution, approval consumption, Team/Command Center
+  mutations, agent/job/provider launch, Git, subprocess, or workspace changes.
+
+- Separated stable capability IDs from human-facing CLI next actions. AI Team task,
+  approval, implementation, validation, documentation, rollback, and Goal Proposal
+  results now suggest only syntax accepted by the existing CLI while preserving
+  semantic action metadata. Final Plan rendering also removes duplicated generated
+  step markers, and provider routing output labels the requested assignment and
+  selected route separately without changing routing behavior.
 - Added Orion v0.8.4 Event Bus with frozen, defensively copied, schema-versioned
   `OrionEvent` records, stable lowercase event types, UTC IDs/timestamps, severity,
   correlation, causation, subject IDs, and strict bounded JSON payload validation.
