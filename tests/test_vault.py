@@ -12,6 +12,15 @@ from orion.services.vault import ProviderVerificationError, VaultService
 
 
 class VaultTests(unittest.TestCase):
+    def setUp(self):
+        # Ambient provider keys (e.g. GEMINI_API_KEY set on the machine)
+        # change vault source detection; isolate these tests from them.
+        patcher = patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("OPENAI_API_KEY", None)
+        os.environ.pop("GEMINI_API_KEY", None)
+
     def config(self, root):
         manager = ConfigManager(str(Path(root) / "default.yaml"))
         manager.config = {

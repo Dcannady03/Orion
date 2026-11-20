@@ -216,7 +216,7 @@ without claiming the deferred GUI or autonomous scheduler.
 - [x] No automatic continuation, retries, Mission Engine, worker, REST, GUI, or voice
 - [x] Cross-process transition locks with fail-closed stale-lock handling
 - [ ] Additional typed translations after separate safety reviews
-- [ ] Mission Engine only after proposal acceptance and recovery are stable
+- [x] Mission Engine only after proposal acceptance and recovery are stable (fulfilled by v0.8.5)
 
 ## Unreleased — Orion v0.8.2 Goal Engine
 
@@ -232,8 +232,8 @@ without claiming the deferred GUI or autonomous scheduler.
 - [x] ApplicationResult compatibility, thin CLI parsing, and one router dispatch
 - [x] No provider, agent, job, approval, execution engine, Git, or workspace mutation
 - [x] Future AI suggestion switch with deterministic validation still authoritative
-- [ ] Persisted, expiring Goal Proposals with explicit user acceptance
-- [ ] Typed proposal-to-application request translation without automatic execution
+- [x] Persisted, expiring Goal Proposals with explicit user acceptance (fulfilled by v0.8.3)
+- [x] Typed proposal-to-application request translation without automatic execution (fulfilled by v0.8.3)
 
 ## Unreleased — Orion v1.0 Command Center Foundation
 

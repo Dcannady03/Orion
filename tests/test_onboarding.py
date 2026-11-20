@@ -1,7 +1,9 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import yaml
 
@@ -160,6 +162,15 @@ class FakeEmailService:
 
 
 class FirstContactTests(unittest.TestCase):
+    def setUp(self):
+        # Ambient provider keys (e.g. GEMINI_API_KEY set on the machine)
+        # change onboarding behavior; isolate these tests from them.
+        patcher = patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("OPENAI_API_KEY", None)
+        os.environ.pop("GEMINI_API_KEY", None)
+
     def build(
         self,
         root,
