@@ -92,7 +92,7 @@ class RunbookCatalogTests(unittest.TestCase):
         # Every step command must start with a real Orion command word.
         known = {
             "health", "logs", "diagnostics", "graphs", "backup",
-            "audit", "ai", "runbooks", "ollama",
+            "audit", "ai", "runbooks", "ollama", "docker",
         }
         for runbook in RUNBOOKS:
             for step in runbook.steps:
@@ -110,6 +110,27 @@ class MatchRunbooksTests(unittest.TestCase):
         matched = match_runbooks("disk space is low")
         self.assertTrue(matched)
         self.assertEqual(matched[0].runbook_id, "disk-full")
+
+    def test_match_container_unreachable(self):
+        matched = match_runbooks("can't access n8n")
+        self.assertTrue(matched)
+        self.assertEqual(matched[0].runbook_id, "container-unreachable")
+
+    def test_match_container_unreachable_variants(self):
+        for query in (
+            "cannot access the app",
+            "cannot reach the app",
+            "connection refused",
+            "page won't load",
+            "service is unreachable",
+            "page is not loading",
+        ):
+            with self.subTest(query=query):
+                matched = match_runbooks(query)
+                self.assertTrue(matched, query)
+                self.assertEqual(
+                    matched[0].runbook_id, "container-unreachable", query
+                )
 
     def test_no_match_returns_empty(self):
         self.assertEqual(match_runbooks("purple elephants dancing"), [])

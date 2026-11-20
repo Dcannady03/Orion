@@ -334,6 +334,55 @@ RUNBOOKS: tuple[Runbook, ...] = (
             ),
         ),
     ),
+    Runbook(
+        runbook_id="container-unreachable",
+        title="Cannot reach a container",
+        symptom="A container's web page or service can't be accessed: the browser shows connection refused, the page won't load or keeps loading, or the service is unreachable.",
+        steps=(
+            RunbookStep(
+                "Run the container diagnosis",
+                "docker diagnose <name>",
+                "The verdict: whether the container is running, its ports answer, and what the logs show.",
+            ),
+            RunbookStep(
+                "List containers",
+                "docker list",
+                "Whether the container exists and its current state.",
+            ),
+            RunbookStep(
+                "Check recent logs",
+                "docker logs <name>",
+                "Errors, exceptions, or tracebacks from the app.",
+            ),
+            RunbookStep(
+                "Inspect the container",
+                "docker inspect <name>",
+                "Published ports and the last exit code.",
+            ),
+        ),
+        causes=(
+            RunbookCause(
+                "Container is stopped",
+                "`docker diagnose <name>` reports the container is not running.",
+                "Start it: `docker start <name>` (asks for approval).",
+            ),
+            RunbookCause(
+                "Port is not published",
+                "`docker diagnose <name>` reports no published ports, or `docker inspect <name>` shows the port as not published.",
+                "Recreate the container with a published port (docker run -p <host>:<container>), or fix its compose file.",
+            ),
+            RunbookCause(
+                "App crashed inside the container",
+                "`docker logs <name>` shows errors, exceptions, or a traceback.",
+                "Fix the app error if it names a missing file or bad setting, then `docker restart <name>` (asks for approval).",
+            ),
+            RunbookCause(
+                "Port conflict or wrong port",
+                "`docker diagnose <name>` shows the port answering but the client still cannot access it; `docker inspect <name>` shows a different host port than the one in use.",
+                "Connect to the host port shown by `docker inspect <name>`; if another app holds the port, stop it or republish the container on a free port.",
+            ),
+        ),
+    ),
 )
 
 
