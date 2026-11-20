@@ -823,6 +823,15 @@ class RemediateCoverageTests(unittest.TestCase):
         )
         self.assertIn("remediate", text)
 
+    def test_docs_cover_start_container_fix(self):
+        docs = Path(__file__).resolve().parents[1] / "docs"
+        remediation = (docs / "REMEDIATION.md").read_text(encoding="utf-8")
+        self.assertIn("start-container-<name>", remediation)
+        self.assertIn("published host port", remediation)
+        guide = (docs / "USER_GUIDE.md").read_text(encoding="utf-8")
+        self.assertIn("docker diagnose", guide)
+        self.assertIn("container-unreachable", guide)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -332,6 +332,14 @@ class RunbooksCoverageTests(unittest.TestCase):
         )
         self.assertIn("runbooks", text)
 
+    def test_diagnostics_page_lists_container_unreachable(self):
+        page = (
+            Path(__file__).resolve().parents[1] / "docs" / "DIAGNOSTICS.md"
+        )
+        text = page.read_text(encoding="utf-8")
+        self.assertIn("container-unreachable", text)
+        self.assertIn("lists all seven", text)
+
 
 if __name__ == "__main__":
     unittest.main()

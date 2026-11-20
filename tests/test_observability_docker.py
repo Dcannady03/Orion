@@ -1194,6 +1194,7 @@ class DockerCoverageTests(TestCase):
             "docker restart",
             "docker health",
             "docker logs",
+            "docker diagnose",
         ):
             self.assertIn(command, guide_text)
 
@@ -1203,6 +1204,9 @@ class DockerCoverageTests(TestCase):
         self.assertIn("docker health", text)
         self.assertIn("Approve? [y/N]", text)
         self.assertIn("recovery --kind docker", text)
+        self.assertIn("docker diagnose", text)
+        self.assertIn("not-running", text)
+        self.assertIn("container-unreachable", text)
 
     def test_roadmap_checks_off_docker(self):
         roadmap = Path(__file__).resolve().parents[1] / "docs" / "ROADMAP.md"

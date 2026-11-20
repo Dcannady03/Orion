@@ -16,7 +16,7 @@ remediate apply switch-provider-ollama
 remediate apply --all
 ```
 
-## The four fixes
+## The fixes
 
 | ID | Trigger | Risk | Reversible | What it does |
 | --- | --- | --- | --- | --- |
@@ -24,12 +24,25 @@ remediate apply --all
 | `prune-old-backups` | Disk section is WARNING or ERROR, and more than 2 backups exist | medium | no | Deletes old backup archives, keeping the newest 2. The plan lists the exact files and total size. |
 | `prune-old-events` | Disk section is WARNING or ERROR, and event files older than 90 days exist | medium | no | Deletes event history files older than 90 days, by file age. The plan lists the exact files and total size. |
 | `create-workspace` | Workspace section is WARNING or ERROR, and the path does not exist | low | yes | Creates the missing workspace directory. Reversible by deleting it. |
+| `start-container-<name>` | A container is stopped (exited or created) and publishes a host port | low | yes | Starts the container with `docker start`. Reversible with `docker stop <name>`. |
 
 A proposal appears only when its problem is live and the fix applies:
 no disk problem, no prune proposals; only two backups, no
 prune-backups proposal; Ollama already active, no switch proposal.
 When nothing is wrong, `remediate` reports that there is nothing to
 remediate.
+
+The `start-container-<name>` proposal is the one fix that does not
+come from the health check: it comes from Docker. It appears only for
+a stopped container with a real published host port (a host binding
+in inspect, not merely an exposed port) — a stopped container with no
+published port was probably stopped on purpose and never gets a
+proposal. When Docker is unavailable, no container proposals appear
+and the other fixes are unaffected. A container start applied through
+remediation is recorded once, as kind `remediation`, not as kind
+`docker` — it was applied as a remediation. See
+[Docker integration](DOCKER.md) and `docker diagnose <name>` for the
+diagnosis side.
 
 ## Applying a fix
 
@@ -56,7 +69,7 @@ remediate.
   medium-risk and non-reversible, and the plan lists the exact files
   before you approve.
 - A failed fix reports its error instead of crashing.
-- Remediation only proposes the four fixes above; it never invents
+- Remediation only proposes the fixes above; it never invents
   actions.
 - Applying re-diagnoses first, so a stale plan can never be applied
   to a system that has already healed.

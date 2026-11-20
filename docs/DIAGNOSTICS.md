@@ -56,8 +56,9 @@ descriptive only — they never change anything.
 | `service-degraded` | Service degraded or unavailable | A registered service reports degraded or unavailable status. |
 | `startup-failure` | Orion fails to start | Orion exits during startup or immediately after launching. |
 | `slow-responses` | Slow AI responses | Orion answers, but responses take much longer than usual. |
+| `container-unreachable` | Cannot reach a container | A container's web page or service can't be accessed: the browser shows connection refused, the page won't load or keeps loading, or the service is unreachable. |
 
-`runbooks` lists all six. `runbooks <id>` shows one runbook in full:
+`runbooks` lists all seven. `runbooks <id>` shows one runbook in full:
 its checks, likely causes, and fixes.
 
 `runbooks for <symptom>` matches by keyword. Runbooks are scored by

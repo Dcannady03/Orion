@@ -7,7 +7,7 @@ this machine, and is it healthy? Orion talks to the Docker daemon
 through the `docker` CLI (subprocess, no new dependencies) and reports
 containers, their state and health, and their recent logs in one place.
 
-Discovery, health, and logs are read-only. Control (start, stop,
+Discovery, health, logs, and diagnosis are read-only. Control (start, stop,
 restart) is a mutating action: it shows the container's current state,
 asks for explicit interactive approval, re-resolves the container
 before acting, and re-inspects it afterwards to verify the new state.
@@ -31,10 +31,12 @@ docker restart <name>
 docker health
 docker logs <name>
 docker logs <name> --tail N
+docker diagnose <name>
 docker list --json
 docker inspect <name> --json
 docker health --json
 docker logs <name> --json
+docker diagnose <name> --json
 ```
 
 `docker ps` is an alias for `docker list`. Control commands take no
@@ -112,6 +114,41 @@ newest last. The default window is 50 lines; `--tail N` sets it
 (clamped to 1–500). Output is capped at 20,000 characters: when the
 window exceeds the cap, the oldest lines are dropped and the output
 says so. Logs are read-only and never modify the container.
+
+## Diagnose
+
+`docker diagnose <name>` answers "why can't I reach this container?"
+in one read-only pass. It never starts, stops, or restarts anything.
+The chain, in order:
+
+1. **State.** Is the container running? If not, that is the primary
+   finding, with the last exit code and finish time from inspect.
+2. **Ports.** For each published host port (a real host binding, not
+   merely an exposed port), TCP-connect to localhost with a 3-second
+   timeout, then try a plain HTTP GET and report the status code — or
+   "not HTTP" when the port answers TCP but is not a web service.
+3. **Logs.** Scan the last 100 log lines for error signals
+   (`error`, `exception`, `fail`, `traceback`, `panic`,
+   case-insensitive) and report the count plus the five most recent
+   matching lines, truncated.
+
+It reports one verdict:
+
+| Verdict | Meaning | Suggested next step |
+| --- | --- | --- |
+| `not-running` | The container is stopped. | `docker start <name>` (asks for approval). |
+| `no-published-ports` | Running, but nothing on the host can reach it. | Recreate it with a published port. |
+| `port-unreachable` | Running, but a published port does not answer. | Check the logs; `docker restart <name>`. |
+| `http-error` | The port answers, but returns an HTTP error status. | Check the logs for the failing request. |
+| `ok` | Running and answering. | The problem is elsewhere (network, firewall, client). |
+
+The `container-unreachable` runbook (`runbooks for can't access
+<name>`) covers the same ground as a step-by-step procedure. And
+`remediate` proposes starting a stopped container that publishes a
+host port (`start-container-<name>`): the fix side of this diagnosis,
+applied only with your approval. A stopped container with no
+published port never gets a proposal — it was probably stopped on
+purpose.
 
 ## Unavailable Docker
 

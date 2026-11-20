@@ -781,8 +781,9 @@ remediate apply --all
 Available fixes: switch the active provider to Ollama when the
 current provider is failing, delete old backup archives (keeping
 the newest two) when disk space is low, delete event history files
-older than 90 days, and create a missing workspace directory.
-Applying re-diagnoses first, so a fix whose problem is already gone
+older than 90 days, create a missing workspace directory, and start
+a stopped container that publishes a host port. Applying
+re-diagnoses first, so a fix whose problem is already gone
 reports "No longer needed" instead of acting on stale information.
 
 `docker` talks to the Docker daemon on this machine through the
@@ -800,6 +801,7 @@ docker restart web
 docker health
 docker logs web
 docker logs web --tail 20
+docker diagnose web
 docker list --json
 ```
 
@@ -825,6 +827,18 @@ It reports an error when any container is unhealthy. `docker logs
 <name>` shows recent log lines for one container (default 50, `--tail
 N` up to 500); output is capped at 20,000 characters, keeping the
 newest lines.
+
+`docker diagnose <name>` answers "why can't I reach this container?"
+in one read-only pass: it checks whether the container is running
+(with its last exit code), probes each published host port (TCP
+connect, then a plain HTTP GET), and scans the last 100 log lines
+for error signals. It reports one verdict — not running, no published
+ports, port unreachable, HTTP error, or all clear — with the likely
+cause and the next step. It never starts, stops, or restarts anything.
+The `container-unreachable` runbook (`runbooks for can't access
+<name>`) covers the same ground as a procedure, and `remediate`
+proposes starting a stopped container that publishes a host port
+(`start-container-<name>`), applied only with your approval.
 
 When the `docker` command is missing or the daemon is unreachable,
 every docker command fails closed with a clear "Docker is not
@@ -2019,6 +2033,7 @@ or execute anything from the CLI.
 | `docker restart <name>` | Restart one container (asks for approval) |
 | `docker health` | Summarize container health across every container |
 | `docker logs <name>` | Show recent logs for one container |
+| `docker diagnose <name>` | Diagnose why one container cannot be reached |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 
