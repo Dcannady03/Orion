@@ -18,7 +18,7 @@ from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
 _COMMAND_WORDS = frozenset(
-    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit", "runbooks", "retry"}
+    {"health", "logs", "diagnostics", "graphs", "backup", "recovery", "audit", "runbooks", "retry", "remediate"}
 )
 
 
@@ -99,6 +99,8 @@ class ObservabilityCliAdapter:
                 result, as_json = self._runbooks(tokens[1:])
             elif command == "retry":
                 result, as_json = self._retry(tokens[1:])
+            elif command == "remediate":
+                result, as_json = self._remediate(tokens[1:])
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -339,6 +341,67 @@ class ObservabilityCliAdapter:
             "Usage: retry provider <name> | retry health [section] | retry backup <path>"
         )
 
+    def _remediate(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
+        as_json = False
+        apply_all = False
+        args: list[str] = []
+        for token in tokens:
+            if token.casefold() == "--json":
+                as_json = True
+            elif token.casefold() == "--all":
+                apply_all = True
+            elif token.startswith("--"):
+                raise ValueError(f"Unknown remediate option: {token}")
+            else:
+                args.append(token)
+        if not args:
+            if apply_all:
+                raise ValueError("Usage: remediate [apply <id> | apply --all] [--json]")
+            return self.application.remediate_plan(), as_json
+        if args[0].casefold() != "apply":
+            raise ValueError("Usage: remediate [apply <id> | apply --all] [--json]")
+        if apply_all and len(args) == 1:
+            return self._remediate_apply_all(), False
+        if not apply_all and len(args) == 2:
+            return self._remediate_apply_one(args[1]), False
+        raise ValueError("Usage: remediate [apply <id> | apply --all] [--json]")
+
+    def _remediate_apply_one(self, proposal_id: str) -> ApplicationResult:
+        plan = self.application.remediate_plan()
+        if not plan.ok:
+            return plan
+        self._render(plan)
+        self._output(
+            "Sensitive action: apply the remediation above "
+            f"({proposal_id}). Some fixes cannot be undone."
+        )
+        answer = (self._input("Approve? [y/N]: ") or "").strip().lower()
+        if answer not in {"y", "yes"}:
+            return ApplicationResult.failure(
+                "Remediation cancelled.",
+                data={"read_only": True},
+                errors=("Remediation cancelled.",),
+            )
+        return self.application.remediate_apply(proposal_id, confirm=True)
+
+    def _remediate_apply_all(self) -> ApplicationResult:
+        plan = self.application.remediate_plan()
+        if not plan.ok:
+            return plan
+        self._render(plan)
+        self._output(
+            "Sensitive action: apply ALL remediations above. "
+            "Some fixes cannot be undone."
+        )
+        answer = (self._input("Approve? [y/N]: ") or "").strip().lower()
+        if answer not in {"y", "yes"}:
+            return ApplicationResult.failure(
+                "Remediation cancelled.",
+                data={"read_only": True},
+                errors=("Remediation cancelled.",),
+            )
+        return self.application.remediate_apply_all(confirm=True)
+
     def _logs(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
         as_json = False
         options: dict[str, str] = {}
@@ -407,6 +470,8 @@ class ObservabilityCliAdapter:
             "       retry provider <name> [--attempts N] [--json]\n"
             "       retry health [section] [--attempts N] [--json]\n"
             "       retry backup <path> [--attempts N] [--json]\n"
+            "       remediate [--json]\n"
+            "       remediate apply <id> | apply --all\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
             "except `health --record`, which saves one snapshot for the graphs.\n"
             "Backup import replaces data and always asks for approval first."

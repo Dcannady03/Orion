@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable
 
 RECOVERY_FILE_NAME = "recovery-history.jsonl"
-RECOVERY_KINDS = ("backup-import", "update-rollback", "team-rollback")
+RECOVERY_KINDS = ("backup-import", "update-rollback", "team-rollback", "remediation")
 RECOVERY_STATUSES = ("success", "failed")
 DEFAULT_RECOVERY_LIMIT = 20
 MAX_RECOVERY_LIMIT = 500

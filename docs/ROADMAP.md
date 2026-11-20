@@ -56,7 +56,7 @@ tested, documented milestones.
 
 - Dependency and service health graphs (done: record snapshots with `health --record`, view timelines and the dependency tree with `graphs`)
 - Root-cause-oriented diagnostic runbooks (done via `runbooks`; `runbooks diagnose` suggests runbooks from live health-check findings)
-- Safe, approval-based remediation
+- Safe, approval-based remediation (done via `remediate`; proposes fixes from live health-check findings, applies only with explicit approval, verifies each fix, records outcomes in `recovery`)
 - Retry and end-to-end verification (done via `retry`; explicit bounded retries only, never automatic loops; each retry ends with a separate end-to-end verification step)
 - Transparent recovery history and rollback where possible (rollback done via `team rollback` in v0.5.9; history recorded and queryable via `recovery`)
 

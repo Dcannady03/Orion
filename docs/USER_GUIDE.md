@@ -766,6 +766,25 @@ a backup it re-reads the archive independently. Mission operations
 keep their no-automatic-retry policy; this command retries only what
 you explicitly ask it to.
 
+`remediate` is the capstone of the observability commands: it runs
+the health check, proposes fixes for the problems it finds, and
+applies them only with your explicit approval. Each proposal states
+its risk and whether it can be undone; every applied fix is verified
+afterwards and recorded in the recovery history (`recovery`).
+
+```text
+remediate
+remediate apply switch-provider-ollama
+remediate apply --all
+```
+
+Available fixes: switch the active provider to Ollama when the
+current provider is failing, delete old backup archives (keeping
+the newest two) when disk space is low, delete event history files
+older than 90 days, and create a missing workspace directory.
+Applying re-diagnoses first, so a fix whose problem is already gone
+reports "No longer needed" instead of acting on stale information.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1944,6 +1963,9 @@ or execute anything from the CLI.
 | `retry provider <name>` | Retry a provider connection test |
 | `retry health [section]` | Retry a health check until it passes |
 | `retry backup <path>` | Retry a backup verification |
+| `remediate` | Propose fixes for current problems |
+| `remediate apply <id>` | Apply one fix (asks for approval) |
+| `remediate apply --all` | Apply all proposed fixes |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 

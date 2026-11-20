@@ -52,6 +52,19 @@ from orion.application.observability.recovery import (
     RecoveryQuery,
     RecoveryRecord,
 )
+from orion.application.observability.remediation import (
+    EVENT_FILE_MAX_AGE_DAYS,
+    KEEP_BACKUPS,
+    KNOWN_PROPOSALS,
+    PROPOSAL_CREATE_WORKSPACE,
+    PROPOSAL_PRUNE_BACKUPS,
+    PROPOSAL_PRUNE_EVENTS,
+    PROPOSAL_SWITCH_PROVIDER,
+    RemediationEngine,
+    RemediationOutcome,
+    RemediationPlan,
+    RemediationProposal,
+)
 from orion.application.observability.retry import (
     DEFAULT_MAX_ATTEMPTS,
     MAX_ATTEMPTS_LIMIT,
@@ -105,6 +118,10 @@ __all__ = [
     "RecoveryHistoryStore",
     "RecoveryQuery",
     "RecoveryRecord",
+    "RemediationEngine",
+    "RemediationOutcome",
+    "RemediationPlan",
+    "RemediationProposal",
     "RetryAttempt",
     "RetryOutcome",
     "RetryPolicy",

@@ -26,6 +26,10 @@ from orion.application.observability.recovery import (
     DEFAULT_RECOVERY_LIMIT,
     RecoveryHistoryStore,
 )
+from orion.application.observability.remediation import (
+    RemediationEngine,
+    RemediationOutcome,
+)
 from orion.application.observability.retry import (
     DEFAULT_MAX_ATTEMPTS,
     MAX_ATTEMPTS_LIMIT,
@@ -910,3 +914,148 @@ class ObservabilityApplicationHandler:
         else:
             lines.append("Result    : failed after all attempts")
         return "\n".join(lines)
+
+    def _remediation_engine(self) -> RemediationEngine:
+        return RemediationEngine(
+            paths=self._paths,
+            checker=self.checker,
+            config_manager=self._config_manager,
+            provider_manager=self._provider_manager,
+            clock=self._clock,
+        )
+
+    def remediate_plan(self) -> ApplicationResult:
+        """Propose fixes for current health problems. Applies nothing."""
+        plan = self._remediation_engine().propose()
+        if not plan.proposals:
+            return ApplicationResult.success(
+                "No problems found; nothing to remediate.",
+                data={**plan.to_dict(), "read_only": True},
+                next_actions=("health",),
+            )
+        lines = [
+            "Proposed remediations (nothing has been applied)",
+            "-" * 68,
+        ]
+        for proposal in plan.proposals:
+            lines.append(f"{proposal.proposal_id} - {proposal.title}")
+            lines.append(f"  Problem   : {proposal.problem}")
+            lines.append(f"  Fix       : {proposal.fix}")
+            lines.append(
+                "  Risk      : "
+                f"{proposal.risk}; reversible: "
+                f"{'yes' if proposal.reversible else 'no'}"
+            )
+            files = proposal.details.get("files")
+            if files:
+                lines.append(f"  Files     : {', '.join(str(item) for item in files)}")
+        lines.append("")
+        lines.append("Apply one with: remediate apply <id>  (asks for approval first)")
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={**plan.to_dict(), "read_only": True},
+            next_actions=tuple(
+                f"remediate apply {proposal.proposal_id}"
+                for proposal in plan.proposals
+            ),
+        )
+
+    def remediate_apply(
+        self, proposal_id: str, *, confirm: bool = False
+    ) -> ApplicationResult:
+        """Apply one approved remediation, verify it, and record it.
+
+        Without confirm=True nothing is applied. Applied fixes are
+        recorded in the recovery history, verified or not.
+        """
+        engine = self._remediation_engine()
+        outcome = engine.apply(proposal_id, confirm=confirm)
+        return self._remediation_outcome(outcome)
+
+    def remediate_apply_all(self, *, confirm: bool = False) -> ApplicationResult:
+        """Apply every proposed remediation, with one approval for the plan."""
+        engine = self._remediation_engine()
+        plan = engine.propose()
+        if not plan.proposals:
+            return ApplicationResult.success(
+                "No problems found; nothing to remediate.",
+                data={**plan.to_dict(), "read_only": True},
+                next_actions=("health",),
+            )
+        outcomes = [
+            engine.apply(proposal.proposal_id, confirm=confirm)
+            for proposal in plan.proposals
+        ]
+        for outcome in outcomes:
+            if outcome.applied:
+                self.record_recovery(
+                    "remediation",
+                    outcome.proposal_id,
+                    status="success" if outcome.verified else "failed",
+                    detail=outcome.detail,
+                )
+        lines = ["Remediation results", "-" * 68]
+        for outcome in outcomes:
+            state = (
+                "applied and verified"
+                if outcome.applied and outcome.verified
+                else "applied, not verified"
+                if outcome.applied
+                else "not applied"
+            )
+            lines.append(f"{outcome.proposal_id}: {state} - {outcome.detail}")
+        message = "\n".join(lines)
+        data: dict[str, object] = {
+            "read_only": False,
+            "outcomes": [outcome.to_dict() for outcome in outcomes],
+        }
+        if all(outcome.applied and outcome.verified for outcome in outcomes):
+            return ApplicationResult.success(
+                message,
+                data=data,
+                next_actions=("health", "recovery"),
+            )
+        return ApplicationResult.failure(
+            message,
+            data=data,
+            errors=tuple(
+                outcome.detail for outcome in outcomes if not outcome.verified
+            ),
+            next_actions=("runbooks diagnose", "health"),
+        )
+
+    def _remediation_outcome(self, outcome: RemediationOutcome) -> ApplicationResult:
+        if outcome.applied:
+            self.record_recovery(
+                "remediation",
+                outcome.proposal_id,
+                status="success" if outcome.verified else "failed",
+                detail=outcome.detail,
+            )
+        lines = [
+            f"Remediation: {outcome.proposal_id}",
+            "-" * 68,
+            f"Applied   : {'yes' if outcome.applied else 'no'}",
+            f"Verified  : {'yes' if outcome.verified else 'no'}",
+            f"Detail    : {outcome.detail}",
+        ]
+        message = "\n".join(lines)
+        data: dict[str, object] = {**outcome.to_dict(), "read_only": not outcome.applied}
+        if outcome.applied and outcome.verified:
+            return ApplicationResult.success(
+                message,
+                data=data,
+                next_actions=("health", "recovery"),
+            )
+        if not outcome.applied and outcome.detail.startswith("No longer needed"):
+            return ApplicationResult.success(
+                message,
+                data=data,
+                next_actions=("health",),
+            )
+        return ApplicationResult.failure(
+            message,
+            data=data,
+            errors=(outcome.detail,),
+            next_actions=("remediate", "runbooks diagnose"),
+        )
