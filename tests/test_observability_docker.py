@@ -6,6 +6,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,11 +22,15 @@ from orion.application.commands.observability_cli import (
 from orion.application.observability import (
     AmbiguousContainerError,
     ContainerDetail,
+    ContainerDiagnosis,
     ContainerList,
     ContainerSummary,
+    DiagnoseFinding,
     DockerService,
     DockerUnavailableError,
     ObservabilityApplicationHandler,
+    PortProbeResult,
+    PublishedPort,
     UnknownContainerError,
 )
 from orion.core.paths import OrionPaths
@@ -222,8 +228,36 @@ class _FakeDocker:
                 row["Status"] = "Exited (0) 1 minute ago"
 
 
-def _service(fake=None):
-    return DockerService(runner=fake or _FakeDocker())
+def _service(fake=None, port_probe=None):
+    return DockerService(runner=fake or _FakeDocker(), port_probe=port_probe)
+
+
+def _probe_ok(host_ip, host_port, container_port):
+    return PortProbeResult(
+        host_ip, host_port, container_port, True, 200,
+        f"HTTP 200 from 127.0.0.1:{host_port}",
+    )
+
+
+def _probe_dead(host_ip, host_port, container_port):
+    return PortProbeResult(
+        host_ip, host_port, container_port, False, None,
+        f"TCP connect to 127.0.0.1:{host_port} failed: refused",
+    )
+
+
+def _probe_http_error(host_ip, host_port, container_port):
+    return PortProbeResult(
+        host_ip, host_port, container_port, True, 500,
+        f"HTTP 500 from 127.0.0.1:{host_port}",
+    )
+
+
+def _probe_not_http(host_ip, host_port, container_port):
+    return PortProbeResult(
+        host_ip, host_port, container_port, True, None,
+        "Port answers TCP but not HTTP",
+    )
 
 
 class _Clock:
@@ -233,10 +267,10 @@ class _Clock:
         return datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
 
 
-def _handler(paths, fake=None):
+def _handler(paths, fake=None, port_probe=None):
     return ObservabilityApplicationHandler(
         paths=paths,
-        docker_service=_service(fake),
+        docker_service=_service(fake, port_probe),
         clock=_Clock(),
     )
 
@@ -544,6 +578,157 @@ class DockerServiceTests(TestCase):
         self.assertIn("out", result.stdout)
         self.assertIn("err", result.stdout)
 
+    def test_inspect_reports_published_ports(self):
+        detail = _service().inspect_container("web")
+        self.assertEqual(
+            detail.published_ports,
+            (PublishedPort("0.0.0.0", 8080, "80/tcp"),),
+        )
+
+    def test_inspect_exposed_but_unpublished_is_not_published(self):
+        detail = _service().inspect_container("db")
+        self.assertEqual(detail.published_ports, ())
+        self.assertIn("5432/tcp (not published)", detail.ports)
+
+    def test_diagnose_stopped_container_names_exit_code(self):
+        diagnosis = _service().diagnose_container("worker")
+        self.assertEqual(diagnosis.verdict, "not-running")
+        self.assertFalse(diagnosis.running)
+        self.assertEqual(diagnosis.exit_code, 0)
+        self.assertIn("exit code 0", diagnosis.cause)
+        self.assertIn("docker start worker", diagnosis.suggestion)
+        self.assertEqual(diagnosis.port_probes, ())
+
+    def test_diagnose_stopped_container_scans_logs_for_errors(self):
+        fake = _FakeDocker(log_lines=["boot ok", "panic: runtime error", "done"])
+        diagnosis = _service(fake).diagnose_container("worker")
+        self.assertEqual(diagnosis.verdict, "not-running")
+        self.assertEqual(diagnosis.error_count, 1)
+        self.assertEqual(diagnosis.error_lines, ("panic: runtime error",))
+
+    def test_diagnose_running_port_ok_is_ok(self):
+        diagnosis = _service(port_probe=_probe_ok).diagnose_container("web")
+        self.assertEqual(diagnosis.verdict, "ok")
+        self.assertTrue(diagnosis.running)
+        self.assertEqual(len(diagnosis.port_probes), 1)
+        self.assertTrue(diagnosis.port_probes[0].tcp_ok)
+        self.assertEqual(diagnosis.port_probes[0].http_status, 200)
+
+    def test_diagnose_running_port_dead_is_port_unreachable(self):
+        diagnosis = _service(port_probe=_probe_dead).diagnose_container("web")
+        self.assertEqual(diagnosis.verdict, "port-unreachable")
+        self.assertIn("docker restart web", diagnosis.suggestion)
+
+    def test_diagnose_running_http_error_is_http_error(self):
+        diagnosis = _service(port_probe=_probe_http_error).diagnose_container("web")
+        self.assertEqual(diagnosis.verdict, "http-error")
+        self.assertIn("HTTP 500", diagnosis.cause)
+
+    def test_diagnose_running_non_http_port_is_ok(self):
+        diagnosis = _service(port_probe=_probe_not_http).diagnose_container("web")
+        self.assertEqual(diagnosis.verdict, "ok")
+
+    def test_diagnose_running_no_published_ports(self):
+        diagnosis = _service(port_probe=_probe_ok).diagnose_container("db")
+        self.assertEqual(diagnosis.verdict, "no-published-ports")
+        self.assertEqual(diagnosis.port_probes, ())
+
+    def test_diagnose_unknown_is_refused(self):
+        with self.assertRaises(UnknownContainerError):
+            _service().diagnose_container("nope")
+
+    def test_diagnose_daemon_down_fails_closed(self):
+        with self.assertRaises(DockerUnavailableError):
+            _service(_FakeDocker(daemon_down=True)).diagnose_container("web")
+
+    def test_diagnose_probe_crash_is_a_finding_not_a_crash(self):
+        def _exploding_probe(host_ip, host_port, container_port):
+            raise RuntimeError("boom")
+
+        diagnosis = _service(port_probe=_exploding_probe).diagnose_container("web")
+        self.assertEqual(diagnosis.verdict, "port-unreachable")
+        self.assertFalse(diagnosis.port_probes[0].tcp_ok)
+
+    def test_diagnose_log_scan_caps_and_truncates(self):
+        lines = [
+            f"line {i} ERROR something went wrong " + "x" * 300
+            for i in range(8)
+        ]
+        lines.append("all good here")
+        fake = _FakeDocker(log_lines=lines)
+        diagnosis = _service(fake, _probe_ok).diagnose_container("web")
+        self.assertEqual(diagnosis.error_count, 8)
+        self.assertEqual(len(diagnosis.error_lines), 5)
+        # Newest first: line 7 is the most recent error.
+        self.assertTrue(diagnosis.error_lines[0].startswith("line 7 ERROR"))
+        for line in diagnosis.error_lines:
+            self.assertLessEqual(len(line), 200)
+
+    def test_diagnose_clean_logs_report_no_errors(self):
+        fake = _FakeDocker(log_lines=["started", "listening on :80"])
+        diagnosis = _service(fake, _probe_ok).diagnose_container("web")
+        self.assertEqual(diagnosis.error_count, 0)
+        self.assertEqual(diagnosis.error_lines, ())
+
+    def test_diagnose_serializes_to_json_safe_dict(self):
+        fake = _FakeDocker(log_lines=["ERROR boom"])
+        data = _service(fake, _probe_ok).diagnose_container("web").to_dict()
+        self.assertEqual(json.loads(json.dumps(data)), data)
+        self.assertEqual(data["verdict"], "ok")
+        self.assertEqual(data["error_count"], 1)
+
+    def test_real_port_probe_refused_port_is_tcp_failure(self):
+        from orion.application.observability.docker import _probe_port
+
+        result = _probe_port("0.0.0.0", 1, "1/tcp")
+        self.assertFalse(result.tcp_ok)
+        self.assertIsNone(result.http_status)
+
+    def test_real_port_probe_http_server_returns_status(self):
+        from orion.application.observability.docker import _probe_port
+
+        server = _http_server(200)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            result = _probe_port("0.0.0.0", port, f"{port}/tcp")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertTrue(result.tcp_ok)
+        self.assertEqual(result.http_status, 200)
+
+    def test_real_port_probe_http_error_reports_status(self):
+        from orion.application.observability.docker import _probe_port
+
+        server = _http_server(500)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            result = _probe_port("0.0.0.0", port, f"{port}/tcp")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertTrue(result.tcp_ok)
+        self.assertEqual(result.http_status, 500)
+
+
+def _http_server(status):
+    """A tiny local HTTP server answering one status (for probe tests)."""
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(status)
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *args):
+            pass
+
+    return ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+
 
 class DockerHandlerTests(TestCase):
     def setUp(self):
@@ -711,6 +896,32 @@ class DockerHandlerTests(TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.data["truncated"])
         self.assertIn("output capped", result.message)
+
+    def test_docker_diagnose_ok_renders_verdict(self):
+        handler = _handler(self.paths, self.fake, _probe_ok)
+        result = handler.docker_diagnose("web")
+        self.assertTrue(result.ok)
+        self.assertEqual(result.data["verdict"], "ok")
+        self.assertIn("Docker Diagnosis: web", result.message)
+        self.assertIn("Verdict   : ok", result.message)
+
+    def test_docker_diagnose_stopped_suggests_start(self):
+        result = self.handler.docker_diagnose("worker")
+        self.assertTrue(result.ok)
+        self.assertEqual(result.data["verdict"], "not-running")
+        self.assertIn("docker start worker", result.next_actions)
+        self.assertIn("Likely cause", result.message)
+
+    def test_docker_diagnose_unknown_is_failure(self):
+        result = self.handler.docker_diagnose("nope")
+        self.assertFalse(result.ok)
+        self.assertIn("No container matches", result.message)
+
+    def test_docker_diagnose_daemon_down_is_failure(self):
+        handler = _handler(self.paths, _FakeDocker(daemon_down=True))
+        result = handler.docker_diagnose("web")
+        self.assertFalse(result.ok)
+        self.assertIn("Docker is not available", result.message)
 
 
 class DockerCliTests(TestCase):
@@ -915,6 +1126,28 @@ class DockerCliTests(TestCase):
     def test_docker_logs_needs_a_name(self):
         self.assertFalse(self._run("docker logs").ok)
 
+    def test_docker_diagnose_renders(self):
+        handler = _handler(self.paths, self.fake, _probe_ok)
+        runtime = SimpleNamespace(observability_application=handler)
+        adapter = ObservabilityCliAdapter(
+            runtime,
+            output_provider=self.output.write,
+            input_provider=lambda prompt: self.answers.pop(0),
+        )
+        self.output.truncate(0)
+        self.output.seek(0)
+        result = adapter.handle("docker diagnose web")
+        self.assertTrue(result.ok)
+        rendered = self.output.getvalue()
+        self.assertIn("Docker Diagnosis: web", rendered)
+        self.assertIn("Verdict   : ok", rendered)
+
+    def test_docker_diagnose_needs_a_name(self):
+        self.assertFalse(self._run("docker diagnose").ok)
+
+    def test_docker_diagnose_rejects_tail(self):
+        self.assertFalse(self._run("docker diagnose web --tail 5").ok)
+
     def test_docker_list_rejects_tail(self):
         self.assertFalse(self._run("docker list --tail 5").ok)
 
@@ -935,6 +1168,7 @@ class DockerCoverageTests(TestCase):
             "docker restart",
             "docker health",
             "docker logs",
+            "docker diagnose",
         ):
             self.assertIn(command, help_text)
         for command in (
@@ -947,6 +1181,7 @@ class DockerCoverageTests(TestCase):
             "docker restart",
             "docker health",
             "docker logs",
+            "docker diagnose",
         ):
             self.assertIn(command, BASE_COMMANDS)
         guide = Path(__file__).resolve().parents[1] / "docs" / "USER_GUIDE.md"

@@ -1321,3 +1321,52 @@ class ObservabilityApplicationHandler:
             data={**result.to_dict(), "read_only": True},
             next_actions=("docker list", "docker inspect " + result.name),
         )
+
+    def docker_diagnose(self, name: str) -> ApplicationResult:
+        """Diagnose why one container cannot be reached (read-only).
+
+        The diagnosis itself never starts, stops, or restarts anything;
+        it names one likely cause and the next step to take.
+        """
+        try:
+            diagnosis = self._docker().diagnose_container(name)
+        except DockerUnavailableError as exc:
+            return self._docker_unavailable(exc)
+        except (UnknownContainerError, AmbiguousContainerError) as exc:
+            return self._docker_unknown(exc)
+        marks = {"ok": "OK", "problem": "PROBLEM", "info": "INFO"}
+        lines = [
+            f"Docker Diagnosis: {diagnosis.name}",
+            "-" * 68,
+            f"State     : {diagnosis.state}",
+            f"Verdict   : {diagnosis.verdict}",
+            "",
+        ]
+        for finding in diagnosis.findings:
+            mark = marks.get(finding.status, finding.status)
+            lines.append(f"[{mark}] {finding.check}: {finding.detail}")
+        if diagnosis.error_lines:
+            lines.append("")
+            lines.append("Recent error lines:")
+            for line in diagnosis.error_lines:
+                lines.append(f"  {line}")
+        lines.append("")
+        lines.append(f"Likely cause: {diagnosis.cause}")
+        lines.append(f"Next step: {diagnosis.suggestion}")
+        if diagnosis.verdict == "not-running":
+            next_actions = (
+                f"docker start {diagnosis.name}",
+                f"docker logs {diagnosis.name}",
+            )
+        elif diagnosis.verdict == "ok":
+            next_actions = ("docker list",)
+        else:
+            next_actions = (
+                f"docker logs {diagnosis.name}",
+                f"docker restart {diagnosis.name}",
+            )
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={**diagnosis.to_dict(), "read_only": True},
+            next_actions=next_actions,
+        )

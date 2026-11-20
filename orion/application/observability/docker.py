@@ -11,19 +11,27 @@ name or an ambiguous prefix is refused, never guessed.
 from __future__ import annotations
 
 import json
+import socket
 import subprocess
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 AVAILABILITY_TIMEOUT_SECONDS = 15.0
 DEFAULT_TIMEOUT_SECONDS = 30.0
 CONTROL_TIMEOUT_SECONDS = 60.0
+PORT_PROBE_TIMEOUT_SECONDS = 3.0
 MIN_ID_PREFIX = 4
 
 CONTROL_ACTIONS = ("start", "stop", "restart")
 DEFAULT_LOG_TAIL = 50
 MAX_LOG_TAIL = 500
 MAX_LOG_CHARS = 20_000
+DIAGNOSE_LOG_TAIL = 100
+DIAGNOSE_MAX_ERROR_LINES = 5
+DIAGNOSE_MAX_LINE_CHARS = 200
+_LOG_ERROR_MARKERS = ("error", "exception", "fail", "traceback", "panic")
 
 _DAEMON_ERROR_MARKERS = (
     "cannot connect to the docker daemon",
@@ -152,6 +160,27 @@ class ContainerList:
 
 
 @dataclass(frozen=True)
+class PublishedPort:
+    """One host port published by a container (a real host binding).
+
+    This is the authoritative "reachable from the host" signal: it only
+    exists when inspect reports a host binding for the port. A port the
+    image merely exposes (null bindings) is not published.
+    """
+
+    host_ip: str
+    host_port: int
+    container_port: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "host_ip": self.host_ip,
+            "host_port": self.host_port,
+            "container_port": self.container_port,
+        }
+
+
+@dataclass(frozen=True)
 class ContainerDetail:
     """One container in full, as reported by `docker inspect`."""
 
@@ -168,6 +197,7 @@ class ContainerDetail:
     finished_at: str
     ports: tuple[str, ...] = ()
     mounts: tuple[str, ...] = ()
+    published_ports: tuple[PublishedPort, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -184,6 +214,7 @@ class ContainerDetail:
             "finished_at": self.finished_at,
             "ports": list(self.ports),
             "mounts": list(self.mounts),
+            "published_ports": [port.to_dict() for port in self.published_ports],
         }
 
 
@@ -258,6 +289,155 @@ class ContainerLogResult:
         }
 
 
+@dataclass(frozen=True)
+class PortProbeResult:
+    """What a TCP + HTTP probe of one published port found."""
+
+    host_ip: str
+    host_port: int
+    container_port: str
+    tcp_ok: bool
+    http_status: int | None = None
+    detail: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "host_ip": self.host_ip,
+            "host_port": self.host_port,
+            "container_port": self.container_port,
+            "tcp_ok": self.tcp_ok,
+            "http_status": self.http_status,
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True)
+class DiagnoseFinding:
+    """One check in a container diagnosis."""
+
+    check: str
+    status: str  # "ok" | "problem" | "info"
+    detail: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "check": self.check,
+            "status": self.status,
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True)
+class ContainerDiagnosis:
+    """The full result of diagnosing one container (read-only)."""
+
+    name: str
+    container_id: str
+    state: str
+    running: bool
+    exit_code: int
+    finished_at: str
+    verdict: str
+    cause: str
+    suggestion: str
+    findings: tuple[DiagnoseFinding, ...] = ()
+    port_probes: tuple[PortProbeResult, ...] = ()
+    error_lines: tuple[str, ...] = ()
+    error_count: int = 0
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "container_id": self.container_id,
+            "state": self.state,
+            "running": self.running,
+            "exit_code": self.exit_code,
+            "finished_at": self.finished_at,
+            "verdict": self.verdict,
+            "cause": self.cause,
+            "suggestion": self.suggestion,
+            "findings": [item.to_dict() for item in self.findings],
+            "port_probes": [item.to_dict() for item in self.port_probes],
+            "error_lines": list(self.error_lines),
+            "error_count": self.error_count,
+        }
+
+
+def _probe_host(host_ip: str) -> str:
+    """Map a bind address to the address worth probing from this machine."""
+    if (host_ip or "").strip() in {"", "0.0.0.0", "::"}:
+        return "127.0.0.1"
+    return host_ip
+
+
+def _probe_port(
+    host_ip: str,
+    host_port: int,
+    container_port: str,
+    timeout: float = PORT_PROBE_TIMEOUT_SECONDS,
+) -> PortProbeResult:
+    """TCP-connect to a published port, then try a plain HTTP GET.
+
+    Never raises: every failure is reported in the result. A port that
+    answers TCP but is not HTTP (a database, for example) is reported
+    as TCP-ok with no HTTP status, not as a failure.
+    """
+    probe_host = _probe_host(host_ip)
+    try:
+        with socket.create_connection((probe_host, host_port), timeout=timeout):
+            pass
+    except Exception as exc:  # noqa: BLE001 - a probe must report, never crash
+        return PortProbeResult(
+            host_ip,
+            host_port,
+            container_port,
+            False,
+            None,
+            f"TCP connect to {probe_host}:{host_port} failed: {exc}",
+        )
+    url = f"http://{probe_host}:{host_port}/"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            status = int(response.status)
+    except urllib.error.HTTPError as exc:
+        return PortProbeResult(
+            host_ip,
+            host_port,
+            container_port,
+            True,
+            int(exc.code),
+            f"HTTP {exc.code} from {probe_host}:{host_port}",
+        )
+    except Exception as exc:  # noqa: BLE001 - not HTTP, or not answering HTTP
+        return PortProbeResult(
+            host_ip,
+            host_port,
+            container_port,
+            True,
+            None,
+            f"Port answers TCP but not HTTP: {exc}",
+        )
+    return PortProbeResult(
+        host_ip,
+        host_port,
+        container_port,
+        True,
+        status,
+        f"HTTP {status} from {probe_host}:{host_port}",
+    )
+
+
+def _scan_log_errors(lines) -> tuple[tuple[str, ...], int]:
+    """Find error-looking log lines: newest first, capped and truncated."""
+    matches = [
+        line.strip()[:DIAGNOSE_MAX_LINE_CHARS]
+        for line in lines
+        if any(marker in line.lower() for marker in _LOG_ERROR_MARKERS)
+    ]
+    recent = tuple(reversed(matches[-DIAGNOSE_MAX_ERROR_LINES:]))
+    return recent, len(matches)
+
+
 class DockerService:
     """Drive the `docker` CLI for discovery, control, and health checks.
 
@@ -272,9 +452,11 @@ class DockerService:
         *,
         runner: Callable[..., Any] | None = None,
         docker_bin: str = "docker",
+        port_probe: Callable[[str, int, str], PortProbeResult] | None = None,
     ) -> None:
         self._run = runner or _default_runner
         self._docker = docker_bin
+        self._port_probe = port_probe or _probe_port
 
     def require_available(self) -> str:
         """Return the daemon version, or raise DockerUnavailableError."""
@@ -539,6 +721,183 @@ class DockerService:
             tail=clamped,
         )
 
+    def diagnose_container(
+        self,
+        name: str,
+        *,
+        port_probe: Callable[[str, int, str], PortProbeResult] | None = None,
+        log_tail: int = DIAGNOSE_LOG_TAIL,
+    ) -> ContainerDiagnosis:
+        """Diagnose why one container cannot be reached (read-only).
+
+        Never starts, stops, or restarts anything. Checks the container
+        state, probes each published host port, and scans recent logs
+        for error signals, then names one likely cause. The port probe
+        is injectable so tests can run without a network.
+        """
+        detail = self.inspect_container(name)
+        probe = port_probe or self._port_probe
+        findings: list[DiagnoseFinding] = []
+        probes: list[PortProbeResult] = []
+        if detail.running:
+            findings.append(
+                DiagnoseFinding(
+                    "state", "ok", f"Container is running ({detail.state})."
+                )
+            )
+        else:
+            finished = detail.finished_at or "unknown time"
+            findings.append(
+                DiagnoseFinding(
+                    "state",
+                    "problem",
+                    f"Container is {detail.state} (exit code "
+                    f"{detail.exit_code}, finished {finished}).",
+                )
+            )
+        if detail.running:
+            if not detail.published_ports:
+                findings.append(
+                    DiagnoseFinding(
+                        "ports",
+                        "problem",
+                        "No published ports: nothing on the host can reach "
+                        "this container.",
+                    )
+                )
+            for port in detail.published_ports:
+                try:
+                    result = probe(
+                        port.host_ip, port.host_port, port.container_port
+                    )
+                except Exception as exc:  # noqa: BLE001 - a probe must report, never crash
+                    result = PortProbeResult(
+                        port.host_ip,
+                        port.host_port,
+                        port.container_port,
+                        False,
+                        None,
+                        f"Port probe failed: {exc}",
+                    )
+                probes.append(result)
+                if not result.tcp_ok:
+                    findings.append(
+                        DiagnoseFinding("port", "problem", result.detail)
+                    )
+                elif (
+                    result.http_status is not None and result.http_status >= 400
+                ):
+                    findings.append(
+                        DiagnoseFinding("port", "problem", result.detail)
+                    )
+                else:
+                    findings.append(DiagnoseFinding("port", "ok", result.detail))
+        try:
+            logs = self.container_logs(detail.container_id, tail=log_tail)
+            error_lines, error_count = _scan_log_errors(logs.lines)
+        except Exception as exc:  # noqa: BLE001 - unreadable logs are a finding
+            error_lines, error_count = (), 0
+            findings.append(
+                DiagnoseFinding("logs", "info", f"Could not read logs: {exc}")
+            )
+        else:
+            if error_count:
+                findings.append(
+                    DiagnoseFinding(
+                        "logs",
+                        "problem",
+                        f"{error_count} error-looking line(s) in the last "
+                        f"{logs.tail} log line(s).",
+                    )
+                )
+            else:
+                findings.append(
+                    DiagnoseFinding(
+                        "logs",
+                        "ok",
+                        f"No error signals in the last {logs.tail} log line(s).",
+                    )
+                )
+        if not detail.running:
+            verdict = "not-running"
+            cause = (
+                f"Container '{detail.name}' is {detail.state} "
+                f"(exit code {detail.exit_code}). A stopped container "
+                "cannot answer."
+            )
+            suggestion = (
+                f"Start it: docker start {detail.name} (asks for approval), "
+                f"then run docker diagnose {detail.name} again if it still "
+                "cannot be reached."
+            )
+        elif not detail.published_ports:
+            verdict = "no-published-ports"
+            cause = (
+                f"Container '{detail.name}' is running but publishes no "
+                "host port, so nothing on the host can reach it."
+            )
+            suggestion = (
+                "Recreate the container with a published port "
+                "(docker run -p <host>:<container>), or check its compose file."
+            )
+        elif any(not item.tcp_ok for item in probes):
+            verdict = "port-unreachable"
+            dead = ", ".join(
+                str(item.host_port) for item in probes if not item.tcp_ok
+            )
+            cause = (
+                f"Container '{detail.name}' is running but port(s) {dead} "
+                "do not answer on the host."
+            )
+            suggestion = (
+                "The app may have crashed or bound to the wrong address. "
+                f"Check docker logs {detail.name}, then try "
+                f"docker restart {detail.name} (asks for approval)."
+            )
+        elif any(
+            item.http_status is not None and item.http_status >= 400
+            for item in probes
+        ):
+            verdict = "http-error"
+            bad = ", ".join(
+                f"{item.host_port} (HTTP {item.http_status})"
+                for item in probes
+                if item.http_status is not None and item.http_status >= 400
+            )
+            cause = (
+                f"Container '{detail.name}' answers, but returns HTTP "
+                f"errors: {bad}."
+            )
+            suggestion = (
+                "This looks like an app-level problem. Check "
+                f"docker logs {detail.name} for the failing request."
+            )
+        else:
+            verdict = "ok"
+            cause = (
+                f"Container '{detail.name}' is running and its published "
+                "port(s) answer."
+            )
+            suggestion = (
+                "Nothing wrong was found with the container itself; the "
+                "problem may be elsewhere (network, firewall, or the client)."
+            )
+        return ContainerDiagnosis(
+            name=detail.name,
+            container_id=detail.container_id,
+            state=detail.state,
+            running=detail.running,
+            exit_code=detail.exit_code,
+            finished_at=detail.finished_at,
+            verdict=verdict,
+            cause=cause,
+            suggestion=suggestion,
+            findings=tuple(findings),
+            port_probes=tuple(probes),
+            error_lines=error_lines,
+            error_count=error_count,
+        )
+
 
 def _summary_from_ps(data: Mapping[str, Any]) -> ContainerSummary:
     raw_names = str(data.get("Names", "") or "")
@@ -577,6 +936,7 @@ def _detail_from_inspect(data: Mapping[str, Any]) -> ContainerDetail:
     raw_status = str(state.get("Status", "") or "")
     running = bool(state.get("Running", False))
     ports: list[str] = []
+    published: list[PublishedPort] = []
     port_map = network.get("Ports", {})
     if isinstance(port_map, dict):
         for container_port in sorted(port_map):
@@ -588,6 +948,14 @@ def _detail_from_inspect(data: Mapping[str, Any]) -> ContainerDetail:
                     host_ip = str(binding.get("HostIp", "") or "")
                     host_port = str(binding.get("HostPort", "") or "")
                     ports.append(f"{host_ip}:{host_port}->{container_port}")
+                    try:
+                        published.append(
+                            PublishedPort(
+                                host_ip, int(host_port), str(container_port)
+                            )
+                        )
+                    except (TypeError, ValueError):
+                        continue
             else:
                 ports.append(f"{container_port} (not published)")
     mounts: list[str] = []
@@ -614,6 +982,7 @@ def _detail_from_inspect(data: Mapping[str, Any]) -> ContainerDetail:
         finished_at=str(state.get("FinishedAt", "") or ""),
         ports=tuple(ports),
         mounts=tuple(mounts),
+        published_ports=tuple(published),
     )
 
 

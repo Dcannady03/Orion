@@ -473,7 +473,7 @@ class ObservabilityCliAdapter:
             raise ValueError(
                 "Usage: docker list | docker inspect <name> | "
                 "docker start|stop|restart <name> | docker health | "
-                "docker logs <name> [--tail N]"
+                "docker logs <name> [--tail N] | docker diagnose <name>"
             )
         subcommand = args[0].casefold()
         if subcommand in {"list", "ps"}:
@@ -504,6 +504,12 @@ class ObservabilityCliAdapter:
             if len(args) != 2:
                 raise ValueError("Usage: docker logs <name> [--tail N]")
             return self.application.docker_logs(args[1], tail=tail), as_json
+        if subcommand == "diagnose":
+            if len(args) != 2:
+                raise ValueError("Usage: docker diagnose <name>")
+            if tail_seen:
+                raise ValueError("docker diagnose takes no --tail option.")
+            return self.application.docker_diagnose(args[1]), as_json
         raise ValueError(f"Unknown docker subcommand: {args[0]}")
 
     def _docker_control(self, action: str, name: str) -> tuple[ApplicationResult, bool]:
@@ -561,6 +567,7 @@ class ObservabilityCliAdapter:
             "       docker start|stop|restart <name>\n"
             "       docker health [--json]\n"
             "       docker logs <name> [--tail N] [--json]\n"
+            "       docker diagnose <name> [--json]\n"
             "Health checks, log searches, diagnostics, and graphs are read-only\n"
             "except `health --record`, which saves one snapshot for the graphs.\n"
             "Backup import replaces data and always asks for approval first."

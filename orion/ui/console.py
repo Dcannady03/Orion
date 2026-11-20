@@ -67,7 +67,7 @@ BASE_COMMANDS = (
     "recovery", "audit", "runbooks", "retry", "remediate",
     "docker", "docker list", "docker ps", "docker inspect",
     "docker start", "docker stop", "docker restart",
-    "docker health", "docker logs",
+    "docker health", "docker logs", "docker diagnose",
     "command-center", "command-center status", "command-center snapshot",
     "command-center departments", "command-center department show",
     "command-center department create", "command-center department add-agent",
