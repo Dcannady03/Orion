@@ -652,6 +652,13 @@ severity keyword in the line, defaulting to info. `--source` limits the
 search to `events`, `files`, or `all` (the default). Log searches are
 read-only and never modify any log file.
 
+`diagnostics` builds an environment report for issue reports: Orion version
+and git commit, platform and Python details, provider configuration, the
+unified health check, storage, service states, and Event Store statistics.
+The report contains configuration flags only — it never includes API keys,
+tokens, or environment values, so it is safe to paste into an issue report.
+`diagnostics --json` prints the same report as JSON.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1809,6 +1816,8 @@ or execute anything from the CLI.
 | `logs --severity error` | Show only error log entries |
 | `logs --search TEXT` | Show entries containing TEXT |
 | `logs --source files` | Search only plain log files |
+| `diagnostics` | Build an environment report for issue reports |
+| `diagnostics --json` | Same report as JSON |
 
 `health --json` prints the same report as JSON. Health checks are read-only.
 

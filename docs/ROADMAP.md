@@ -49,6 +49,7 @@ tested, documented milestones.
 - [x] **v0.4.5 — Horizon:** Tasks, Project, Activity, and System cards with fault isolation
 - [x] **v0.4.1 — Health check:** unified service dependency, provider, and disk-space status
 - [x] **v0.4.0 — Log viewer:** filterable, severity-aware search of runtime logs
+- [x] **v0.4.6 — Diagnostics:** environment report for issue reports, built on the health check
 
 - Dependency and service health graphs
 - Root-cause-oriented diagnostic runbooks

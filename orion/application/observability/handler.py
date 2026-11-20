@@ -1,6 +1,12 @@
 """Application boundary for Orion observability commands."""
 from __future__ import annotations
 
+import json
+
+from orion.application.observability.diagnostics import (
+    DiagnosticsCollector,
+    DiagnosticsReport,
+)
 from orion.application.observability.health import (
     HEALTH_SECTIONS,
     HealthChecker,
@@ -29,7 +35,11 @@ class ObservabilityApplicationHandler:
         clock=None,
     ) -> None:
         self._paths = paths
+        self._config_manager = config_manager
+        self._provider_manager = provider_manager
+        self._services = services
         self._event_store = event_store
+        self._clock = clock
         self.checker = HealthChecker(
             paths,
             config_manager=config_manager,
@@ -119,4 +129,38 @@ class ObservabilityApplicationHandler:
                 f"{timestamp} [{entry.severity.upper()}] "
                 f"({entry.source}) {entry.message}"
             )
+        return "\n".join(lines)
+
+    def diagnostics(self) -> ApplicationResult:
+        """Build an environment report suitable for issue reports."""
+        collector = DiagnosticsCollector(
+            self._paths,
+            config_manager=self._config_manager,
+            provider_manager=self._provider_manager,
+            services=self._services,
+            event_store=self._event_store,
+            clock=self._clock,
+        )
+        report = collector.collect()
+        return ApplicationResult.success(
+            self._render_diagnostics(report),
+            data={**report.to_dict(), "read_only": True},
+            next_actions=("health", "logs --severity error"),
+        )
+
+    @staticmethod
+    def _render_diagnostics(report: DiagnosticsReport) -> str:
+        lines = [
+            "Orion Diagnostics",
+            "-" * 68,
+            f"Generated   : {report.generated_at}",
+        ]
+        for name, section in report.sections.items():
+            lines.append(f"{name.title()}:")
+            for key, value in section.items():
+                if isinstance(value, (dict, list)):
+                    rendered = json.dumps(value, sort_keys=True, default=str)
+                else:
+                    rendered = str(value)
+                lines.append(f"  {key}: {rendered}")
         return "\n".join(lines)

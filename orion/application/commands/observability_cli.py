@@ -16,7 +16,7 @@ from orion.application.results import ApplicationResult
 from orion.interfaces.cli.renderer import ApplicationResultRenderer
 
 
-_COMMAND_WORDS = frozenset({"health", "logs"})
+_COMMAND_WORDS = frozenset({"health", "logs", "diagnostics"})
 
 
 class ObservabilityCliAdapter:
@@ -59,6 +59,8 @@ class ObservabilityCliAdapter:
                 result, as_json = self._health(tokens[1:])
             elif command == "logs":
                 result, as_json = self._logs(tokens[1:])
+            elif command == "diagnostics":
+                result, as_json = self._diagnostics(tokens[1:])
             else:  # pragma: no cover - guarded by _COMMAND_WORDS
                 result = self._usage(f"Unknown observability command: {tokens[0]}")
         except ValueError as exc:
@@ -121,6 +123,15 @@ class ObservabilityCliAdapter:
         )
         return self.application.logs(request), as_json
 
+    def _diagnostics(self, tokens: list[str]) -> tuple[ApplicationResult, bool]:
+        as_json = False
+        for token in tokens:
+            if token.casefold() == "--json":
+                as_json = True
+            else:
+                raise ValueError(f"Unknown diagnostics option: {token}")
+        return self.application.diagnostics(), as_json
+
     @staticmethod
     def _usage(detail: str = "") -> ApplicationResult:
         message = (
@@ -130,7 +141,9 @@ class ObservabilityCliAdapter:
             "       logs [--severity S] [--type T] [--search TEXT]\n"
             "            [--start ISO] [--end ISO] [--limit N]\n"
             "            [--source all|events|files] [--json]\n"
-            "Health checks and log searches are read-only and never change runtime state."
+            "       diagnostics [--json]\n"
+            "Health checks, log searches, and diagnostics are read-only and\n"
+            "never change runtime state."
         )
         return ApplicationResult.failure(
             message,

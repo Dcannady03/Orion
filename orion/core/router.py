@@ -798,6 +798,8 @@ class CommandRouter:
         print("    health events              Check the Event Store")
         print("    logs                       Search runtime logs")
         print("    logs --severity error      Show only error log entries")
+        print("    diagnostics                Build an environment report")
+        print("    diagnostics --json         Same report as JSON")
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
         print("    vault                      Open Orion Vault")

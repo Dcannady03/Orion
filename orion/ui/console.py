@@ -59,7 +59,7 @@ BASE_COMMANDS = (
     "mission next", "mission advance",
     "health", "health disk", "health providers", "health services",
     "health config", "health workspace", "health events",
-    "logs",
+    "logs", "diagnostics",
     "command-center", "command-center status", "command-center snapshot",
     "command-center departments", "command-center department show",
     "command-center department create", "command-center department add-agent",
