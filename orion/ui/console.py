@@ -57,6 +57,8 @@ BASE_COMMANDS = (
     "mission", "mission create", "mission show", "mission list",
     "mission history", "mission validate", "mission reconcile",
     "mission next", "mission advance",
+    "health", "health disk", "health providers", "health services",
+    "health config", "health workspace", "health events",
     "command-center", "command-center status", "command-center snapshot",
     "command-center departments", "command-center department show",
     "command-center department create", "command-center department add-agent",

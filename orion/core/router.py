@@ -23,6 +23,7 @@ from orion.application.commands.ai_team_cli import (
 from orion.application.commands.goal_cli import dispatch_goal
 from orion.application.commands.event_cli import dispatch_events
 from orion.application.commands.mission_cli import dispatch_mission
+from orion.application.commands.observability_cli import dispatch_observability
 from orion.services.email import redact_email_text
 
 
@@ -270,6 +271,9 @@ class CommandRouter:
             pass
 
         elif dispatch_mission(self.orion, raw_command):
+            pass
+
+        elif dispatch_observability(self.orion, raw_command):
             pass
 
         elif (
@@ -783,6 +787,15 @@ class CommandRouter:
         print("    image show <image-id>      Show safe image metadata")
         print("    image save <id> <path>     Approval-gated workspace copy; never overwrite")
         print()
+        print()
+        print("  Observability")
+        print("    health                     Run the unified health check")
+        print("    health disk                Check free disk space")
+        print("    health providers           Check AI provider configuration")
+        print("    health services            Check services that report a status")
+        print("    health config              Check the loaded configuration")
+        print("    health workspace           Check the active workspace path")
+        print("    health events              Check the Event Store")
         print("  System")
         print("    change ollama model        Choose from locally installed Ollama models")
         print("    vault                      Open Orion Vault")

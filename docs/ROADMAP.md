@@ -47,6 +47,7 @@ tested, documented milestones.
 
 - [x] **v0.4.4 — Horizon:** first-class Home Center and interface-neutral dashboard snapshots
 - [x] **v0.4.5 — Horizon:** Tasks, Project, Activity, and System cards with fault isolation
+- [x] **v0.4.1 — Health check:** unified service dependency, provider, and disk-space status
 
 - Dependency and service health graphs
 - Root-cause-oriented diagnostic runbooks

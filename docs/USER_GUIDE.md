@@ -609,6 +609,30 @@ has no typed final-decision operation, so the Coordinator stops there. A strict
 reviewed final-completion event can project 100% but is not produced or dispatched by
 Phase 2. See `MISSION_ENGINE.md` and `MISSION_COORDINATOR.md`.
 
+### Observability
+
+Use the unified health check to inspect Orion's dependencies, providers, and
+storage in one place:
+
+```text
+health
+health disk
+health providers
+health services
+health config
+health workspace
+health events
+health --json
+```
+
+`health` reports disk space on the user-data volume, AI provider configuration
+and the active provider, every registered service that reports a status, the
+loaded configuration, the active workspace path, and the Event Store. Each
+section reports OK, WARNING, ERROR, or UNKNOWN, and the overall result is the
+worst section. A failing check reports UNKNOWN instead of hiding the remaining
+sections. Health checks are read-only and never change runtime state.
+`health --json` prints the same report as JSON for scripts and issue reports.
+
 ## 7. Memory, conversations, search, and knowledge
 
 ### Session memory
@@ -1750,6 +1774,20 @@ continues automatically. `goal validate "<goal>"` validates an ephemeral Goal Pl
 `events list` supports `--type`, `--correlation`, `--subject`, `--source`,
 `--severity`, `--start`, `--end`, and `--limit`. It cannot publish, replay, subscribe,
 or execute anything from the CLI.
+
+### Observability
+
+| Command | Purpose |
+| --- | --- |
+| `health` | Run the unified health check (disk, providers, services, config, workspace, events) |
+| `health disk` | Check free disk space on the user-data volume |
+| `health providers` | Check AI provider configuration and the active provider |
+| `health services` | Check every registered service that reports a status |
+| `health config` | Check the loaded configuration |
+| `health workspace` | Check the active workspace path |
+| `health events` | Check the Event Store and latest event |
+
+`health --json` prints the same report as JSON. Health checks are read-only.
 
 ### Mission Engine and Coordinator
 

@@ -43,6 +43,7 @@ from orion.application.missions import (
     MissionRepository,
     MissionService,
 )
+from orion.application.observability.handler import ObservabilityApplicationHandler
 from orion.intelligence.factory import AIProviderFactory
 from orion.intelligence.brain import Brain
 from orion.agents import AgentManager, WorkspaceTeamDraftStore, built_in_agents
@@ -607,6 +608,16 @@ class Orion:
         self.mission_application = self.services.register(
             "mission_application",
             MissionApplicationHandler(self.missions, self.mission_coordinator),
+        )
+        self.observability_application = self.services.register(
+            "observability_application",
+            ObservabilityApplicationHandler(
+                paths=self.paths,
+                config_manager=self.config_manager,
+                provider_manager=self.provider_manager,
+                services=self.services,
+                event_store=self.event_store,
+            ),
         )
 
         # Orion Connect unifies communication services behind one center.
