@@ -67,6 +67,18 @@ def _plain(value: Any) -> Any:
 def _default_runner(
     args: list[str], timeout: float, *, merge_stderr: bool = False
 ) -> subprocess.CompletedProcess[str]:
+    if merge_stderr:
+        # capture_output=True conflicts with an explicit stderr argument,
+        # so merge stderr into stdout with explicit pipes instead.
+        return subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
     return subprocess.run(
         args,
         capture_output=True,
@@ -74,7 +86,6 @@ def _default_runner(
         encoding="utf-8",
         errors="replace",
         timeout=timeout,
-        stderr=subprocess.STDOUT if merge_stderr else None,
     )
 
 

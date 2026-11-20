@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import subprocess
+import sys
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -521,6 +522,27 @@ class DockerServiceTests(TestCase):
         fake = _FakeDocker(log_lines=["a", "b"])
         data = _service(fake).container_logs("web").to_dict()
         self.assertEqual(json.loads(json.dumps(data)), data)
+
+    def test_default_runner_merges_stderr_without_capture_conflict(self):
+        # Regression test: _default_runner used to pass capture_output=True
+        # together with stderr=STDOUT, which subprocess rejects with
+        # "stdout and stderr arguments may not be used with capture_output".
+        # Exercise the real runner (no Docker needed) with a command that
+        # writes to both streams.
+        from orion.application.observability.docker import _default_runner
+
+        result = _default_runner(
+            [
+                sys.executable,
+                "-c",
+                "import sys; print('out'); print('err', file=sys.stderr)",
+            ],
+            timeout=10,
+            merge_stderr=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("out", result.stdout)
+        self.assertIn("err", result.stdout)
 
 
 class DockerHandlerTests(TestCase):
