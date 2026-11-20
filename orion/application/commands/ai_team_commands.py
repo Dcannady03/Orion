@@ -80,6 +80,18 @@ class TeamRunRequest:
 
 
 @dataclass(frozen=True)
+class TeamFinalReviewRequest:
+    """Structured request for one human final-review decision."""
+
+    run_id: str
+    decision: str
+    note: str = ""
+    actor: str = "user"
+    correlation_id: str | None = None
+    causation_id: str | None = None
+
+
+@dataclass(frozen=True)
 class TeamRollbackRequest:
     """Structured request for an explicitly confirmed rollback."""
 
@@ -240,6 +252,7 @@ def team_run_lifecycle_data(run: Any) -> dict[str, object]:
     status = str(getattr(run, "status", "")).strip()
     validation = getattr(run, "validation", None)
     documentation = getattr(run, "documentation", None)
+    final_review = getattr(run, "final_review", None)
     result = getattr(run, "result", None)
     changes = getattr(run, "changes", None)
     workspace = getattr(run, "workspace", None)
@@ -287,6 +300,11 @@ def team_run_lifecycle_data(run: Any) -> dict[str, object]:
             getattr(documentation, "attempt_id", "")
         )
         data["documentation_review"] = documentation.to_dict()
+    if final_review is not None:
+        data["final_review_status"] = "decided"
+        data["final_review_id"] = str(getattr(final_review, "decision_id", ""))
+        data["final_review_decision"] = str(getattr(final_review, "decision", ""))
+        data["final_review"] = final_review.to_dict()
     if result is not None:
         data["tests"] = [
             item.to_dict() for item in getattr(result, "tests", ()) or ()
@@ -308,6 +326,7 @@ def team_run_coordination_data(run: Any) -> dict[str, object]:
     """Return the bounded persisted facts used for Mission coordination."""
     validation = getattr(run, "validation", None)
     documentation = getattr(run, "documentation", None)
+    final_review = getattr(run, "final_review", None)
     result = getattr(run, "result", None)
     data: dict[str, object] = {
         "run_id": str(getattr(run, "run_id", "")),
@@ -327,6 +346,11 @@ def team_run_coordination_data(run: Any) -> dict[str, object]:
         "documentation_review_status": "",
         "documentation_review_id": "",
         "documentation_review_completed_at": "",
+        "final_review_status": "",
+        "final_review_id": "",
+        "final_review_decision": "",
+        "final_review_note": "",
+        "final_review_completed_at": "",
         "error": str(getattr(run, "error", "")),
     }
     if validation is not None:
@@ -347,6 +371,16 @@ def team_run_coordination_data(run: Any) -> dict[str, object]:
             ),
             "documentation_review_completed_at": str(
                 getattr(documentation, "completed_at", "")
+            ),
+        })
+    if final_review is not None:
+        data.update({
+            "final_review_status": "decided",
+            "final_review_id": str(getattr(final_review, "decision_id", "")),
+            "final_review_decision": str(getattr(final_review, "decision", "")),
+            "final_review_note": str(getattr(final_review, "note", "")),
+            "final_review_completed_at": str(
+                getattr(final_review, "completed_at", "")
             ),
         })
     return data
@@ -977,6 +1011,41 @@ class AiTeamApplicationHandler:
             causation_id=request.causation_id,
         )
 
+    def final_review(self, request: TeamFinalReviewRequest) -> ApplicationResult:
+        """Record one human final-review decision for a reviewed run."""
+        try:
+            run_id = self._required(request.run_id, "AI Team run ID")
+            decision = self._required(
+                request.decision, "Final-review decision"
+            ).strip().lower()
+        except ValueError as exc:
+            return self._failure("Final review refused", exc)
+        try:
+            self._bind_workspace()
+            run = self.bridge.record_final_review(
+                run_id,
+                decision=decision,
+                note=request.note,
+                actor=request.actor,
+            )
+        except (
+            FileNotFoundError,
+            OSError,
+            PermissionError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
+            return self._failure("Final review refused", exc, run_id=run_id)
+        sync_warnings = self._sync(run_id=run.run_id)
+        result = self._run_result(run, warnings=sync_warnings)
+        return self._attach_run_lifecycle_events(
+            result,
+            run,
+            operation="final_review",
+            correlation_id=request.correlation_id,
+            causation_id=request.causation_id,
+        )
+
     def documentation_status(self, request: TeamRunRequest) -> ApplicationResult:
         try:
             run_id = self._required(request.run_id, "AI Team run ID")
@@ -1471,6 +1540,46 @@ class AiTeamApplicationHandler:
                     "documentation_review_status": documentation_status,
                     "completed_at": str(
                         facts.get("documentation_review_completed_at", "")
+                    ),
+                },
+            )
+
+        final_review_status = str(facts.get("final_review_status", "")).strip().lower()
+        final_review_id = str(facts.get("final_review_id", "")).strip()
+        final_review_decision = str(
+            facts.get("final_review_decision", "")
+        ).strip().lower()
+        if (
+            operation == "final_review"
+            and final_review_status
+            and final_review_id
+            and final_review_decision
+            and validation_status
+            and validation_id
+            and documentation_status
+            and documentation_id
+        ):
+            completed = final_review_decision == "accepted"
+            publish(
+                (
+                    EventTypes.TEAM_FINAL_REVIEW_COMPLETED
+                    if completed
+                    else EventTypes.TEAM_FINAL_REVIEW_BLOCKED
+                ),
+                "notice" if completed else "warning",
+                {
+                    **identity,
+                    "status": "completed" if completed else "blocked",
+                    "stage": "complete" if completed else "final_review",
+                    "validation_id": validation_id,
+                    "validation_status": validation_status,
+                    "documentation_review_id": documentation_id,
+                    "documentation_review_status": documentation_status,
+                    "final_review_id": final_review_id,
+                    "decision": final_review_decision,
+                    "note": str(facts.get("final_review_note", "")),
+                    "completed_at": str(
+                        facts.get("final_review_completed_at", "")
                     ),
                 },
             )
