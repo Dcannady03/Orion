@@ -7,7 +7,7 @@ from orion.server.api import ApiRequest, ApiResponse, LocalApi, ROUTES
 from orion.server.config import ServerConfig
 from orion.server.errors import ApiError
 from orion.server.executor import DetachedExecutor
-from orion.server.http_server import LocalApiServer
+from orion.server.aiohttp_server import LocalApiServer
 from orion.server.logging import LOGGER_NAME, setup_server_logging
 from orion.server.reconcile import (
     ReconciliationReport,

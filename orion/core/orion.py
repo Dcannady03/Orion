@@ -79,7 +79,7 @@ from orion.services.discovery import (
     ApplicationCatalog, ApplicationDiscoveryService, ApplicationMatcher, ApplicationLauncherService,
 )
 from orion.server.config import ServerConfig
-from orion.server.http_server import LocalApiServer
+from orion.server.aiohttp_server import LocalApiServer
 from orion.server.logging import setup_server_logging
 from orion.memory.session import SessionMemory
 from orion.conversation import ConversationService

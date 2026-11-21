@@ -1,8 +1,9 @@
-"""Live-socket HTTP integration tests (server Phase A).
+"""Live-socket HTTP integration tests (server Phase B: aiohttp).
 
 The LocalApiServer is started for real on an ephemeral loopback port
 and exercised over HTTP with urllib: envelope shapes, error mapping,
 request/response bounds, the 202 poll contract, and the access log.
+The contract is identical to Phase A — only the transport moved.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from unittest.mock import patch
 
 from orion.core.paths import OrionPaths
 from orion.server.config import ServerConfig
-from orion.server.http_server import LocalApiServer
+from orion.server.aiohttp_server import LocalApiServer
 from orion.server.logging import close_server_logging, setup_server_logging
 from tests.test_command_center_workflow import JOB_ID, TEAM_TASK_ID
 from tests.test_mission_coordinator import MissionCoordinatorFixture
