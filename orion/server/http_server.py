@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
+import sys
 import threading
 import time
 import uuid
@@ -77,6 +79,12 @@ class _ApiHandler(BaseHTTPRequestHandler):
             response = self._handle_bounded(method, request_id)
             status = response.status
             self._send(response)
+        except ApiError as exc:
+            status = exc.status
+            try:
+                self._send(ApiResponse(exc.status, exc.to_dict()))
+            except Exception:  # noqa: BLE001 - the client may have gone away
+                pass
         except Exception:  # noqa: BLE001 - the socket must always get an answer
             server.logger.exception(
                 "unhandled error serving request", extra={"request_id": request_id}
@@ -211,6 +219,24 @@ class LocalApiServer(ThreadingHTTPServer):
 
     daemon_threads = True
     allow_reuse_address = True
+
+    def server_bind(self) -> None:
+        if sys.platform == "win32":
+            # Windows SO_REUSEADDR lets a second socket bind an actively
+            # listening port (POSIX only allows TIME_WAIT reuse), so a
+            # second server could steal the port. SO_EXCLUSIVEADDRUSE
+            # restores the one-listener-per-port rule on Windows; the
+            # listening socket does not enter TIME_WAIT on close, so a
+            # quick restart still rebinds.
+            self.socket.setsockopt(
+                socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1
+            )
+            self.socket.bind(self.server_address)
+            # Mirror TCPServer.server_bind: report the bound address
+            # (with port 0 the OS picks the port; callers read it back).
+            self.server_address = self.socket.getsockname()
+            return
+        super().server_bind()
 
     def __init__(
         self,
