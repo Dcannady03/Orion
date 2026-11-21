@@ -13,9 +13,11 @@ Response envelope: every body is an ApplicationResult dict
 mission audit, linked PLANNING job) exists before the 202 is returned,
 and execution runs detached on the executor.
 
-Phase A is a DEVELOPMENT-ONLY prototype: the API is unauthenticated
-and loopback-only. A deployed server never serves unauthenticated
-mutations (§3.3 invariant); see ServerConfig.require_startable.
+Phase B authenticates every endpoint (§3.3 invariant): LocalApi takes
+an Authenticator, and handle() verifies the session cookie before
+routing anything except POST /api/auth/login. With no authenticator
+(dev mode, ORION_SERVER_AUTH=off) the gate is skipped and the auth
+endpoints answer 503.
 """
 from __future__ import annotations
 
@@ -47,6 +49,7 @@ from orion.application.results import ApplicationResult
 from orion.command_center.integrations import LaunchValidationError
 from orion.command_center.models import JobPriority, JobTeamIntegration
 from orion.command_center.views import job_view
+from orion.server.auth import Authenticator, Session
 from orion.server.errors import ApiError
 from orion.server.executor import DetachedExecutor
 from orion.server.reconcile import ReconciliationReport
@@ -55,13 +58,21 @@ from orion.services.codex_bridge import PlanSnapshot
 
 @dataclass(frozen=True)
 class ApiRequest:
-    """One API call, transport-independent."""
+    """One API call, transport-independent.
+
+    Header keys are lowercased by the transport. ``session`` is set by
+    LocalApi.handle after the auth gate verifies the session cookie
+    (None for the login endpoint and in dev mode).
+    """
 
     method: str
     path: str
     path_params: Mapping[str, str] = field(default_factory=dict)
     query: Mapping[str, str] = field(default_factory=dict)
     body: Mapping[str, Any] | None = None
+    headers: Mapping[str, str] = field(default_factory=dict)
+    remote_addr: str = ""
+    session: Session | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +81,7 @@ class ApiResponse:
 
     status: int
     body: Mapping[str, Any]
+    headers: Mapping[str, str] = field(default_factory=dict)
 
 
 # Explicit dispatch table (no reflection): (method, path template, handler).
@@ -97,6 +109,12 @@ ROUTES: tuple[tuple[str, str, str], ...] = (
     ("POST", "/api/missions/{mission_id}/resolve/preview", "mission_resolve_preview"),
     ("POST", "/api/missions/{mission_id}/resolve", "mission_resolve"),
     ("POST", "/api/team/tasks/{task_id}/approve", "approve_team_task"),
+    ("POST", "/api/auth/login", "auth_login"),
+    ("POST", "/api/auth/logout", "auth_logout"),
+    ("GET", "/api/auth/me", "auth_me"),
+    ("GET", "/api/auth/sessions", "auth_sessions"),
+    ("POST", "/api/auth/sessions/{session_id}/revoke", "auth_revoke_session"),
+    ("POST", "/api/auth/revoke-all", "auth_revoke_all"),
 )
 
 _MAX_LIST_LIMIT = 100
@@ -148,6 +166,7 @@ class LocalApi:
         started_at: datetime | None = None,
         reconcile_report: ReconciliationReport | None = None,
         logger: logging.Logger | None = None,
+        authenticator: Authenticator | None = None,
     ) -> None:
         self._runtime = runtime
         self._executor = executor
@@ -155,6 +174,8 @@ class LocalApi:
         self._started_at = started_at or datetime.now(timezone.utc)
         self._reconcile_report = reconcile_report or ReconciliationReport()
         self._logger = logger or logging.getLogger("orion.server.api")
+        # None in dev mode (ORION_SERVER_AUTH=off): the gate is skipped.
+        self._authenticator = authenticator
 
     @property
     def runtime(self) -> Any:
@@ -172,8 +193,16 @@ class LocalApi:
     # -- dispatch -----------------------------------------------------
 
     def handle(self, request: ApiRequest) -> ApiResponse:
-        """Route one request and map every failure to an ApiResponse."""
+        """Route one request and map every failure to an ApiResponse.
+
+        The auth gate runs before routing: with an authenticator, every
+        request except POST /api/auth/login needs a valid session, and
+        with no password set every request answers 503 setup_required.
+        """
         try:
+            session = None
+            if self._authenticator is not None:
+                session = self._authenticator.authenticate(request)
             handler_name, params = _match_route(request.method, request.path)
             handler = getattr(self, handler_name)
             bound = ApiRequest(
@@ -182,6 +211,9 @@ class LocalApi:
                 path_params=params,
                 query=request.query,
                 body=request.body,
+                headers=request.headers,
+                remote_addr=request.remote_addr,
+                session=session,
             )
             return handler(bound)
         except ApiError as exc:
@@ -240,6 +272,7 @@ class LocalApi:
         status: int = 200,
         warnings: tuple[str, ...] = (),
         next_actions: tuple[str, ...] = (),
+        headers: Mapping[str, str] = (),
     ) -> ApiResponse:
         result = ApplicationResult.success(
             message,
@@ -247,7 +280,7 @@ class LocalApi:
             warnings=warnings,
             next_actions=next_actions,
         )
-        return ApiResponse(status, result.to_dict())
+        return ApiResponse(status, result.to_dict(), headers=dict(headers))
 
     @staticmethod
     def _from_result(
@@ -389,6 +422,62 @@ class LocalApi:
                 "in_flight_operations": list(self._executor.in_flight),
                 "reconciliation": self._reconcile_report.to_dict(),
             },
+        )
+
+    # -- auth endpoints -------------------------------------------------
+
+    def _require_authenticator(self) -> Authenticator:
+        if self._authenticator is None:
+            # Dev mode (ORION_SERVER_AUTH=off): the auth endpoints have
+            # nothing to authenticate against.
+            raise ApiError(
+                503,
+                "Server auth is disabled for development "
+                "(ORION_SERVER_AUTH=off).",
+                code="auth_disabled",
+            )
+        return self._authenticator
+
+    def auth_login(self, request: ApiRequest) -> ApiResponse:
+        result = self._require_authenticator().login(request)
+        return self._ok(
+            "Logged in.", result.data, status=result.status,
+            headers=result.headers,
+        )
+
+    def auth_logout(self, request: ApiRequest) -> ApiResponse:
+        result = self._require_authenticator().logout(request)
+        return self._ok(
+            "Logged out.", result.data, status=result.status,
+            headers=result.headers,
+        )
+
+    def auth_me(self, request: ApiRequest) -> ApiResponse:
+        result = self._require_authenticator().me(request)
+        return self._ok(
+            "Session info.", result.data, status=result.status,
+            headers=result.headers,
+        )
+
+    def auth_sessions(self, request: ApiRequest) -> ApiResponse:
+        result = self._require_authenticator().list_sessions(request)
+        return self._ok(
+            "Sessions.", result.data, status=result.status,
+            headers=result.headers,
+        )
+
+    def auth_revoke_session(self, request: ApiRequest) -> ApiResponse:
+        result = self._require_authenticator().revoke_session(request)
+        return self._ok(
+            "Session revoked.", result.data, status=result.status,
+            headers=result.headers,
+        )
+
+    def auth_revoke_all(self, request: ApiRequest) -> ApiResponse:
+        result = self._require_authenticator().revoke_all(request)
+        return self._ok(
+            "All sessions revoked.", result.data, status=result.status,
+            headers=result.headers,
         )
 
     # -- reads: Command Center -------------------------------------------

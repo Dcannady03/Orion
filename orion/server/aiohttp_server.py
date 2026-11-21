@@ -29,6 +29,7 @@ from typing import Any
 from aiohttp import web
 
 from orion.server.api import ApiRequest, ApiResponse, LocalApi
+from orion.server.auth import Authenticator
 from orion.server.config import ServerConfig
 from orion.server.errors import ApiError
 from orion.server.executor import DetachedExecutor
@@ -49,11 +50,22 @@ class LocalApiServer:
         self.config = config
         self.logger = logger or logging.getLogger("orion.server.http")
         self.executor = executor or DetachedExecutor(logger=self.logger)
+        authenticator = None
+        if config.auth_required and not config.auth_off_for_development:
+            paths = getattr(runtime, "paths", None)
+            if paths is None:
+                raise RuntimeError(
+                    "Server auth requires the runtime paths; "
+                    "the runtime has no .paths attribute."
+                )
+            authenticator = Authenticator(paths, config, logger=self.logger)
+        self.authenticator = authenticator
         self.api = LocalApi(
             runtime,
             executor=self.executor,
             version=str(getattr(runtime, "version", "unknown")),
             logger=self.logger,
+            authenticator=authenticator,
         )
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -105,6 +117,13 @@ class LocalApiServer:
             self.logger.warning(
                 "server running UNAUTHENTICATED on %s:%d "
                 "(ORION_SERVER_AUTH=off; development only, never deploy)",
+                self.config.host, self.config.port,
+            )
+        elif self.authenticator is not None and self.authenticator.setup_mode:
+            self.logger.warning(
+                "server in SETUP MODE on %s:%d: no server password set; "
+                "every endpoint returns 503 until "
+                "`python -m orion.main --server-setup` is run on the server",
                 self.config.host, self.config.port,
             )
         else:
@@ -350,6 +369,10 @@ class LocalApiServer:
             path=path,
             query=query,
             body=body,
+            headers={
+                key.lower(): value for key, value in request.headers.items()
+            },
+            remote_addr=request.remote or "",
         )
 
     def _to_web_response(self, response: ApiResponse) -> web.Response:
@@ -373,4 +396,5 @@ class LocalApiServer:
             status=response.status,
             content_type="application/json",
             charset="utf-8",
+            headers=dict(response.headers),
         )

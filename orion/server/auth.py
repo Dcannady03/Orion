@@ -31,12 +31,16 @@ import os
 import secrets
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from orion.application.observability.recovery import RecoveryHistoryStore
+from orion.server.errors import ApiError
+
+if TYPE_CHECKING:
+    from orion.server.api import ApiRequest
 
 MIN_PASSWORD_LENGTH = 12
 SESSION_COOKIE_NAME = "orion_session"
@@ -508,3 +512,203 @@ class LockoutTracker:
         with self._lock:
             self._failures.pop(source, None)
             self._locked_until.pop(source, None)
+
+
+LOGIN_PATH = "/api/auth/login"
+
+
+def _cookie_value(headers: Mapping[str, str], name: str) -> str:
+    """One cookie's value from a Cookie header (keys are lowercased)."""
+    raw = headers.get("cookie", "")
+    for part in raw.split(";"):
+        part = part.strip()
+        if part.startswith(name + "="):
+            return part[len(name) + 1:].strip().strip('"')
+    return ""
+
+
+@dataclass
+class AuthResult:
+    """What an auth endpoint returns: status, envelope data, headers."""
+
+    status: int
+    data: dict[str, Any]
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+class Authenticator:
+    """The HTTP auth gate: sessions, CSRF, lockout, audit.
+
+    Owns the credential store, the session store, and the lockout
+    tracker. LocalApi calls :meth:`authenticate` before routing every
+    request (the login endpoint excepted) and delegates the six auth
+    endpoints to the methods below. Raises ApiError for every failure;
+    LocalApi maps those onto the standard envelope.
+    """
+
+    def __init__(
+        self,
+        paths: object,
+        config: object,
+        *,
+        logger: logging.Logger | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._paths = paths
+        self._credentials = CredentialStore(paths)
+        self._sessions = SessionStore(paths, clock=clock)
+        self._lockout = LockoutTracker(clock=clock)
+        # Behind Tailscale Serve Orion sees plain loopback HTTP (TLS
+        # terminates at Serve), so the Secure flag cannot be inferred
+        # from the socket — it is explicit config, safe by default.
+        self._secure_cookies = bool(getattr(config, "secure_cookies", True))
+        self._logger = logger or logging.getLogger("orion.server.auth")
+        self._clock = clock or _utcnow
+
+    @property
+    def setup_mode(self) -> bool:
+        """True when no password exists: every endpoint answers 503."""
+        return not self._credentials.exists
+
+    # -- the gate ----------------------------------------------------
+
+    def authenticate(self, request: "ApiRequest") -> Session | None:
+        """Verify one request. Returns the session (None for login).
+
+        Raises ApiError: 503 setup_required when no password exists,
+        401 unauthenticated when the session cookie is missing, unknown,
+        or expired. Mutating requests additionally need a valid CSRF
+        token and a passing Origin/Host check (added in commit 4).
+        """
+        if self.setup_mode:
+            raise ApiError(
+                503,
+                "Server password is not set. Run "
+                "`python -m orion.main --server-setup` on the server "
+                "to set one.",
+                code="setup_required",
+            )
+        if request.method == "POST" and request.path == LOGIN_PATH:
+            return None
+        token = _cookie_value(request.headers, SESSION_COOKIE_NAME)
+        session = self._sessions.verify(token) if token else None
+        if session is None:
+            raise ApiError(
+                401,
+                "Authentication required.",
+                code="unauthenticated",
+            )
+        self._sessions.touch(session.session_id)
+        return session
+
+    # -- endpoints ---------------------------------------------------
+
+    def login(self, request: "ApiRequest") -> AuthResult:
+        """Verify the password, issue a session cookie + CSRF token."""
+        body = request.body
+        if body is None:
+            body = {}
+        if not isinstance(body, Mapping):
+            raise ApiError.bad_request("Request body must be a JSON object.")
+        password = body.get("password", "")
+        if not isinstance(password, str) or not password:
+            raise ApiError.bad_request("A password is required.")
+        if not self._credentials.verify_password(password):
+            raise ApiError(
+                401, "Invalid password.", code="invalid_credentials"
+            )
+        session, token = self._sessions.create(
+            user_agent=str(request.headers.get("user-agent", "")),
+            tailnet_identity="",
+        )
+        csrf = csrf_token_for(
+            session.session_id, self._credentials.csrf_secret
+        )
+        return AuthResult(
+            status=200,
+            data={
+                "session_id": session.session_id,
+                "expires_at": _iso(session.expires_at),
+                "csrf_token": csrf,
+            },
+            headers={"Set-Cookie": self._session_cookie(token)},
+        )
+
+    def logout(self, request: "ApiRequest") -> AuthResult:
+        """Revoke the current session and clear its cookie."""
+        session = request.session
+        if session is not None:
+            self._sessions.revoke(session.session_id)
+        return AuthResult(
+            status=200,
+            data={},
+            headers={"Set-Cookie": self._clear_cookie()},
+        )
+
+    def me(self, request: "ApiRequest") -> AuthResult:
+        """Session info for the caller, plus a fresh CSRF token."""
+        session = request.session
+        if session is None:  # pragma: no cover - the gate guarantees it
+            raise ApiError(401, "Authentication required.",
+                           code="unauthenticated")
+        data = session.to_dict()
+        data["csrf_token"] = csrf_token_for(
+            session.session_id, self._credentials.csrf_secret
+        )
+        return AuthResult(status=200, data=data)
+
+    def list_sessions(self, request: "ApiRequest") -> AuthResult:
+        """All live sessions; the caller's is marked current."""
+        current = request.session.session_id if request.session else ""
+        sessions = [
+            {**item.to_dict(), "current": item.session_id == current}
+            for item in self._sessions.list_sessions()
+        ]
+        return AuthResult(status=200, data={"sessions": sessions})
+
+    def revoke_session(self, request: "ApiRequest") -> AuthResult:
+        """Revoke one session by id."""
+        session_id = request.path_params.get("session_id", "")
+        if not session_id:
+            raise ApiError.bad_request("A session id is required.")
+        if not self._sessions.revoke(session_id):
+            raise ApiError.not_found(f"Unknown session: {session_id}")
+        return AuthResult(status=200, data={"revoked": session_id})
+
+    def revoke_all(self, request: "ApiRequest") -> AuthResult:
+        """Revoke every session (including the caller's) and rotate the
+        CSRF secret, so every outstanding CSRF token dies with them."""
+        removed = self._sessions.revoke_all()
+        self._credentials.rotate_csrf_secret()
+        return AuthResult(
+            status=200,
+            data={"revoked_sessions": removed},
+            headers={"Set-Cookie": self._clear_cookie()},
+        )
+
+    # -- cookies ------------------------------------------------------
+
+    def _session_cookie(self, token: str) -> str:
+        # A session cookie (no Max-Age): the browser drops it on close
+        # and the server-side 7-day sliding expiry governs.
+        parts = [
+            f"{SESSION_COOKIE_NAME}={token}",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Lax",
+        ]
+        if self._secure_cookies:
+            parts.append("Secure")
+        return "; ".join(parts)
+
+    def _clear_cookie(self) -> str:
+        parts = [
+            f"{SESSION_COOKIE_NAME}=",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Lax",
+            "Max-Age=0",
+        ]
+        if self._secure_cookies:
+            parts.append("Secure")
+        return "; ".join(parts)

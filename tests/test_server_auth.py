@@ -7,16 +7,23 @@ nothing here touches a real ~/.orion.
 from __future__ import annotations
 
 import json
+import os
+import re
 import tempfile
 import unittest
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from orion.application.observability.recovery import (
     RECOVERY_KINDS,
     RecoveryHistoryStore,
 )
 from orion.core.paths import OrionPaths
+from orion.server.aiohttp_server import LocalApiServer
+from orion.server.api import ROUTES
 from orion.server.auth import (
     MAX_SESSIONS,
     MIN_PASSWORD_LENGTH,
@@ -27,7 +34,11 @@ from orion.server.auth import (
     csrf_token_for,
     verify_csrf_token,
 )
+from orion.server.config import ServerConfig
+from orion.server.logging import close_server_logging, setup_server_logging
 from orion.server.setup import run_server_setup
+from tests.test_mission_coordinator import MissionCoordinatorFixture
+from tests.test_server_api import ApiFixture
 
 PASSWORD = "correct-horse-battery-staple"
 OTHER_PASSWORD = "another-long-test-password"
@@ -352,6 +363,308 @@ class PromptPasswordTests(unittest.TestCase):
             self.assertEqual(
                 setup_module._prompt_password("Password: "), "hidden-password"
             )
+
+
+
+# -- live-socket HTTP auth tests ---------------------------------------
+
+
+class AuthHttpFixture(ApiFixture):
+    """Starts a real authenticated LocalApiServer on an ephemeral port.
+
+    Mirrors tests.test_server_http.HttpFixture, but with auth ON: a
+    temp user root, a password set programmatically (the setup
+    command's hidden prompt is unit-tested above), and the dev opt-out
+    explicitly removed from the environment.
+    """
+
+    set_password = True
+    server_kwargs: dict = {}
+
+    def start_auth_server(self) -> None:
+        self._auth_temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._auth_temp.cleanup)
+        self.paths = OrionPaths(user_root=self._auth_temp.name)
+        if self.set_password:
+            CredentialStore(self.paths).set_password(PASSWORD)
+        self._env = patch.dict(os.environ, {})
+        self._env.start()
+        self.addCleanup(self._env.stop)
+        os.environ.pop("ORION_SERVER_AUTH", None)
+        self.runtime.paths = self.paths
+        logger = setup_server_logging(self.paths)
+        kwargs: dict = {
+            "host": "127.0.0.1",
+            "port": 0,
+            "auth_required": True,
+            "shutdown_drain_seconds": 5,
+            "max_concurrent_requests": 4,
+            "max_request_bytes": 1_048_576,
+            "max_response_bytes": 4_194_304,
+            "request_timeout_seconds": 30,
+        }
+        kwargs.update(self.server_kwargs)
+        config = ServerConfig(**kwargs)
+        self.server = LocalApiServer(self.runtime, config, logger=logger)
+        self.server.start()
+        self.addCleanup(self._stop_auth_server)
+        self.port = self.server.server_address[1]
+        self.base_url = f"http://127.0.0.1:{self.port}"
+
+    def _stop_auth_server(self) -> None:
+        if self.server.started:
+            self.server.stop()
+        close_server_logging()
+
+    def http(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: dict | None = None,
+        headers: dict | None = None,
+    ) -> tuple[int, dict, dict]:
+        data = None
+        all_headers: dict[str, str] = {}
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            all_headers["Content-Type"] = "application/json"
+        if headers:
+            all_headers.update(headers)
+        request = urllib.request.Request(
+            self.base_url + path,
+            data=data,
+            headers=all_headers,
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            return response.status, payload, dict(response.headers)
+        except urllib.error.HTTPError as exc:
+            payload = json.loads(exc.read().decode("utf-8"))
+            return exc.code, payload, dict(exc.headers)
+
+    def login(self, password: str = PASSWORD) -> tuple[int, dict, dict]:
+        return self.http(
+            "POST", "/api/auth/login", body={"password": password}
+        )
+
+    @staticmethod
+    def cookie_from(headers: dict) -> str:
+        """The `name=value` pair from a Set-Cookie header."""
+        set_cookie = headers.get("Set-Cookie", "")
+        return set_cookie.split(";")[0].strip()
+
+
+class AuthHttpBase(MissionCoordinatorFixture, AuthHttpFixture):
+    """Test base: mission services + an authenticated live server."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.build_api()
+        self.start_auth_server()
+
+
+class AuthHttpTests(AuthHttpBase):
+    def test_login_success_issues_cookie_and_csrf(self) -> None:
+        status, payload, headers = self.login()
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "success")
+        data = payload["data"]
+        self.assertTrue(data["session_id"])
+        self.assertTrue(data["expires_at"])
+        self.assertTrue(data["csrf_token"])
+        set_cookie = headers.get("Set-Cookie", "")
+        self.assertTrue(set_cookie.startswith("orion_session="))
+        self.assertIn("HttpOnly", set_cookie)
+        self.assertIn("SameSite=Lax", set_cookie)
+        # Secure by default, even over loopback HTTP: the flag is
+        # config, not socket inference (TLS terminates at Serve).
+        self.assertIn("Secure", set_cookie)
+
+    def test_login_wrong_password_is_401(self) -> None:
+        status, payload, headers = self.login(password="wrong-password-here")
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["data"]["error_code"], "invalid_credentials")
+        self.assertNotIn("Set-Cookie", headers)
+
+    def test_login_without_password_is_400(self) -> None:
+        status, payload, _ = self.http("POST", "/api/auth/login", body={})
+        self.assertEqual(status, 400)
+
+    def test_unauthenticated_requests_rejected_on_every_endpoint(self) -> None:
+        for method, template, _ in ROUTES:
+            if template == "/api/auth/login":
+                continue
+            path = re.sub(r"\{[^}]+\}", "x", template)
+            status, payload, _ = self.http(
+                method, path, body={} if method == "POST" else None
+            )
+            self.assertEqual(status, 401, f"{method} {path}")
+            self.assertEqual(
+                payload["data"]["error_code"], "unauthenticated"
+            )
+
+    def test_authenticated_read(self) -> None:
+        _, _, headers = self.login()
+        cookie = self.cookie_from(headers)
+        status, payload, _ = self.http(
+            "GET", "/api/healthz", headers={"Cookie": cookie}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["data"]["status"], "ok")
+
+    def test_unknown_cookie_is_401(self) -> None:
+        status, _, _ = self.http(
+            "GET", "/api/healthz",
+            headers={"Cookie": "orion_session=not-a-real-token"},
+        )
+        self.assertEqual(status, 401)
+
+    def test_me_returns_session_and_csrf(self) -> None:
+        _, login_payload, headers = self.login()
+        cookie = self.cookie_from(headers)
+        status, payload, _ = self.http(
+            "GET", "/api/auth/me", headers={"Cookie": cookie}
+        )
+        self.assertEqual(status, 200)
+        data = payload["data"]
+        self.assertEqual(
+            data["session_id"], login_payload["data"]["session_id"]
+        )
+        self.assertTrue(data["csrf_token"])
+        self.assertNotIn("token_hash", data)
+
+    def test_logout_revokes_the_session(self) -> None:
+        _, _, headers = self.login()
+        cookie = self.cookie_from(headers)
+        status, _, logout_headers = self.http(
+            "POST", "/api/auth/logout", body={}, headers={"Cookie": cookie}
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("Max-Age=0", logout_headers.get("Set-Cookie", ""))
+        status, _, _ = self.http(
+            "GET", "/api/healthz", headers={"Cookie": cookie}
+        )
+        self.assertEqual(status, 401)
+
+    def test_sessions_list_and_revoke(self) -> None:
+        _, first_payload, first_headers = self.login()
+        _, second_payload, second_headers = self.login()
+        first_cookie = self.cookie_from(first_headers)
+        second_cookie = self.cookie_from(second_headers)
+        status, payload, _ = self.http(
+            "GET", "/api/auth/sessions", headers={"Cookie": first_cookie}
+        )
+        self.assertEqual(status, 200)
+        sessions = payload["data"]["sessions"]
+        self.assertEqual(len(sessions), 2)
+        current = [item for item in sessions if item["current"]]
+        self.assertEqual(len(current), 1)
+        self.assertEqual(
+            current[0]["session_id"], first_payload["data"]["session_id"]
+        )
+        other_id = second_payload["data"]["session_id"]
+        status, _, _ = self.http(
+            "POST",
+            f"/api/auth/sessions/{other_id}/revoke",
+            body={},
+            headers={"Cookie": first_cookie},
+        )
+        self.assertEqual(status, 200)
+        status, _, _ = self.http(
+            "GET", "/api/healthz", headers={"Cookie": second_cookie}
+        )
+        self.assertEqual(status, 401)
+        status, payload, _ = self.http(
+            "GET", "/api/auth/sessions", headers={"Cookie": first_cookie}
+        )
+        self.assertEqual(len(payload["data"]["sessions"]), 1)
+
+    def test_revoke_unknown_session_is_404(self) -> None:
+        _, _, headers = self.login()
+        cookie = self.cookie_from(headers)
+        status, _, _ = self.http(
+            "POST",
+            "/api/auth/sessions/does-not-exist/revoke",
+            body={},
+            headers={"Cookie": cookie},
+        )
+        self.assertEqual(status, 404)
+
+    def test_revoke_all_signs_out_everywhere(self) -> None:
+        _, _, first_headers = self.login()
+        _, _, second_headers = self.login()
+        first_cookie = self.cookie_from(first_headers)
+        second_cookie = self.cookie_from(second_headers)
+        status, payload, _ = self.http(
+            "POST", "/api/auth/revoke-all", body={},
+            headers={"Cookie": first_cookie},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["data"]["revoked_sessions"], 2)
+        for cookie in (first_cookie, second_cookie):
+            status, _, _ = self.http(
+                "GET", "/api/healthz", headers={"Cookie": cookie}
+            )
+            self.assertEqual(status, 401)
+
+    def test_expired_session_is_rejected(self) -> None:
+        _, _, headers = self.login()
+        cookie = self.cookie_from(headers)
+        session_files = list(self.paths.server_sessions.glob("*.json"))
+        self.assertEqual(len(session_files), 1)
+        record = json.loads(session_files[0].read_text(encoding="utf-8"))
+        record["expires_at"] = "2020-01-01T00:00:00Z"
+        session_files[0].write_text(
+            json.dumps(record), encoding="utf-8"
+        )
+        status, _, _ = self.http(
+            "GET", "/api/healthz", headers={"Cookie": cookie}
+        )
+        self.assertEqual(status, 401)
+
+    def test_deleting_auth_file_returns_to_setup_mode(self) -> None:
+        _, _, headers = self.login()
+        cookie = self.cookie_from(headers)
+        self.paths.server_auth.unlink()
+        status, payload, _ = self.http(
+            "GET", "/api/healthz", headers={"Cookie": cookie}
+        )
+        self.assertEqual(status, 503)
+        self.assertEqual(payload["data"]["error_code"], "setup_required")
+        status, _, _ = self.login()
+        self.assertEqual(status, 503)
+
+
+class SetupModeHttpTests(AuthHttpBase):
+    """The server with no password set: 503 everywhere."""
+
+    set_password = False
+
+    def test_setup_mode_refuses_every_endpoint(self) -> None:
+        for method, template, _ in ROUTES:
+            path = re.sub(r"\{[^}]+\}", "x", template)
+            status, payload, _ = self.http(
+                method, path, body={} if method == "POST" else None
+            )
+            self.assertEqual(status, 503, f"{method} {path}")
+            self.assertEqual(
+                payload["data"]["error_code"], "setup_required"
+            )
+
+
+class InsecureCookieHttpTests(AuthHttpBase):
+    """secure_cookies=false: the login cookie has no Secure flag."""
+
+    server_kwargs = {"secure_cookies": False}
+
+    def test_login_cookie_has_no_secure_flag(self) -> None:
+        _, _, headers = self.login()
+        set_cookie = headers.get("Set-Cookie", "")
+        self.assertTrue(set_cookie.startswith("orion_session="))
+        self.assertNotIn("Secure", set_cookie)
 
 
 if __name__ == "__main__":

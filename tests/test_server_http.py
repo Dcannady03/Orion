@@ -122,6 +122,15 @@ class HttpApiTests(MissionCoordinatorFixture, HttpFixture):
         self.assertEqual(payload["status"], "success")
         self.assertEqual(payload["data"]["status"], "ok")
 
+    def test_auth_login_disabled_in_dev_mode(self) -> None:
+        # Dev mode (ORION_SERVER_AUTH=off): the gate is skipped, and
+        # the auth endpoints honestly report that auth is off.
+        status, payload = self.http(
+            "POST", "/api/auth/login", body={"password": "whatever"}
+        )
+        self.assertEqual(status, 503)
+        self.assertEqual(payload["data"]["error_code"], "auth_disabled")
+
     def test_unknown_route_over_http(self) -> None:
         status, payload = self.http("GET", "/api/nope")
         self.assertEqual(status, 404)
@@ -287,14 +296,32 @@ class ServerConfigTests(unittest.TestCase):
             ServerConfig(port=-1)
         self.assertEqual(ServerConfig(port=0).port, 0)
 
-    def test_auth_required_without_opt_out_refuses_start(self) -> None:
-        config = ServerConfig(auth_required=True)
+    def test_auth_disabled_without_opt_out_refuses_start(self) -> None:
+        config = ServerConfig(auth_required=False)
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("ORION_SERVER_AUTH", None)
             with self.assertRaises(RuntimeError):
                 config.require_startable()
-        with patch.dict(os.environ, {"ORION_SERVER_AUTH": "off"}):
+
+    def test_auth_required_without_opt_out_starts(self) -> None:
+        # Phase B implements auth: auth required + no opt-out is the
+        # normal deployed configuration (authenticated, or setup mode
+        # when no password exists yet).
+        config = ServerConfig(auth_required=True)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ORION_SERVER_AUTH", None)
             config.require_startable()
+
+    def test_dev_opt_out_allows_either_auth_setting(self) -> None:
+        with patch.dict(os.environ, {"ORION_SERVER_AUTH": "off"}):
+            ServerConfig(auth_required=True).require_startable()
+            ServerConfig(auth_required=False).require_startable()
+
+    def test_secure_cookies_default_true_and_must_be_bool(self) -> None:
+        self.assertTrue(ServerConfig().secure_cookies)
+        self.assertFalse(ServerConfig(secure_cookies=False).secure_cookies)
+        with self.assertRaises(ValueError):
+            ServerConfig(secure_cookies="yes")  # type: ignore[arg-type]
 
     def test_bind_conflict_fails_fast_with_clear_error(self) -> None:
         from types import SimpleNamespace

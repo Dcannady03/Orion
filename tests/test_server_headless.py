@@ -1,4 +1,4 @@
-"""Headless-mode and entry-point tests (server Phase A).
+"""Headless-mode and entry-point tests (server Phase B).
 
 main() takes the singleton lock in both modes, refuses a second
 process, and passes --server through; Orion.start(server=True) serves
@@ -201,9 +201,48 @@ class HeadlessServerTests(MissionCoordinatorFixture, ApiFixture):
         self.assertFalse(self._thread.is_alive())
         self.assertFalse(server.started)
 
-    def test_server_refuses_to_start_with_auth_required_and_no_opt_out(self) -> None:
+    def test_server_starts_in_setup_mode_with_auth_required_and_no_opt_out(
+        self,
+    ) -> None:
+        # Phase B implements auth: auth required + no opt-out is the
+        # normal deployed configuration. With no password set yet the
+        # server starts in setup mode (503 everywhere) instead of
+        # refusing.
+        import urllib.error
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ORION_SERVER_AUTH", None)
+            self._thread = threading.Thread(
+                target=self._run_server, daemon=True
+            )
+            self._thread.start()
+            server = self._wait_for_server()
+            assert server.authenticator is not None
+            self.assertTrue(server.authenticator.setup_mode)
+            port = server.server_address[1]
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/api/healthz", timeout=5
+                ) as response:
+                    self.fail(f"expected 503, got {response.status}")
+            except urllib.error.HTTPError as exc:
+                self.assertEqual(exc.code, 503)
+                payload = json.loads(exc.read().decode("utf-8"))
+                self.assertEqual(
+                    payload["data"]["error_code"], "setup_required"
+                )
+            self.assertFalse(self._thread_error)
+            server.stop()
+            self._thread.join(timeout=10)
+        self.assertFalse(self._thread.is_alive())
+        self.assertFalse(server.started)
+
+    def test_server_refuses_to_start_with_auth_disabled_and_no_opt_out(
+        self,
+    ) -> None:
         import signal
 
+        self.runtime.config_manager._values["server.auth_required"] = False
         previous_int = signal.getsignal(signal.SIGINT)
         previous_term = signal.getsignal(signal.SIGTERM)
         try:

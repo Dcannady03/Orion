@@ -191,6 +191,7 @@ server:
   host: 127.0.0.1
   port: 8000
   auth_required: true
+  secure_cookies: true
   shutdown_drain_seconds: 30
   max_concurrent_requests: 8
   max_request_bytes: 1048576
