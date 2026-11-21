@@ -78,6 +78,9 @@ from orion.services.companion import CompanionSettings, ActionTrustStore
 from orion.services.discovery import (
     ApplicationCatalog, ApplicationDiscoveryService, ApplicationMatcher, ApplicationLauncherService,
 )
+from orion.server.config import ServerConfig
+from orion.server.http_server import LocalApiServer
+from orion.server.logging import setup_server_logging
 from orion.memory.session import SessionMemory
 from orion.conversation import ConversationService
 from orion.knowledge import KnowledgeIndex
@@ -93,8 +96,10 @@ from orion.ui.console import Console
 from datetime import datetime
 from pathlib import Path
 import importlib
+import signal
 import subprocess
 import sys
+import threading
 from orion.interfaces.discord import DiscordBotInterface, DiscordImagePolicy
 
 
@@ -652,6 +657,7 @@ class Orion:
         )
 
         self.discord_interface = None
+        self.server_interface = None
         self.router = CommandRouter(self, interactive_team_approval=True)
         self.console = Console(self)
 
@@ -664,12 +670,67 @@ class Orion:
         self.config_manager.set(f"calendar.{provider_key}.{field}", value)
         self.config_manager.save()
 
-    def start(self, *, discord: bool = False):
-        """Start Orion and enter the polished Companion command loop."""
+    def start(self, *, discord: bool = False, server: bool = False):
+        """Start Orion: headless server mode or the Companion command loop."""
         if discord:
             self.start_discord_interface()
+        if server:
+            self.start_server_interface()
+            return
         self.console.render_home(self.home_service.build(), developer_mode=self.companion_settings.developer_mode)
         self.command_loop()
+
+    def start_server_interface(self):
+        """Start the headless server: HTTP listener, no console, no REPL.
+
+        Blocks the calling thread until shutdown is requested (Ctrl+C
+        where signals are delivered, or the server stopping). On
+        shutdown the server drains detached work within the configured
+        bound and stops; the singleton lock is released by main().
+        """
+        logger = setup_server_logging(self.paths)
+        config = ServerConfig.from_config(self.config_manager)
+        # Fail fast before installing signal handlers or binding: an
+        # unauthenticated server must never start by accident.
+        config.require_startable()
+        server = LocalApiServer(self, config, logger=logger)
+        self.server_interface = server
+        shutdown = threading.Event()
+
+        def _request_shutdown(signum, frame):
+            logger.info("shutdown signal received (%s); draining", signum)
+            shutdown.set()
+
+        try:
+            signal.signal(signal.SIGINT, _request_shutdown)
+            signal.signal(signal.SIGTERM, _request_shutdown)
+        except (ValueError, OSError, RuntimeError):
+            # Not the main thread (tests embed the server), or the
+            # platform does not deliver the signal: shutdown still
+            # works via the server stopping.
+            logger.info("signal handlers unavailable; shutdown via server stop")
+        server.start()
+        logger.info(
+            "Orion server running headless (version %s); "
+            "no console render, no REPL",
+            self.version,
+        )
+        try:
+            while not shutdown.is_set():
+                if not server.started:
+                    break
+                shutdown.wait(timeout=0.2)
+        except KeyboardInterrupt:
+            logger.info("shutdown requested (KeyboardInterrupt); draining")
+        finally:
+            unfinished = server.stop()
+            if unfinished:
+                logger.warning(
+                    "shutdown left %d detached operation(s) unfinished; "
+                    "their durable records carry the uncertainty",
+                    len(unfinished),
+                )
+        return server
 
 
     def start_discord_interface(self):

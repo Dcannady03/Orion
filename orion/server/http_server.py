@@ -275,6 +275,8 @@ class LocalApiServer(ThreadingHTTPServer):
                 if attempt < bind_attempts:
                     time.sleep(bind_backoff_seconds)
         else:
+            self.pool.shutdown(wait=False, cancel_futures=True)
+            self.server_close()
             raise RuntimeError(
                 f"Could not bind the Orion server to {self.config.host}:"
                 f"{self.config.port} after {bind_attempts} attempts: "

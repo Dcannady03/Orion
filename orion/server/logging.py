@@ -50,3 +50,20 @@ def setup_server_logging(paths: object) -> logging.Logger:
     ))
     logger.addHandler(stream_handler)
     return logger
+
+
+def close_server_logging() -> None:
+    """Close and remove every handler on the orion.server logger.
+
+    Releases the log file handle so the log directory can be removed
+    (on Windows an open file cannot be deleted). Used by tests; the
+    production process exits after the server stops, so it never
+    needs this.
+    """
+    logger = logging.getLogger(LOGGER_NAME)
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:  # noqa: BLE001 - closing must never raise
+            pass

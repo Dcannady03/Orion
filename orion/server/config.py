@@ -41,8 +41,10 @@ class ServerConfig:
                 f"refusing host {self.host!r}."
             )
         object.__setattr__(self, "host", host)
-        if not 1 <= int(self.port) <= 65535:
-            raise ValueError("Server port must be between 1 and 65535.")
+        if not 0 <= int(self.port) <= 65535:
+            raise ValueError("Server port must be between 0 and 65535.")
+        # Port 0 means "any free port" (ephemeral); the bound port is
+        # then read back from the socket, never from the config.
         for name in (
             "shutdown_drain_seconds",
             "max_concurrent_requests",

@@ -143,6 +143,7 @@ class ApiFixture:
             codex_bridge=self.bridge,
             observability_application=self.observability,
         )
+        self.runtime = runtime
         self.api = LocalApi(runtime, executor=self.executor, version="0.8.0")
 
     def call(
