@@ -35,6 +35,51 @@ class MissionHistoryRequest:
     limit: int = 100
 
 
+def mission_data(mission: Mission) -> dict[str, object]:
+    """Serialize one Mission with its link IDs flattened for clients."""
+    data = mission.to_dict()
+    for link_type, field in (
+        ("team_task", "team_task_id"),
+        ("team_run", "team_run_id"),
+        ("command_center_job", "command_center_job_id"),
+        ("approval", "approval_id"),
+        ("validation", "validation_id"),
+        ("documentation_review", "documentation_review_id"),
+        ("final_review", "final_review_id"),
+    ):
+        link = mission.link(link_type)
+        if link is not None:
+            data[field] = link.subject_id
+    data["goal"] = mission.goal_text
+    data["event_count"] = len(mission.event_refs)
+    return data
+
+
+def mission_next_actions(mission: Mission) -> tuple[str, ...]:
+    """CLI next actions for one Mission (shared by the CLI and the API)."""
+    commands: list[str] = []
+    if mission.status in {
+        MissionStatus.AWAITING_APPROVAL,
+        MissionStatus.APPROVED,
+        MissionStatus.AWAITING_VALIDATION,
+        MissionStatus.AWAITING_DOCUMENTATION,
+        MissionStatus.AWAITING_REVIEW,
+    }:
+        commands.append(f"mission next {mission.mission_id}")
+    if mission.next_action:
+        commands.append(mission.next_action)
+    task = mission.link("team_task")
+    if task is not None:
+        status = interface_action(
+            "team.show",
+            {"team_task_id": task.subject_id},
+        ).cli_command
+        if status:
+            commands.append(status)
+    commands.append(f"mission reconcile {mission.mission_id}")
+    return tuple(dict.fromkeys(commands))
+
+
 class MissionApplicationHandler:
     """Return structured Mission results and delegate one confirmed operation."""
 
@@ -429,46 +474,11 @@ class MissionApplicationHandler:
 
     @staticmethod
     def _mission_data(mission: Mission) -> dict[str, object]:
-        data = mission.to_dict()
-        for link_type, field in (
-            ("team_task", "team_task_id"),
-            ("team_run", "team_run_id"),
-            ("command_center_job", "command_center_job_id"),
-            ("approval", "approval_id"),
-            ("validation", "validation_id"),
-            ("documentation_review", "documentation_review_id"),
-            ("final_review", "final_review_id"),
-        ):
-            link = mission.link(link_type)
-            if link is not None:
-                data[field] = link.subject_id
-        data["goal"] = mission.goal_text
-        data["event_count"] = len(mission.event_refs)
-        return data
+        return mission_data(mission)
 
     @staticmethod
     def _next_actions(mission: Mission) -> tuple[str, ...]:
-        commands: list[str] = []
-        if mission.status in {
-            MissionStatus.AWAITING_APPROVAL,
-            MissionStatus.APPROVED,
-            MissionStatus.AWAITING_VALIDATION,
-            MissionStatus.AWAITING_DOCUMENTATION,
-            MissionStatus.AWAITING_REVIEW,
-        }:
-            commands.append(f"mission next {mission.mission_id}")
-        if mission.next_action:
-            commands.append(mission.next_action)
-        task = mission.link("team_task")
-        if task is not None:
-            status = interface_action(
-                "team.show",
-                {"team_task_id": task.subject_id},
-            ).cli_command
-            if status:
-                commands.append(status)
-        commands.append(f"mission reconcile {mission.mission_id}")
-        return tuple(dict.fromkeys(commands))
+        return mission_next_actions(mission)
 
     @classmethod
     def _format_mission(cls, mission: Mission, *, heading: str = "Mission") -> str:
