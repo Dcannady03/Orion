@@ -272,7 +272,9 @@ or autonomous scheduler.
       cursor/limit pagination; see `SERVER.md`)
 - [ ] Durable event cursors for the local API
 - [ ] Desktop Command Center GUI
-- [ ] Scheduled automation and authenticated remote/mobile controls
+- [x] Authenticated remote/mobile controls (Phase B: password + sessions +
+      CSRF, Tailscale Serve; see `SERVER.md`) — scheduled automation remains
+- [ ] Scheduled automation
 
 ## Unreleased — Image Center and Discord Image Generation
 

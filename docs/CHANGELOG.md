@@ -1,5 +1,23 @@
 # Unreleased — Command Center, Image Center, Automatic Validation, and Documentation Review
 
+- Moved the server HTTP transport from the stdlib server to aiohttp (declared
+  dependency), keeping the dispatch table, the typed handler calls, and every
+  Phase A limit (bounded sizes, bounded concurrency, per-request timeouts,
+  structured access log).
+- Added server authentication (Phase B): a local-only password setup command
+  (`python -m orion.main --server-setup`, scrypt hash in
+  `~/.orion/server/auth.json`, min 12 characters), session cookies (HttpOnly,
+  SameSite=Lax, 7-day sliding expiry; only SHA-256 hashes on disk),
+  session-bound CSRF tokens, strict Origin/Host validation, a 5-in-15-minutes
+  login lockout, and a `server-auth` audit kind in the recovery history. Every
+  endpoint requires a session except `POST /api/auth/login`; with no password
+  set the server starts in setup mode (503 everywhere). `ORION_SERVER_AUTH=off`
+  remains a dev/testing exception only.
+- Added Tailscale Serve remote access: Orion stays loopback-only and Serve
+  terminates TLS at the tailnet hostname (`tailscale serve --bg 8000`);
+  `server.tailscale_host` joins localhost on the Host/Origin allowlist, and
+  tailnet identity (`user@device`) is logged per auth event when available.
+  See `docs/SERVER.md` for the Serve URL and the phone setup guide.
 - Added headless server mode (`python -m orion.main --server`): the same
   service graph as the console, an HTTP listener, no console render or REPL.
 - Added a lifetime-held OS file lock (`~/.orion/server.lock`) taken at startup

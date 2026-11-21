@@ -2157,13 +2157,18 @@ Orion can run headless as a persistent server with a local HTTP API, so other
 programs — and, in a later phase, a web Command Center — can drive it without
 the console REPL.
 
-> **Development-only prototype.** The Phase A server binds loopback only and
-> serves **unauthenticated** requests. Do not expose it beyond the local
-> machine: no port forwarding, no remote proxying, no scheduled task at boot.
-> Authentication arrives in a later phase; a deployed server never serves
-> unauthenticated mutations.
+Every endpoint requires a session cookie (except the login endpoint itself),
+and remote access goes through Tailscale Serve — Orion binds loopback only
+and is never exposed to the public internet. A deployed server never serves
+an unauthenticated mutation, even on `127.0.0.1`.
 
-Start it with:
+Set the server password first (local only, on the server itself):
+
+```powershell
+python -m orion.main --server-setup
+```
+
+Then start it with:
 
 ```powershell
 python -m orion.main --server
@@ -2172,7 +2177,8 @@ python -m orion.main --server
 The server builds the same service graph as the console, starts the HTTP
 listener (default `http://127.0.0.1:8000`), and skips the console render and
 REPL. Add `--discord` to run the Discord bot beside it. Stop it with Ctrl+C;
-Orion drains in-flight work for up to 30 seconds, then exits.
+Orion drains in-flight work for up to 30 seconds, then exits. There is no
+scheduled task at boot yet — that comes in a later phase.
 
 Two things can stop it starting:
 
@@ -2183,19 +2189,35 @@ Two things can stop it starting:
   startup, and a second process refuses to start. The OS releases the lock
   automatically if a process dies, so there is never a stale lock to clean up.
 
+With no password set, the server starts in setup mode: every endpoint answers
+`503` until the setup command is run (it works while the server runs — the
+next login succeeds with no restart). If the password is ever lost, delete
+`~/.orion/server/auth.json` and re-run the setup command; that signs out
+every device.
+
+Log in with `POST /api/auth/login` (`{"password": "..."}`), which issues a
+session cookie and returns a CSRF token. Mutating requests need the token in
+the `X-CSRF-Token` header; reads need only the cookie. Sessions last 7 days
+with sliding expiry; list them at `GET /api/auth/sessions`, revoke one at
+`POST /api/auth/sessions/{id}/revoke`, and sign out everywhere with
+`POST /api/auth/revoke-all`. Five failed logins in 15 minutes locks the
+source out for 15 minutes. Every auth event is recorded in the recovery
+history (kind `server-auth`).
+
 Configuration lives under the `server:` root in `~/.orion/config.yaml` (see
 `config/default.yaml` for the defaults: loopback host, port 8000, bounded
-concurrency, request/response size caps, per-request timeout). By default
-`auth_required` is `true`, and Phase A has no auth implementation — so the
-server refuses to serve unless the development exception is set explicitly:
-
-```powershell
-$env:ORION_SERVER_AUTH = "off"
-python -m orion.main --server
-```
-
-That exception is for local development and testing only, never for a
+concurrency, request/response size caps, per-request timeout). Two Phase B
+keys matter most: `secure_cookies` (default `true` — the session cookie's
+Secure flag; set `false` only for loopback HTTP development) and
+`tailscale_host` (the Tailscale Serve hostname, which joins localhost on the
+Host/Origin allowlist). The development exception `ORION_SERVER_AUTH=off`
+runs the server unauthenticated for local testing only — never for a
 deployed server.
+
+Remote access goes through Tailscale Serve (`tailscale serve --bg 8000`,
+one-time setup on the server), which terminates TLS at the tailnet hostname
+and proxies to loopback. From any device on the tailnet, open the Serve URL
+and log in; the phone setup guide is in `SERVER.md`.
 
 The API covers the Command Center snapshot, jobs, activity, doctor, health,
 logs, missions and mission history, and Team tasks and runs (GET endpoints),

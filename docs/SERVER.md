@@ -1,24 +1,34 @@
 # Orion Server — Persistent Runtime and Local API
 
-> **Development-only prototype.** The Phase A server binds loopback only and
-> serves **unauthenticated** requests. It exists so a local interface (and, in
-> later phases, a web Command Center) can drive Orion without the console REPL.
-> A deployed server never serves an unauthenticated mutation endpoint, even on
-> `127.0.0.1` — authentication lands in Phase B, and until then the server must
-> not be exposed beyond the local machine (no port forwarding, no remote
-> proxying, no scheduled task at boot).
+> **Phase B: authenticated, remotely reachable over the tailnet.** The server
+> binds loopback only and serves **no** endpoint without a session cookie
+> (except the login endpoint itself). Remote access goes through Tailscale
+> Serve, which terminates TLS and proxies to loopback — Orion never binds a
+> network interface and is never exposed to the public internet (no Funnel,
+> no port forwarding).
 
-## Running the server
+## Quick start
 
 ```powershell
+# 1. Set the server password (local only, hidden prompt, min 12 characters).
+python -m orion.main --server-setup
+
+# 2. Tell Orion the Tailscale Serve hostname (one line in ~/.orion/config.yaml).
+#    server:
+#      tailscale_host: "daniels-server.tail807316.ts.net"
+
+# 3. Start the server.
 python -m orion.main --server
+
+# 4. From any device on the tailnet, open the Serve URL and log in.
+#    https://daniels-server.tail807316.ts.net/api/healthz
 ```
 
 `--server` starts Orion headless: it builds the same service graph as the
 console, starts the HTTP listener, and skips the console render and REPL.
 Pass `--discord` alongside `--server` to run the Discord bot beside it, the
 same as in console mode. The process runs in the foreground; stop it with
-Ctrl+C.
+Ctrl+C. (There is no scheduled task at boot yet — that is Phase D.)
 
 The server refuses to start in two cases:
 
@@ -28,6 +38,169 @@ The server refuses to start in two cases:
 - **Another Orion process is already running** — see the singleton lock below.
 
 `--server` and `--first-contact` cannot be combined.
+
+## Authentication
+
+A deployed server never serves an unauthenticated mutation endpoint, even on
+`127.0.0.1` (§3.3 invariant). Every `/api/*` endpoint requires a session
+cookie — including `GET /api/healthz` — except `POST /api/auth/login`.
+
+### Setting the password
+
+```powershell
+python -m orion.main --server-setup
+```
+
+The setup command is **local-only**: run it on the server itself (via SSH or
+RustDesk). It prompts for the password with hidden input (twice), hashes it
+with scrypt, and writes the hash directly to `~/.orion/server/auth.json`.
+There is no setup token, no web setup page, and no `POST /api/auth/setup`
+endpoint. The command runs without the singleton lock and without starting
+Orion, so it works while the server is running.
+
+- Minimum password length: 12 characters.
+- The password is never stored in plaintext — not in config, not in the
+  Vault, not in any log.
+- `auth.json` is written atomically with owner-only permissions
+  (best-effort on Windows).
+- Changing the password signs out every device: all sessions are revoked and
+  the CSRF secret rotates.
+- When stdin is not a terminal (piped input, a non-interactive SSH command),
+  the prompt reads the password from stdin instead of hiding it — on Windows,
+  `getpass` would otherwise block forever with no console attached.
+
+### Setup mode
+
+When no password exists yet, the server starts and answers **every** endpoint
+with `503 setup_required` (login included), with instructions to run the
+setup command. The server log says `SETUP MODE` loudly. Set the password
+while the server runs — the next login works with no restart.
+
+### Sessions
+
+`POST /api/auth/login` with `{"password": "..."}` issues a session cookie
+and returns the CSRF token:
+
+```json
+{
+  "status": "success",
+  "message": "Logged in.",
+  "data": {
+    "session_id": "0123456789abcdef",
+    "expires_at": "2026-11-27T18:00:00Z",
+    "csrf_token": "0123456789abcdef..."
+  }
+}
+```
+
+- The cookie (`orion_session`) is HttpOnly, SameSite=Lax, and a session
+  cookie (no Max-Age) — the browser drops it on close and the server-side
+  7-day sliding expiry governs. The expiry slides forward on activity (the
+  record is rewritten at most once per 60 seconds per session).
+- Sessions are stored server-side under `~/.orion/server/sessions/`
+  (bounded at 20, expiring), with **only the SHA-256 hash** of each session
+  token on disk — a stolen session file yields no usable token.
+- The `Secure` cookie flag is explicit config (`server.secure_cookies`,
+  default `true`): behind Serve, Orion sees plain loopback HTTP (TLS
+  terminates at Serve), so the flag cannot be inferred from the socket. Set
+  it `false` only for loopback HTTP development; the server logs a warning
+  when it is disabled.
+
+| Method | Path | Behavior |
+| ------ | ---- | -------- |
+| POST | `/api/auth/login` | Log in; issues the session cookie + CSRF token |
+| POST | `/api/auth/logout` | Revoke the current session, clear its cookie |
+| GET | `/api/auth/me` | Session info + a fresh CSRF token (re-fetch after reload) |
+| GET | `/api/auth/sessions` | List live sessions (the caller's is marked `current`) |
+| POST | `/api/auth/sessions/{id}/revoke` | Revoke one session |
+| POST | `/api/auth/revoke-all` | Revoke every session (including the caller's) and rotate the CSRF secret |
+
+### CSRF + Origin/Host validation
+
+Mutating requests (POST/PUT/PATCH/DELETE) need a CSRF token in the
+`X-CSRF-Token` header, HMAC-bound to the authenticated session
+(HMAC-SHA256 of the server secret and the session ID; the secret lives in
+`auth.json` and rotates on revoke-all and on password change). A matching
+cookie alone is insufficient, and a token bound to another session is
+rejected (`403 csrf_invalid`). Reads (GET) need only the session cookie.
+Login needs no CSRF token (there is no session yet).
+
+The `Host` header is validated on every request and the `Origin` header when
+present, against the allowlist: localhost variants (`127.0.0.1`, `::1`,
+`localhost`) plus `server.tailscale_host` (the Serve hostname). Anything
+else is `403 forbidden_host` / `403 forbidden_origin`.
+
+Gate order: setup mode, then Host/Origin, then session, then CSRF.
+
+### Lockout
+
+5 failed logins in 15 minutes from one source locks that source out for 15
+minutes (`429 locked_out`); a successful login clears the failures. The
+counters are in-memory and re-created on restart. Behind Serve every request
+arrives from loopback, so a lockout covers all remote clients — acceptable
+for a single-user system, and it stops brute force cold.
+
+### Audit
+
+Every auth event — login success/failure, lockout, setup, logout, revoke,
+revoke-all, password change — is recorded in the recovery history (kind
+`server-auth`, viewable with the recovery-history tools) with the source
+address and the tailnet identity (`user@device`, best-effort from the local
+Tailscale daemon) when available. Audit failures never break the auth path.
+Gate rejections (401/403 on ordinary endpoints) are in the access log, not
+the recovery history.
+
+Tailnet identity comes from the local Tailscale daemon only
+(`tailscale status --json`, cached 5 minutes). Client-supplied identity
+headers are never accepted, and the identity is audit context, never an
+auth decision.
+
+### Recovery (lost password)
+
+Delete `~/.orion/server/auth.json` and re-run the setup command. The server
+returns to setup mode immediately — no restart needed, and no sessions
+survive (the password change revokes them all). Losing the password is
+recoverable only with server access, by design: there is no email reset, no
+security question, and no backdoor.
+
+## Remote access (Tailscale Serve)
+
+Orion binds loopback only. Remote access goes through Tailscale Serve, which
+terminates TLS at the tailnet hostname and proxies to `127.0.0.1:8000`:
+
+```powershell
+# One-time setup on the server (persists in the Tailscale daemon).
+tailscale serve --bg 8000
+
+# Check it.
+tailscale serve status
+```
+
+If Serve has never been enabled on the tailnet, the command prints an admin
+link (`https://login.tailscale.com/f/serve?...`) — a tailnet admin must open
+it once to enable Serve, then re-run the command.
+
+The Serve URL is **https://daniels-server.tail807316.ts.net** (the tailnet
+hostname from `tailscale status`). Serve stays configured when Orion is
+stopped; requests just fail to connect until the server starts again.
+
+The server must know the Serve hostname to accept its Host/Origin — set it
+in `~/.orion/config.yaml`:
+
+```yaml
+server:
+  tailscale_host: "daniels-server.tail807316.ts.net"
+```
+
+(Without it, requests through Serve are rejected with `403 forbidden_host`.)
+
+### Phone setup
+
+1. Install Tailscale on the phone and sign in to the same tailnet.
+2. Open `https://daniels-server.tail807316.ts.net/api/healthz` in the browser —
+   an unauthenticated request answers `401`, which proves the tunnel works.
+3. Log in at `POST /api/auth/login` (the web Command Center in Phase C will
+   be the real phone UI; until then the API is the interface).
 
 ## Singleton lock
 
@@ -61,6 +234,8 @@ server:
   host: 127.0.0.1
   port: 8000
   auth_required: true
+  secure_cookies: true
+  tailscale_host: ""
   shutdown_drain_seconds: 30
   max_concurrent_requests: 8
   max_request_bytes: 1048576
@@ -74,24 +249,29 @@ server:
 - `enabled` is a deployment flag for later phases; `--server` starts the
   listener regardless of it.
 - `host` must be a loopback address (`127.0.0.1`, `::1`, or `localhost`);
-  anything else is rejected at startup.
+  anything else is rejected at startup. Remote access is Serve's job, never
+  a wider bind.
 - `port: 0` binds an ephemeral port (used by tests).
-- `auth_required: true` is the default, and Phase A has **no auth
-  implementation** — so a server started with the default config refuses to
-  serve, by design. For local development and testing only, set the
-  environment variable `ORION_SERVER_AUTH=off` to run unauthenticated. That
-  exception is dev/testing only and must never be used for a deployed server.
+- `auth_required: true` is the default. The server refuses to start only
+  when auth is explicitly disabled in config without the per-process
+  development opt-out — that combination means someone turned auth off in
+  the config file, which must never happen for a deployed server.
+- `ORION_SERVER_AUTH=off` is the dev/testing exception only: the server runs
+  unauthenticated (no session gate; the auth endpoints answer `503`). Never
+  for a deployed server.
+- `secure_cookies` and `tailscale_host` are documented in Authentication
+  and Remote access above.
 - `shutdown_drain_seconds` bounds how long Ctrl+C waits for detached work
   before the process exits anyway (see Lifecycle).
 
 ## HTTP transport
 
-The Phase A transport is the standard library's `ThreadingHTTPServer` in a
-background daemon thread, bound loopback-only. It is a prototype: Phase B
-replaces the transport with aiohttp, so the dispatch table and the typed
-handler calls live in the transport-independent `LocalApi` class
-(`orion/server/api.py`) and the HTTP layer only translates between sockets
-and `ApiRequest`/`ApiResponse`.
+The transport is aiohttp (`orion/server/aiohttp_server.py`), on an asyncio
+event loop in a background daemon thread (the Discord precedent). Synchronous
+application-layer calls go through `asyncio.to_thread`. The dispatch table
+and the typed handler calls live in the transport-independent `LocalApi`
+class (`orion/server/api.py`); the HTTP layer only translates between
+sockets and `ApiRequest`/`ApiResponse`.
 
 Bounds and behavior:
 
@@ -104,16 +284,17 @@ Bounds and behavior:
   `request_timeout_seconds` gets `504`. The underlying work is not cancelled;
   long work is detached by design (see below).
 - **Bind retry:** startup retries the bind a few times with a short backoff
-  (slow boot), then fails fast with a clear log line. On Windows the listener
-  uses `SO_EXCLUSIVEADDRUSE`, because Windows `SO_REUSEADDR` would let a
-  second socket bind an actively listening port.
+  (slow boot), then fails fast with a clear log line. The site sets
+  `reuse_address=False`, because Windows `SO_REUSEADDR` would let a second
+  socket bind an actively listening port.
 - **Access log:** one structured JSON line per request (method, path, status,
   duration, request ID) in the server log. Bodies and tokens are never logged.
 
 ## API reference
 
-Base URL: `http://127.0.0.1:8000`. All responses are JSON in the standard
-`ApplicationResult` envelope:
+Base URL: `http://127.0.0.1:8000` locally, or the Serve URL remotely
+(`https://daniels-server.tail807316.ts.net`). All responses are JSON in the
+standard `ApplicationResult` envelope:
 
 ```json
 {
@@ -127,10 +308,16 @@ Base URL: `http://127.0.0.1:8000`. All responses are JSON in the standard
 ```
 
 `data` is `null` on failure; `errors` carries the failure detail. HTTP status
-codes follow the typed error: `400` malformed input, `404` unknown route or
-record, `409` stale preview / conflicting state, `422` validation failure,
-`429` concurrency limit, `500` unexpected error (no tracebacks leak to the
-client).
+codes follow the typed error: `400` malformed input, `401` missing/invalid
+session (or wrong password on login), `403` CSRF/Origin/Host rejection,
+`404` unknown route or record, `409` stale preview / conflicting state,
+`422` validation failure, `429` concurrency limit or login lockout, `500`
+unexpected error (no tracebacks leak to the client), `503` setup mode (no
+password set) or auth disabled in dev mode, `504` request timeout.
+
+Every endpoint requires a session cookie except `POST /api/auth/login` (see
+Authentication above). Mutating endpoints additionally require the
+`X-CSRF-Token` header.
 
 ### Read endpoints
 
@@ -149,6 +336,8 @@ client).
 | GET | `/api/team/tasks/{id}` | One Team task (includes plan hash) |
 | GET | `/api/team/runs/{id}` | One Team run |
 | GET | `/api/healthz` | Liveness + startup reconciliation report |
+| GET | `/api/auth/me` | Session info + CSRF token |
+| GET | `/api/auth/sessions` | Live sessions |
 
 List endpoints take simple `cursor`/`limit` parameters now (cursor = the last
 seen record ID; an unknown cursor is `400`). Durable event cursors are a
@@ -168,6 +357,10 @@ later phase.
 | POST | `/api/missions/{id}/resolve/preview` | Read-only uncertainty-resolution preview |
 | POST | `/api/missions/{id}/resolve` | Resolve an uncertain mission operation |
 | POST | `/api/team/tasks/{id}/approve` | Approve a Team task (decision + optional note) |
+| POST | `/api/auth/login` | Log in (no session/CSRF needed) |
+| POST | `/api/auth/logout` | Log out |
+| POST | `/api/auth/sessions/{id}/revoke` | Revoke one session |
+| POST | `/api/auth/revoke-all` | Revoke all sessions, rotate the CSRF secret |
 
 Every handler calls a typed service or application-coordinator method
 directly. The `cc` handler's `shlex` text parser is never invoked — the API
@@ -234,8 +427,9 @@ console uses. There is no second execution path.
   temporary user-data root for testing — never experiment against the real
   `~/.orion` data.
 
-## What is not in Phase A
+## What is not in Phase B
 
-Authentication, remote access, the web UI, the scheduled task at boot, and
-durable event cursors are all later phases. The Phase A server is a local
-development prototype; treat it accordingly.
+The web UI (Phase C), the scheduled task at boot (Phase D), and durable
+event cursors are still later phases. The server is started manually and
+stopped with Ctrl+C; the API is the interface until the Command Center UI
+lands.
