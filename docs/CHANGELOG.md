@@ -93,6 +93,49 @@
 - Preserved exact workspace binding, one-use approvals, snapshot/rollback behavior,
   Vault isolation, and the human Keep Changes or Roll Back decision.
 
+# v0.8.0
+
+- Released the accumulated Mission milestones — Goal Engine, Goal Proposals,
+  Event Bus, Mission Engine Phase 1, and Mission Coordinator Phases 1, 2,
+  and 3 — as one minor release. The 0.8.2–0.8.7 labels remain internal
+  milestone names for that work.
+- Added deterministic Goal outcome classification and registry-backed previews
+  without execution, immutable expiring Goal Proposal lifecycle models with
+  canonical SHA-256 plan hashes and hash-bound single-use acceptance.
+- Added the immutable schema-versioned Event Bus with persist-before-deliver
+  ordering, append-only daily JSONL Event Store history, and observation-only
+  replay without reactions or workflow progression.
+- Added the observation-only Mission Engine: durable restart-safe projection
+  of accepted Goal Proposals from strictly correlated Event Store facts, with
+  fixed progress mapping and read-only identity, path, hash, and cursor
+  validation.
+- Added the Mission Coordinator: explicit preview, exact state-bound
+  confirmation, and one allowlisted Team lifecycle operation per advance
+  (`team.approve`, `team.implement`, `team.validate`,
+  `team.documentation_review`, `team.final_review`), followed by one
+  reconciliation and a mandatory stop — no subscribers, workers, loops, or
+  automatic retries.
+- Added the typed human final-review decision boundary: `mission advance`
+  captures an accept / changes requested / reject decision (with an optional
+  note, token-bound) and records one immutable decision on the Team run;
+  accept completes the Mission at 100%, changes requested or reject blocks
+  it at 95% with no rework loop.
+- Added the audited uncertainty-resolution workflow: `mission resolve`
+  inspects what the downstream actually did from a fresh reconcile plus Team
+  inspection, then — with an explicit finding and confirmation — completes a
+  stuck audit as succeeded, clears it for a fresh attempt, or refuses; stale
+  locks clear only after confirming no live holder, and every resolution is
+  recorded in recovery history under the `mission-resolve` kind.
+- Added an append-only per-Mission attempt history
+  (`<mission-id>.attempts.jsonl` under the coordination root) recording every
+  attempt transition and resolution; the blocking logic still reads only the
+  single latest audit record.
+- Added a dedicated final-review idempotency regression suite proving
+  same-token replay is blocked after success, decision tokens cannot be
+  swapped, the decision record is single-write, a resolution-cleared
+  operation dispatches exactly once, and concurrent advances dispatch once.
+- Added Mission Coordinator, Mission Engine, and User Guide documentation
+  for the full lifecycle; 1322 tests pass.
 # v0.7.0 — Conductor
 
 - Added persistent AI Team assignments for Architect, Engineering Reviewer,

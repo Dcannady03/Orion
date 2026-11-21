@@ -87,28 +87,35 @@ tested, documented milestones.
 
 ## Current Release
 
-**v0.7.0 — Conductor: COMPLETE**
+**v0.8.0: COMPLETE**
 
-Conductor adds persistent AI Team role assignments, provider/model and execution-engine
-validation, routing-policy planning fallbacks, role metadata in immutable artifacts,
-and a complete living user/documentation process. Gatekeeper's approval, workspace,
-execution, review, and rollback protections remain intact.
+0.8.0 releases the accumulated Mission milestones — Goal Engine, Goal
+Proposals, Event Bus, Mission Engine Phase 1, and Mission Coordinator
+Phases 1, 2, and 3 — as one minor release. The 0.8.2–0.8.7 labels remain
+internal milestone names for that work. Conductor's persistent AI Team role
+assignments, provider/model and execution-engine validation, routing-policy
+planning fallbacks, role metadata in immutable artifacts, and living
+user/documentation process remain intact, as do Gatekeeper's approval,
+workspace, execution, review, and rollback protections.
 
-**Active milestones:** Orion v0.8.2 Goal Engine, Orion v0.8.3 Goal Proposals,
-Orion v0.8.4 Event Bus, Orion v0.8.5 Mission Engine Phase 1, Orion v0.8.6 Mission
-Coordinator Phase 1, Orion v0.8.7 Mission Coordinator Phase 2, and Orion v1.0
-Command Center (unreleased), following the completed-but-unreleased Automatic Validation,
-Documentation Review, and Image Center milestones. Goal Engine establishes
-deterministic outcome classification and registry-backed previews without execution.
-Event Bus adds immutable lifecycle observation and append-only history without
-reactions or workflow progression.
-Mission Engine Phase 1 adds durable, restart-safe observation of accepted Goal
-Proposals without automatic advancement.
-Mission Coordinator adds explicit preview, exact-state confirmation, and one
-allowlisted Team lifecycle operation before reconciliation and a mandatory stop.
-Command Center establishes persistent organization, departments, jobs, explicit AI
-Team launch, durable workflow tracking, activity, snapshots, CLI, and diagnostics
-without claiming the deferred GUI or autonomous scheduler.
+Goal Engine establishes deterministic outcome classification and
+registry-backed previews without execution. Goal Proposals add immutable
+expiring lifecycle models with canonical plan hashes and hash-bound
+single-use acceptance. Event Bus adds immutable lifecycle observation and
+append-only history without reactions or workflow progression. Mission
+Engine Phase 1 adds durable, restart-safe observation of accepted Goal
+Proposals without automatic advancement. Mission Coordinator adds explicit
+preview, exact-state confirmation, and one allowlisted Team lifecycle
+operation before reconciliation and a mandatory stop, a typed human
+final-review decision boundary, an audited uncertainty-resolution workflow,
+and an append-only per-Mission attempt history.
+
+**Active milestones:** Orion v1.0 Command Center (unreleased), following the
+completed-but-unreleased Automatic Validation, Documentation Review, and
+Image Center milestones. Command Center establishes persistent organization,
+departments, jobs, explicit AI Team launch, durable workflow tracking,
+activity, snapshots, CLI, and diagnostics without claiming the deferred GUI
+or autonomous scheduler.
 
 ## Unreleased — Orion v0.8.4 Event Bus
 
