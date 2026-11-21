@@ -37,6 +37,7 @@ from orion.command_center.service import CommandCenterService
 from orion.command_center.integrations import (
     CommandCenterJobUpdateAdapter,
     CommandCenterTeamIntegrationService,
+    LaunchPreparation,
     LaunchPreview,
     LaunchResult,
     LaunchValidationError,
@@ -70,6 +71,7 @@ __all__ = [
     "JobPriority",
     "JobStatus",
     "JobTeamIntegration",
+    "LaunchPreparation",
     "LaunchPreview",
     "LaunchResult",
     "LaunchValidationError",

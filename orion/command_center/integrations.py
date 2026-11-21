@@ -175,6 +175,51 @@ class LaunchResult:
 
 
 @dataclass(frozen=True)
+class LaunchPreparation:
+    """A validated, linked job launch waiting for planning to run.
+
+    Returned by prepare_launch() after the job has been durably linked to
+    its reserved Team task ID (status PLANNING). The caller hands it to
+    execute_launch() to run Team planning; execute_launch() re-checks
+    that the job still carries the same active link before planning, so
+    a cancellation between prepare and execute wins and planning never
+    runs against a superseded job.
+    """
+
+    job: Job
+    team_task_id: str
+    preview: LaunchPreview
+    link: TeamIntegrationLink
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.job, Job):
+            raise TypeError("Launch preparation requires a typed job.")
+        if not isinstance(self.preview, LaunchPreview):
+            raise TypeError("Launch preparation requires a typed preview.")
+        if not isinstance(self.link, TeamIntegrationLink):
+            raise TypeError("Launch preparation requires a typed Team link.")
+        if self.preview.job_id != self.job.job_id:
+            raise ValueError("Launch preparation preview identity does not match.")
+        if self.link.team_task_id != self.team_task_id:
+            raise ValueError("Launch preparation link identity does not match.")
+        if not self.preview.allowed or self.preview.workflow is None:
+            raise ValueError("Launch preparation requires an allowed preview.")
+        if self.job.status is not JobStatus.PLANNING:
+            raise ValueError("Launch preparation requires a PLANNING job.")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "job_id": self.job.job_id,
+            "team_task_id": self.team_task_id,
+            "status": self.job.status.value,
+            "stage": self.job.current_stage,
+            "progress": self.job.progress,
+            "workflow_id": self.link.workflow_id,
+            "preview": self.preview.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
 class SyncResult:
     job: Job
     changed: bool
@@ -400,6 +445,27 @@ class CommandCenterTeamIntegrationService:
         workflow: str = "",
         workspace: str = "",
     ) -> LaunchResult:
+        """Validate, link, plan, and sync synchronously (the CLI path)."""
+        return self.execute_launch(self.prepare_launch(
+            job_id,
+            workflow=workflow,
+            workspace=workspace,
+        ))
+
+    def prepare_launch(
+        self,
+        job_id: str,
+        *,
+        workflow: str = "",
+        workspace: str = "",
+    ) -> LaunchPreparation:
+        """Validate a launch and durably link the job to a Team task.
+
+        No provider work runs here: the job is saved in status PLANNING
+        with its Team link before this returns, so a crash after prepare
+        leaves a linked PLANNING job the operator can sync or cancel
+        (never silently re-planned).
+        """
         job = self.command_center.job(job_id)
         self._activity(
             "job.launch_requested",
@@ -476,12 +542,45 @@ class CommandCenterTeamIntegrationService:
             agent_id=link.active_agent_id,
             metadata={"stage": WorkflowStage.PLANNING.value},
         )
+        return LaunchPreparation(
+            job=job,
+            team_task_id=team_task_id,
+            preview=preview,
+            link=link,
+        )
 
+    def execute_launch(self, preparation: LaunchPreparation) -> LaunchResult:
+        """Run Team planning for a previously prepared launch, then sync.
+
+        Re-checks that the job still carries the same active Team link
+        before planning: a cancellation or superseding link between
+        prepare and execute wins, and planning never runs twice for one
+        preparation.
+        """
+        if not isinstance(preparation, LaunchPreparation):
+            raise TypeError("Launch execution requires a typed preparation.")
+        current = self.command_center.job(preparation.job.job_id)
+        active = JobTeamIntegration.from_job(current).active_link
+        if current.status is not JobStatus.PLANNING:
+            raise ValueError(
+                "Job launch was cancelled or superseded before planning "
+                "started; re-launch from the current job state."
+            )
+        if active is None or active.team_task_id != preparation.team_task_id:
+            raise ValueError(
+                "Job launch was cancelled or superseded before planning "
+                "started; re-launch from the current job state."
+            )
+        if preparation.preview.workflow is None:
+            raise ValueError("Launch preparation has no resolved workflow.")
+        job = preparation.job
+        link = preparation.link
+        team_task_id = preparation.team_task_id
         try:
             if self.team_application is None:
                 task = self.team.plan(
                     job.goal,
-                    selected_agents=list(preview.workflow.agent_ids),
+                    selected_agents=list(preparation.preview.workflow.agent_ids),
                     provider="auto",
                     model="auto",
                     task_id=team_task_id,
@@ -489,7 +588,7 @@ class CommandCenterTeamIntegrationService:
             else:
                 result = self.team_application.plan(TeamPlanRequest(
                     job.goal,
-                    selected_agents=tuple(preview.workflow.agent_ids),
+                    selected_agents=tuple(preparation.preview.workflow.agent_ids),
                     provider="auto",
                     model="auto",
                     task_id=team_task_id,
@@ -531,7 +630,7 @@ class CommandCenterTeamIntegrationService:
         return LaunchResult(
             synced.job,
             task.task_id,
-            preview,
+            preparation.preview,
             synced.warnings,
         )
 
