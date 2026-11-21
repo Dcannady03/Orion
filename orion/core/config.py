@@ -41,6 +41,7 @@ class ConfigManager:
         "vault",
         "connect",
         "image",
+        "server",
     }
 
     def __init__(

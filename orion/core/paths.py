@@ -78,6 +78,10 @@ class OrionPaths:
         return self.user_root / "logs"
 
     @property
+    def server_lock(self) -> Path:
+        return self.user_root / "server.lock"
+
+    @property
     def observability(self) -> Path:
         return self.user_root / "observability"
 
