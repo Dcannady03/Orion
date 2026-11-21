@@ -3,10 +3,14 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError, replace
 from datetime import timedelta
+import gc
 import inspect
 import json
 from pathlib import Path
+import subprocess
+import sys
 from threading import Event
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -35,6 +39,7 @@ from orion.application.missions import (
     MissionLink,
     MissionOperationTranslator,
     MissionProjectionEngine,
+    MissionResolveRequest,
     MissionStage,
     MissionStalePreviewError,
     MissionStatus,
@@ -55,11 +60,28 @@ PLAN_HASH = "f" * 64
 APPROVAL_ID = "approval-mission-coordinator-001"
 
 
+def dead_pid() -> int:
+    """Return the PID of a process that has fully exited.
+
+    The parent drops its handle to the child (and collects) so the
+    operating system tears the process object down; on Windows a dead
+    process with an open handle elsewhere still looks alive.
+    """
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    pid = proc.pid
+    proc.wait()
+    del proc
+    gc.collect()
+    time.sleep(0.1)
+    return pid
+
+
 class FakeTeamApplication:
     def __init__(self, event_store: EventStore) -> None:
         self.event_store = event_store
         self.plan_hash = PLAN_HASH
         self.existing_approval_count = 0
+        self.latest_approval_id = APPROVAL_ID
         self.inspection_available = True
         self.approval_result = ApplicationResult.success(
             "Team plan approved.",
@@ -87,6 +109,11 @@ class FakeTeamApplication:
                 "plan_sha256": self.plan_hash,
                 "approval_inspection_available": self.inspection_available,
                 "existing_approval_count": self.existing_approval_count,
+                "latest_approval_id": (
+                    self.latest_approval_id
+                    if self.existing_approval_count
+                    else ""
+                ),
             },
         )
 
@@ -572,6 +599,41 @@ class MissionConcurrencyTests(MissionCoordinatorFixture):
                 confirmed=True,
             ))
         self.assertFalse(self.team_application.approve_calls)
+
+    def test_stale_lock_clears_only_through_resolution(self) -> None:
+        # The fail-closed default stays: a lock whose holder is dead still
+        # blocks preview and advance until an operator resolves it.
+        self.audit_repository.root.mkdir(parents=True, exist_ok=True)
+        lock = self.audit_repository.root / (
+            f".{self.mission.mission_id}.advance.lock"
+        )
+        lock.write_text(
+            json.dumps({
+                "mission_id": self.mission.mission_id,
+                "pid": dead_pid(),
+                "started_at": "2026-08-08T12:00:15Z",
+            }),
+            encoding="utf-8",
+        )
+        blocked = self.coordinator.preview(self.mission.mission_id)
+        self.assertTrue(blocked.operation.blocked)
+        inspection = self.coordinator.resolve_preview(self.mission.mission_id)
+        self.assertTrue(inspection.resolvable)
+        self.assertTrue(inspection.lock_blocked)
+        self.assertFalse(inspection.audit_blocked)
+        self.assertIs(inspection.lock_holder_alive, False)
+        result = self.coordinator.resolve(MissionResolveRequest(
+            self.mission.mission_id,
+            confirmed=True,
+            actor="operator",
+        ))
+        self.assertTrue(result.lock_cleared)
+        self.assertEqual(result.audit_outcome, "none")
+        self.assertFalse(lock.exists())
+        self.assertFalse(self.team_application.approve_calls)
+        unblocked = self.coordinator.preview(self.mission.mission_id)
+        self.assertFalse(unblocked.operation.blocked)
+        self.assertEqual(unblocked.operation.capability_id, "team.approve")
 
 
 class MissionCoordinatorCliTests(MissionCoordinatorFixture):
