@@ -1,5 +1,19 @@
 # Unreleased — Command Center, Image Center, Automatic Validation, and Documentation Review
 
+- Added headless server mode (`python -m orion.main --server`): the same
+  service graph as the console, an HTTP listener, no console render or REPL.
+- Added a lifetime-held OS file lock (`~/.orion/server.lock`) taken at startup
+  in both console and server modes, so a second Orion process refuses to start;
+  the OS releases the lock automatically on process death.
+- Added a loopback-only local API (`orion/server/`, stdlib `ThreadingHTTPServer`)
+  with 23 typed endpoints over the Command Center, missions, and Team tasks/runs;
+  long work returns 202 with an operation ID and runs detached, durably recorded
+  before the response, with startup reconciliation that never auto-replays
+  uncertain work. Unauthenticated in Phase A: development-only, never deploy.
+- Hardened the Team task and agent stores with unique temp files and locked
+  saves, and made the Command Center activity log tolerate and repair a torn
+  final line, so an abrupt termination mid-write leaves every store consistent.
+- Added `docs/SERVER.md` and a server section in the user guide.
 - Added immutable structured application results, a deterministic capability
   registry, a Command Center application handler, and a separate CLI renderer.
 - Kept existing `cc` and `command-center` syntax while moving request parsing and

@@ -38,6 +38,7 @@ Orion's core principle is simple:
 16. [Safety model](#16-safety-model)
 17. [Troubleshooting](#17-troubleshooting)
 18. [Command reference](#18-command-reference)
+19. [Server mode and local API](#19-server-mode-and-local-api)
 
 ## 0. Quick Start (5 Minutes)
 
@@ -2149,6 +2150,66 @@ request changes or reject blocks it at 95%.
 | `trust list` / `trust revoke <app>` | Review or revoke application trust |
 | `update check` / `update` | Check or apply an Orion package update |
 | `update rollback` | Restore the previous application backup |
+
+## 19. Server mode and local API
+
+Orion can run headless as a persistent server with a local HTTP API, so other
+programs — and, in a later phase, a web Command Center — can drive it without
+the console REPL.
+
+> **Development-only prototype.** The Phase A server binds loopback only and
+> serves **unauthenticated** requests. Do not expose it beyond the local
+> machine: no port forwarding, no remote proxying, no scheduled task at boot.
+> Authentication arrives in a later phase; a deployed server never serves
+> unauthenticated mutations.
+
+Start it with:
+
+```powershell
+python -m orion.main --server
+```
+
+The server builds the same service graph as the console, starts the HTTP
+listener (default `http://127.0.0.1:8000`), and skips the console render and
+REPL. Add `--discord` to run the Discord bot beside it. Stop it with Ctrl+C;
+Orion drains in-flight work for up to 30 seconds, then exits.
+
+Two things can stop it starting:
+
+- **First Contact has not been completed.** The server cannot run interactive
+  onboarding — run `python -m orion.main --first-contact` first.
+- **Another Orion process is already running.** Orion is single-writer: every
+  process takes an operating-system file lock (`~/.orion/server.lock`) at
+  startup, and a second process refuses to start. The OS releases the lock
+  automatically if a process dies, so there is never a stale lock to clean up.
+
+Configuration lives under the `server:` root in `~/.orion/config.yaml` (see
+`config/default.yaml` for the defaults: loopback host, port 8000, bounded
+concurrency, request/response size caps, per-request timeout). By default
+`auth_required` is `true`, and Phase A has no auth implementation — so the
+server refuses to serve unless the development exception is set explicitly:
+
+```powershell
+$env:ORION_SERVER_AUTH = "off"
+python -m orion.main --server
+```
+
+That exception is for local development and testing only, never for a
+deployed server.
+
+The API covers the Command Center snapshot, jobs, activity, doctor, health,
+logs, missions and mission history, and Team tasks and runs (GET endpoints),
+plus job creation, launch preview/launch, sync, and cancel, mission
+next/advance/resolve, and Team task approval (POST endpoints). Long work —
+job launches and mission advances that dispatch a Team operation — returns
+`202 Accepted` with an operation ID immediately; the work runs detached and
+clients poll the record. Operations are durably recorded before the 202 is
+returned, and on startup the server reconciles any in-flight work: uncertain
+operations are never replayed automatically, they surface for operator
+resolution through the same resolve workflow the console uses.
+
+Server output goes to `~/.orion/logs/server.log`. The full API reference,
+error codes, and lifecycle details are in `SERVER.md`.
 
 ## Keeping this guide current
 

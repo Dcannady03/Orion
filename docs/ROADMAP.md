@@ -268,7 +268,9 @@ or autonomous scheduler.
 - [x] Linked jobs cannot bypass authoritative Team, approval, or execution lifecycles
 - [x] Runtime data remains beneath `~/.orion/command-center/`
 - [ ] Explicit adoption/linking of independently created Project Tasks or Team runs
-- [ ] Local application API and event cursors
+- [x] Local application API (Phase A: loopback-only, 23 endpoints, simple
+      cursor/limit pagination; see `SERVER.md`)
+- [ ] Durable event cursors for the local API
 - [ ] Desktop Command Center GUI
 - [ ] Scheduled automation and authenticated remote/mobile controls
 
