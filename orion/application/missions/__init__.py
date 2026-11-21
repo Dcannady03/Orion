@@ -8,6 +8,7 @@ from orion.application.missions.handler import (
 )
 from orion.application.missions.coordination_models import (
     MissionAdvanceAudit,
+    MissionAdvanceDispatch,
     MissionAdvancePreview,
     MissionAdvanceRequest,
     MissionAdvanceResult,
@@ -55,6 +56,7 @@ __all__ = [
     "MISSION_SCHEMA_VERSION",
     "Mission",
     "MissionAdvanceAudit",
+    "MissionAdvanceDispatch",
     "MissionAdvancePreview",
     "MissionAdvanceRequest",
     "MissionAdvanceResult",

@@ -288,6 +288,98 @@ class MissionAdvanceRequest:
 
 
 @dataclass(frozen=True)
+class MissionAdvanceDispatch:
+    """A reserved Mission advance: the durable audit plus the frozen operation.
+
+    Returned by MissionCoordinator.dispatch() after the audit has been
+    written in state "reserved". The caller hands it to execute() to run
+    the operation; execute() re-checks that the audit is still reserved
+    with the same attempt ID before dispatching, so an operator
+    resolution between dispatch and execute wins and the operation never
+    runs twice. The preview is frozen at dispatch time: the operation,
+    its resolved inputs, and the advance token cannot drift while the
+    dispatch waits to execute.
+    """
+
+    mission_id: str
+    audit: MissionAdvanceAudit
+    preview: MissionAdvancePreview
+    actor: str
+    correlation_id: str
+    causation_id: str
+    previous_status: str
+    decision: str = ""
+    note: str = ""
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mission_id", _mission_id(self.mission_id))
+        if not isinstance(self.audit, MissionAdvanceAudit):
+            raise TypeError("Mission dispatch requires a typed advance audit.")
+        if not isinstance(self.preview, MissionAdvancePreview):
+            raise TypeError("Mission dispatch requires a typed advance preview.")
+        if self.audit.mission_id != self.mission_id:
+            raise ValueError("Mission dispatch audit identity does not match.")
+        if self.preview.mission_id != self.mission_id:
+            raise ValueError("Mission dispatch preview identity does not match.")
+        if self.audit.state != "reserved":
+            raise ValueError("Mission dispatch requires a reserved audit.")
+        if self.audit.advance_token != self.preview.advance_token:
+            raise ValueError("Mission dispatch audit and preview tokens differ.")
+        object.__setattr__(self, "actor", _text(
+            self.actor, "Mission dispatch actor", 100, required=True
+        ))
+        object.__setattr__(self, "correlation_id", _text(
+            self.correlation_id, "Mission dispatch correlation ID", 160
+        ))
+        causation_id = _text(
+            self.causation_id, "Mission dispatch causation ID", 38
+        ).lower()
+        if causation_id and not EVENT_ID_PATTERN.fullmatch(causation_id):
+            raise ValueError("Mission dispatch causation ID has an invalid format.")
+        object.__setattr__(self, "causation_id", causation_id)
+        object.__setattr__(self, "previous_status", _text(
+            self.previous_status, "Mission dispatch previous status", 40,
+            required=True,
+        ))
+        decision = _text(
+            self.decision, "Mission final-review decision", 20
+        ).lower()
+        if decision and decision not in {"accepted", "changes_requested", "rejected"}:
+            raise ValueError(
+                "Mission final-review decision is not accepted, changes "
+                "requested, or rejected."
+            )
+        object.__setattr__(self, "decision", decision)
+        object.__setattr__(self, "note", _text(
+            self.note, "Mission final-review note", 500
+        ))
+        object.__setattr__(self, "warnings", tuple(dict.fromkeys(
+            _text(item, "Mission dispatch warning", 500, required=True)
+            for item in self.warnings
+        )))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "mission_id": self.mission_id,
+            "attempt_id": self.audit.attempt_id,
+            "advance_token": self.audit.advance_token,
+            "capability_id": self.audit.capability_id,
+            "subject_id": self.audit.subject_id,
+            "actor": self.actor,
+            "state": self.audit.state,
+            "correlation_id": self.correlation_id,
+            "causation_id": self.causation_id,
+            "previous_status": self.previous_status,
+            "decision": self.decision,
+            "note": self.note,
+            "warnings": list(self.warnings),
+            "audit": self.audit.to_dict(),
+            "preview": self.preview.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
 class MissionAdvanceResult:
     mission_id: str
     operation_dispatched: bool

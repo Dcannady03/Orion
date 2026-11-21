@@ -15,6 +15,7 @@ from orion.application.commands.ai_team_commands import TeamTaskRequest
 from orion.application.interface_actions import interface_action
 from orion.application.missions.coordination_models import (
     MissionAdvanceAudit,
+    MissionAdvanceDispatch,
     MissionAdvancePreview,
     MissionAdvanceRequest,
     MissionAdvanceResult,
@@ -45,6 +46,15 @@ _RESOLUTION_LINK_TYPES = {
     "team.documentation_review": "documentation_review",
     "team.final_review": "final_review",
 }
+
+# Capabilities whose downstream work is long-running (provider calls via a
+# Team run). The server returns 202 for these and executes them detached;
+# the remaining capabilities are record writes that run inline.
+_LONG_RUNNING_CAPABILITIES = frozenset({
+    "team.implement",
+    "team.validate",
+    "team.documentation_review",
+})
 
 # Run-based operations: the coordination-data fields that prove the
 # operation ran, plus the label used in the resolution evidence.
@@ -117,6 +127,23 @@ class MissionCoordinator:
         )
 
     def advance(self, request: MissionAdvanceRequest) -> MissionAdvanceResult:
+        """Dispatch and execute one operation synchronously (the CLI path)."""
+        return self.execute(self.dispatch(request))
+
+    @staticmethod
+    def is_long_running(capability_id: str) -> bool:
+        """Whether the capability's downstream work is long-running."""
+        return capability_id in _LONG_RUNNING_CAPABILITIES
+
+    def dispatch(self, request: MissionAdvanceRequest) -> MissionAdvanceDispatch:
+        """Verify a confirmed preview and reserve the advance durably.
+
+        No downstream operation runs here: the audit is written in state
+        "reserved" before this returns, so a crash after dispatch leaves a
+        reserved audit the operator can resolve via the resolve workflow
+        (never auto-replayed). The returned dispatch freezes the preview,
+        the token, and the correlation/causation IDs for execute().
+        """
         if not isinstance(request, MissionAdvanceRequest):
             raise TypeError("Mission advance requires a structured request.")
         if not request.confirmed:
@@ -185,13 +212,60 @@ class MissionCoordinator:
                     expected_attempt_id=prior.attempt_id if prior else None,
                 )
                 self._append_attempt_history(reserved, history_warnings)
+                return MissionAdvanceDispatch(
+                    mission_id=mission.mission_id,
+                    audit=reserved,
+                    preview=preview,
+                    actor=request.actor,
+                    correlation_id=mission.goal_id,
+                    causation_id=mission.last_event_id or "",
+                    previous_status=mission.status.value,
+                    decision=request.decision,
+                    note=request.note,
+                    warnings=tuple(history_warnings),
+                )
 
+    def execute(self, dispatch: MissionAdvanceDispatch) -> MissionAdvanceResult:
+        """Run a previously reserved dispatch exactly once.
+
+        Re-checks that the audit is still reserved with the same attempt
+        ID before dispatching: an operator resolution between dispatch and
+        execute wins, and the operation is never dispatched twice.
+        """
+        if not isinstance(dispatch, MissionAdvanceDispatch):
+            raise TypeError("Mission execute requires a structured dispatch.")
+
+        with self._lock:
+            with self.audit_repository.advance_lock(dispatch.mission_id):
+                current = self.audit_repository.get(dispatch.mission_id)
+                if current is None:
+                    raise MissionCoordinationError(
+                        "This Mission advance was resolved before it executed; "
+                        "its audit was cleared. Re-run mission next."
+                    )
+                if (
+                    current.attempt_id != dispatch.audit.attempt_id
+                    or current.advance_token != dispatch.audit.advance_token
+                ):
+                    raise MissionCoordinationError(
+                        "This Mission advance no longer matches the reserved "
+                        "attempt; it was superseded or resolved."
+                    )
+                if current.state != "reserved":
+                    raise MissionCoordinationError(
+                        f"This Mission advance is already {current.state}; "
+                        "duplicate execution is blocked."
+                    )
+
+                preview = dispatch.preview
+                reserved = dispatch.audit
+                history_warnings: list[str] = list(dispatch.warnings)
                 try:
                     translation = self.translator.translate(
                         preview.operation,
-                        actor=request.actor,
-                        correlation_id=mission.goal_id,
-                        causation_id=mission.last_event_id or None,
+                        actor=dispatch.actor,
+                        correlation_id=dispatch.correlation_id,
+                        causation_id=dispatch.causation_id or None,
                     )
                     downstream = self.translator.dispatch(
                         translation,
@@ -199,7 +273,7 @@ class MissionCoordinator:
                     )
                 except Exception as exc:
                     try:
-                        self.mission_service.reconcile(mission.mission_id)
+                        self.mission_service.reconcile(dispatch.mission_id)
                     except Exception:
                         pass
                     self._record_uncertain(reserved, exc)
@@ -209,7 +283,7 @@ class MissionCoordinator:
                     ) from exc
 
                 try:
-                    after = self.mission_service.reconcile(mission.mission_id)
+                    after = self.mission_service.reconcile(dispatch.mission_id)
                 except Exception as exc:
                     self._record_uncertain(reserved, exc)
                     raise MissionDispatchUncertainError(
@@ -240,18 +314,18 @@ class MissionCoordinator:
                     *updated.warnings,
                     *history_warnings,
                 )))
-                if downstream.ok and updated.status == mission.status:
+                if downstream.ok and updated.status.value == dispatch.previous_status:
                     warnings = tuple(dict.fromkeys((
                         *warnings,
                         "The operation succeeded, but no authoritative Mission state "
                         "change is observable yet; duplicate replay is blocked.",
                     )))
                 return MissionAdvanceResult(
-                    mission_id=mission.mission_id,
+                    mission_id=dispatch.mission_id,
                     operation_dispatched=True,
                     capability_id=preview.operation.capability_id,
                     downstream_result=downstream.to_dict(),
-                    previous_status=mission.status.value,
+                    previous_status=dispatch.previous_status,
                     new_status=updated.status.value,
                     new_stage=updated.stage.value,
                     new_progress=updated.progress,
