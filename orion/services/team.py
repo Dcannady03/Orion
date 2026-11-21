@@ -9,6 +9,7 @@ import stat
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
 from time import perf_counter
 from typing import Any, Callable
 from uuid import uuid4
@@ -444,25 +445,51 @@ class TeamTaskStore:
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
+        # Serialize in-process saves: on Windows, two concurrent replaces
+        # of the same destination can fail with PermissionError even with
+        # unique temp names. Cross-process writes are impossible (the
+        # singleton lock allows one Orion process), so a process-local
+        # lock is sufficient. Matches the Command Center repository.
+        self._lock = RLock()
 
     def save(self, task: TeamTask) -> Path:
+        with self._lock:
+            return self._save_locked(task)
+
+    def _save_locked(self, task: TeamTask) -> Path:
         path = self._path(task.task_id)
         payload = task.to_dict()
         TeamTask.from_dict(payload)
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        # Unique temp name: a fixed temp name lets two concurrent saves of
+        # the same task collide (one writer's replace removes the temp file
+        # the other is about to replace). The write itself stays atomic
+        # (temp file + replace); the unique name makes it safe under
+        # concurrency, matching the Command Center repository.
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
         try:
-            os.chmod(temporary, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
-        temporary.replace(path)
+            with temporary.open("x", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            try:
+                os.chmod(temporary, stat.S_IRUSR | stat.S_IWUSR)
+            except OSError:
+                pass
+            temporary.replace(path)
+        finally:
+            try:
+                if temporary.exists():
+                    temporary.unlink()
+            except OSError:
+                pass
         return path
 
     def load(self, task_id: str) -> TeamTask:
+        with self._lock:
+            return self._load_locked(task_id)
+
+    def _load_locked(self, task_id: str) -> TeamTask:
         path = self._path(task_id)
         if not path.is_file():
             raise FileNotFoundError(f"AI Team task not found: {task_id}")

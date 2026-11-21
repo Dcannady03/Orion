@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import stat
 from pathlib import Path
+from threading import RLock
 from uuid import uuid4
 
 import yaml
@@ -31,9 +32,22 @@ class AgentRepository:
         self.workspace_boundary = (
             Path(workspace_boundary).resolve() if workspace_boundary is not None else None
         )
+        # Serialize in-process saves: on Windows, two concurrent replaces
+        # of the same destination can fail with PermissionError even with
+        # unique temp names. Matches the Command Center repository.
+        self._lock = RLock()
         self._validate_root()
 
     def save(
+        self,
+        agent: ManagedAgentDefinition,
+        *,
+        overwrite: bool = False,
+    ) -> Path:
+        with self._lock:
+            return self._save_locked(agent, overwrite=overwrite)
+
+    def _save_locked(
         self,
         agent: ManagedAgentDefinition,
         *,
@@ -79,6 +93,10 @@ class AgentRepository:
         return path
 
     def load(self, agent_id: str) -> ManagedAgentDefinition:
+        with self._lock:
+            return self._load_locked(agent_id)
+
+    def _load_locked(self, agent_id: str) -> ManagedAgentDefinition:
         normalized = normalize_agent_id(agent_id)
         path = self._path(normalized)
         if not path.is_file():

@@ -184,6 +184,14 @@ class FileCommandCenterRepository:
                 sort_keys=True,
                 separators=(",", ":"),
             )
+            # A crash mid-flush can leave a torn final line (no trailing
+            # newline). The reader skips it, but the writer repairs the
+            # file: truncate the partial bytes so the torn fragment never
+            # becomes a complete malformed line.
+            if self.activity_path.exists() and self._missing_final_newline(
+                self.activity_path
+            ):
+                self._truncate_torn_tail(self.activity_path)
             with self.activity_path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(line + "\n")
                 handle.flush()
@@ -317,9 +325,15 @@ class FileCommandCenterRepository:
         if self.activity_path.stat().st_size > MAX_ACTIVITY_FILE_BYTES:
             raise ValueError("Activity history exceeds the supported size limit.")
         try:
-            lines = self.activity_path.read_text(encoding="utf-8").splitlines()
+            text = self.activity_path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
             raise ValueError("Activity history could not be read.") from exc
+        lines = text.splitlines()
+        # A crash mid-flush leaves a torn FINAL line: a partial line with
+        # no trailing newline. That one line is skipped (it was never a
+        # complete event); a malformed line anywhere else, or a complete
+        # malformed line, is corruption and still raises.
+        torn_final = bool(lines) and not text.endswith("\n")
         events: list[ActivityEvent] = []
         seen: set[str] = set()
         previous: datetime | None = None
@@ -329,6 +343,8 @@ class FileCommandCenterRepository:
             try:
                 event = ActivityEvent.from_value(json.loads(line))
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                if torn_final and line_number == len(lines):
+                    break
                 raise ValueError(
                     f"Activity history is malformed at line {line_number}."
                 ) from exc
@@ -347,6 +363,32 @@ class FileCommandCenterRepository:
             seen.add(event.event_id)
             events.append(event)
         return events
+
+    @staticmethod
+    def _missing_final_newline(path: Path) -> bool:
+        """True when a non-empty file does not end with a newline.
+
+        A missing final newline means the last line was torn by a crash
+        mid-flush. Mirrors the Event Store check.
+        """
+        if path.stat().st_size == 0:
+            return False
+        with path.open("rb") as handle:
+            handle.seek(-1, os.SEEK_END)
+            return handle.read(1) != b"\n"
+
+    @staticmethod
+    def _truncate_torn_tail(path: Path) -> None:
+        """Drop a torn final line (bytes after the last newline).
+
+        The torn fragment was never a complete event; removing it keeps
+        the file strictly parseable. If the file holds no complete line
+        at all, it is truncated to empty.
+        """
+        raw = path.read_bytes()
+        cut = raw.rfind(b"\n")
+        with path.open("r+b") as handle:
+            handle.truncate(cut + 1)
 
     def _atomic_yaml(self, path: Path, value: dict[str, Any]) -> None:
         self._ensure_directory(path.parent)
