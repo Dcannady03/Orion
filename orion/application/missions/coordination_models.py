@@ -16,6 +16,7 @@ ADVANCE_TOKEN_PATTERN = re.compile(r"[a-f0-9]{64}")
 ATTEMPT_ID_PATTERN = re.compile(r"mission-attempt-[a-f0-9]{32}")
 CAPABILITY_ID_PATTERN = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+")
 AUDIT_STATES = frozenset({"reserved", "succeeded", "failed", "uncertain"})
+ATTEMPT_HISTORY_KINDS = frozenset({"attempt", "resolution"})
 RESOLUTION_FINDINGS = frozenset({"ran", "did_not_run", "cannot_determine"})
 RESOLUTION_AUDIT_OUTCOMES = frozenset({"succeeded", "cleared", "none"})
 _JSON_SCALARS = (str, int, float, bool, type(None))
@@ -452,6 +453,214 @@ class MissionAdvanceAudit:
         if set(value) != fields:
             raise ValueError("Mission coordination audit fields are invalid.")
         return cls(**dict(value))
+
+
+@dataclass(frozen=True)
+class MissionAttemptHistoryEntry:
+    """One append-only attempt snapshot in a Mission's attempt history.
+
+    The entry wraps a full MissionAdvanceAudit snapshot plus the time the
+    snapshot was appended. Attempts are recorded at every audit transition
+    (reserved -> uncertain/succeeded/failed), so the log holds the full
+    trail while the blocking logic keeps reading only the single latest
+    audit record.
+    """
+
+    schema_version: int
+    kind: str
+    recorded_at: str
+    audit: MissionAdvanceAudit
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ValueError(
+                "Unsupported Mission attempt history schema: "
+                f"{self.schema_version}."
+            )
+        kind = _text(
+            self.kind, "Mission attempt history kind", 20, required=True
+        )
+        if kind != "attempt":
+            raise ValueError(
+                f"Mission attempt history kind is not supported: {kind}"
+            )
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "recorded_at", _timestamp(
+            self.recorded_at,
+            "Mission attempt history timestamp",
+            required=True,
+        ))
+        if not isinstance(self.audit, MissionAdvanceAudit):
+            raise TypeError(
+                "Mission attempt history requires a Mission advance audit."
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "kind": self.kind,
+            "recorded_at": self.recorded_at,
+            "audit": self.audit.to_dict(),
+        }
+
+    @classmethod
+    def from_value(cls, value: object) -> "MissionAttemptHistoryEntry":
+        if not isinstance(value, Mapping):
+            raise TypeError("Mission attempt history entry must be a JSON object.")
+        fields = {"schema_version", "kind", "recorded_at", "audit"}
+        if set(value) != fields:
+            raise ValueError("Mission attempt history entry fields are invalid.")
+        return cls(
+            schema_version=value["schema_version"],
+            kind=value["kind"],
+            recorded_at=value["recorded_at"],
+            audit=MissionAdvanceAudit.from_value(value["audit"]),
+        )
+
+
+@dataclass(frozen=True)
+class MissionResolutionHistoryEntry:
+    """One append-only resolution record in a Mission's attempt history.
+
+    A resolution is a distinct operator action, never an edit of the audit
+    it resolves. Lock-only resolutions carry no attempt or capability: the
+    finding is empty and the audit outcome is ``none``.
+    """
+
+    schema_version: int
+    kind: str
+    mission_id: str
+    actor: str
+    resolved_at: str
+    attempt_id: str = ""
+    capability_id: str = ""
+    finding: str = ""
+    audit_outcome: str = "none"
+    downstream_reference: str = ""
+    lock_cleared: bool = False
+    recovery_record_id: str = ""
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ValueError(
+                "Unsupported Mission attempt history schema: "
+                f"{self.schema_version}."
+            )
+        kind = _text(
+            self.kind, "Mission attempt history kind", 20, required=True
+        )
+        if kind != "resolution":
+            raise ValueError(
+                f"Mission attempt history kind is not supported: {kind}"
+            )
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "mission_id", _mission_id(self.mission_id))
+        object.__setattr__(self, "actor", _text(
+            self.actor, "Mission resolution actor", 100, required=True
+        ))
+        object.__setattr__(self, "resolved_at", _timestamp(
+            self.resolved_at,
+            "Mission resolution timestamp",
+            required=True,
+        ))
+        attempt_id = _text(self.attempt_id, "Mission attempt ID", 48)
+        if attempt_id and not ATTEMPT_ID_PATTERN.fullmatch(attempt_id):
+            raise ValueError("Mission attempt ID has an invalid format.")
+        capability = _text(
+            self.capability_id, "Mission resolution capability", 100
+        )
+        if capability and not CAPABILITY_ID_PATTERN.fullmatch(capability):
+            raise ValueError("Mission resolution capability has an invalid format.")
+        finding = _text(self.finding, "Mission resolution finding", 20)
+        if finding and finding not in RESOLUTION_FINDINGS:
+            raise ValueError(
+                f"Mission resolution finding is not supported: {finding}"
+            )
+        outcome = _text(
+            self.audit_outcome, "Mission resolution audit outcome", 20,
+            required=True,
+        )
+        if outcome not in RESOLUTION_AUDIT_OUTCOMES:
+            raise ValueError(
+                f"Mission resolution audit outcome is not supported: {outcome}"
+            )
+        if finding:
+            if not attempt_id:
+                raise ValueError(
+                    "Mission resolution with a finding requires an attempt ID."
+                )
+            if not capability:
+                raise ValueError(
+                    "Mission resolution with a finding requires a capability."
+                )
+            if outcome == "none":
+                raise ValueError(
+                    "Mission resolution with a finding requires an audit outcome."
+                )
+        else:
+            if attempt_id or capability or outcome != "none":
+                raise ValueError(
+                    "Mission resolution without a finding must be lock-only."
+                )
+        if not isinstance(self.lock_cleared, bool):
+            raise TypeError("Mission resolution lock flag must be a boolean.")
+        object.__setattr__(self, "attempt_id", attempt_id)
+        object.__setattr__(self, "capability_id", capability)
+        object.__setattr__(self, "finding", finding)
+        object.__setattr__(self, "audit_outcome", outcome)
+        object.__setattr__(self, "downstream_reference", _text(
+            self.downstream_reference,
+            "Mission resolution downstream reference",
+            160,
+        ))
+        object.__setattr__(self, "recovery_record_id", _text(
+            self.recovery_record_id,
+            "Mission resolution recovery record ID",
+            64,
+        ))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "kind": self.kind,
+            "mission_id": self.mission_id,
+            "actor": self.actor,
+            "resolved_at": self.resolved_at,
+            "attempt_id": self.attempt_id,
+            "capability_id": self.capability_id,
+            "finding": self.finding,
+            "audit_outcome": self.audit_outcome,
+            "downstream_reference": self.downstream_reference,
+            "lock_cleared": self.lock_cleared,
+            "recovery_record_id": self.recovery_record_id,
+        }
+
+    @classmethod
+    def from_value(cls, value: object) -> "MissionResolutionHistoryEntry":
+        if not isinstance(value, Mapping):
+            raise TypeError("Mission attempt history entry must be a JSON object.")
+        fields = {
+            "schema_version", "kind", "mission_id", "actor", "resolved_at",
+            "attempt_id", "capability_id", "finding", "audit_outcome",
+            "downstream_reference", "lock_cleared", "recovery_record_id",
+        }
+        if set(value) != fields:
+            raise ValueError("Mission attempt history entry fields are invalid.")
+        return cls(**dict(value))
+
+
+def parse_attempt_history_entry(
+    value: object,
+) -> MissionAttemptHistoryEntry | MissionResolutionHistoryEntry:
+    """Parse one attempt-history log line by its kind discriminator."""
+    if not isinstance(value, Mapping):
+        raise TypeError("Mission attempt history entry must be a JSON object.")
+    kind = str(value.get("kind") or "").strip()
+    if kind == "attempt":
+        return MissionAttemptHistoryEntry.from_value(value)
+    if kind == "resolution":
+        return MissionResolutionHistoryEntry.from_value(value)
+    raise ValueError("Mission attempt history kind is not supported.")
 
 
 @dataclass(frozen=True)

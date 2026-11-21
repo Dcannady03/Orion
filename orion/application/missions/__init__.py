@@ -11,11 +11,14 @@ from orion.application.missions.coordination_models import (
     MissionAdvancePreview,
     MissionAdvanceRequest,
     MissionAdvanceResult,
+    MissionAttemptHistoryEntry,
     MissionLockInfo,
     MissionNextOperation,
+    MissionResolutionHistoryEntry,
     MissionResolvePreview,
     MissionResolveRequest,
     MissionResolveResult,
+    parse_attempt_history_entry,
 )
 from orion.application.missions.coordination_repository import (
     MissionCoordinationRepository,
@@ -56,6 +59,7 @@ __all__ = [
     "MissionAdvanceRequest",
     "MissionAdvanceResult",
     "MissionApplicationHandler",
+    "MissionAttemptHistoryEntry",
     "MissionCoordinationError",
     "MissionCoordinationRepository",
     "MissionCoordinator",
@@ -73,6 +77,7 @@ __all__ = [
     "MissionOperationTranslator",
     "MissionReferenceRequest",
     "MissionRepository",
+    "MissionResolutionHistoryEntry",
     "MissionResolvePreview",
     "MissionResolveRequest",
     "MissionResolveResult",
@@ -82,4 +87,5 @@ __all__ = [
     "MissionStalePreviewError",
     "MissionValidation",
     "MISSION_PROGRESS",
+    "parse_attempt_history_entry",
 ]

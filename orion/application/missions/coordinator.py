@@ -19,6 +19,7 @@ from orion.application.missions.coordination_models import (
     MissionAdvanceRequest,
     MissionAdvanceResult,
     MissionNextOperation,
+    MissionResolutionHistoryEntry,
     MissionResolvePreview,
     MissionResolveRequest,
     MissionResolveResult,
@@ -167,6 +168,7 @@ class MissionCoordinator:
                 audit_block = self._audit_block_reason(prior, preview.advance_token)
                 if audit_block:
                     raise MissionCoordinationError(audit_block)
+                history_warnings: list[str] = []
                 reserved = MissionAdvanceAudit(
                     schema_version=1,
                     mission_id=mission.mission_id,
@@ -182,6 +184,7 @@ class MissionCoordinator:
                     reserved,
                     expected_attempt_id=prior.attempt_id if prior else None,
                 )
+                self._append_attempt_history(reserved, history_warnings)
 
                 try:
                     translation = self.translator.translate(
@@ -230,10 +233,12 @@ class MissionCoordinator:
                     completed,
                     expected_attempt_id=reserved.attempt_id,
                 )
+                self._append_attempt_history(completed, history_warnings)
 
                 warnings = tuple(dict.fromkeys((
                     *downstream.warnings,
                     *updated.warnings,
+                    *history_warnings,
                 )))
                 if downstream.ok and updated.status == mission.status:
                     warnings = tuple(dict.fromkeys((
@@ -348,6 +353,7 @@ class MissionCoordinator:
                         completed,
                         expected_attempt_id=audit.attempt_id,
                     )
+                    self._append_attempt_history(completed, warnings)
                     audit_outcome = "succeeded"
                 else:
                     self.audit_repository.clear(
@@ -381,6 +387,17 @@ class MissionCoordinator:
                 actor=request.actor,
                 audit_outcome=audit_outcome,
                 lock_cleared=lock_cleared,
+                warnings=warnings,
+            )
+            self._append_resolution_history(
+                mission=mission,
+                finding=request.finding,
+                audit=audit if inspection.audit_blocked else None,
+                actor=request.actor,
+                audit_outcome=audit_outcome,
+                downstream_reference=downstream_reference,
+                lock_cleared=lock_cleared,
+                recovery_record_id=recovery_record_id,
                 warnings=warnings,
             )
             return MissionResolveResult(
@@ -1289,6 +1306,57 @@ class MissionCoordinator:
             False,
         )
 
+    def _append_attempt_history(
+        self,
+        audit: MissionAdvanceAudit,
+        warnings: list[str],
+    ) -> None:
+        """Best-effort attempt-history append; never breaks advance or resolve."""
+        try:
+            self.audit_repository.append_attempt(
+                audit,
+                recorded_at=self._now(),
+            )
+        except Exception:  # noqa: BLE001 - history is audit-only
+            warnings.append(
+                "The attempt could not be appended to the Mission attempt history."
+            )
+
+    def _append_resolution_history(
+        self,
+        *,
+        mission: Mission,
+        finding: str,
+        audit: MissionAdvanceAudit | None,
+        actor: str,
+        audit_outcome: str,
+        downstream_reference: str,
+        lock_cleared: bool,
+        recovery_record_id: str,
+        warnings: list[str],
+    ) -> None:
+        """Best-effort resolution-history append; never breaks a resolution."""
+        try:
+            entry = MissionResolutionHistoryEntry(
+                schema_version=1,
+                kind="resolution",
+                mission_id=mission.mission_id,
+                actor=actor,
+                resolved_at=self._now(),
+                attempt_id=audit.attempt_id if audit is not None else "",
+                capability_id=audit.capability_id if audit is not None else "",
+                finding=finding,
+                audit_outcome=audit_outcome,
+                downstream_reference=downstream_reference,
+                lock_cleared=lock_cleared,
+                recovery_record_id=recovery_record_id,
+            )
+            self.audit_repository.append_resolution(entry)
+        except Exception:  # noqa: BLE001 - history is audit-only
+            warnings.append(
+                "The resolution could not be appended to the Mission attempt history."
+            )
+
     def _record_resolution(
         self,
         *,
@@ -1412,6 +1480,9 @@ class MissionCoordinator:
             uncertain,
             expected_attempt_id=reserved.attempt_id,
         )
+        # The history is audit-only and there is no result to warn into on
+        # this path; a failed append must not mask the uncertain outcome.
+        self._append_attempt_history(uncertain, [])
 
     @staticmethod
     def _downstream_reference(result: ApplicationResult) -> str:

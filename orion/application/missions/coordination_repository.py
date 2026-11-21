@@ -13,7 +13,10 @@ from uuid import uuid4
 
 from orion.application.missions.coordination_models import (
     MissionAdvanceAudit,
+    MissionAttemptHistoryEntry,
     MissionLockInfo,
+    MissionResolutionHistoryEntry,
+    parse_attempt_history_entry,
 )
 from orion.application.missions.models import MISSION_ID_PATTERN
 
@@ -152,6 +155,137 @@ class MissionCoordinationRepository:
                 )
             path.unlink()
             return current
+
+    def append_attempt(
+        self,
+        audit: MissionAdvanceAudit,
+        *,
+        recorded_at: str | None = None,
+    ) -> Path:
+        """Append one audit snapshot to the Mission's attempt history log.
+
+        The log is audit-only: the blocking logic never reads it. Each line
+        is one JSON object; the whole log shares the audit's size limit.
+        """
+        validated = MissionAdvanceAudit.from_value(audit.to_dict())
+        entry = MissionAttemptHistoryEntry(
+            schema_version=1,
+            kind="attempt",
+            recorded_at=recorded_at
+            or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            audit=validated,
+        )
+        return self._append_history_entry(validated.mission_id, entry)
+
+    def append_resolution(
+        self,
+        entry: MissionResolutionHistoryEntry,
+    ) -> Path:
+        """Append one resolution record to the Mission's attempt history log.
+
+        The resolution is a separate append-only record, never an edit of
+        the audit it resolves. The log is audit-only.
+        """
+        validated = MissionResolutionHistoryEntry.from_value(entry.to_dict())
+        return self._append_history_entry(validated.mission_id, validated)
+
+    def read_attempt_history(
+        self,
+        mission_id: str,
+    ) -> tuple[
+        MissionAttemptHistoryEntry | MissionResolutionHistoryEntry, ...
+    ]:
+        """Read one Mission's attempt history oldest-first.
+
+        Returns an empty tuple when no log exists. A malformed or oversized
+        log raises: the history is audit-only, so a corrupt log never
+        blocks a Mission, but it is never silently misread either.
+        """
+        selected = self._normalize_id(mission_id)
+        path = self._history_path(selected)
+        with self._lock:
+            if path.is_symlink():
+                raise PermissionError(
+                    "Mission attempt history symlinks are not allowed."
+                )
+            if not path.exists():
+                return ()
+            self._validate_file(path)
+            if path.stat().st_size > self.max_record_bytes:
+                raise ValueError(
+                    "Mission attempt history exceeds its size limit."
+                )
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except UnicodeError as exc:
+                raise ValueError(
+                    "Mission attempt history is malformed."
+                ) from exc
+            entries: list[
+                MissionAttemptHistoryEntry | MissionResolutionHistoryEntry
+            ] = []
+            for line in raw.splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        "Mission attempt history is malformed."
+                    ) from exc
+                try:
+                    entries.append(parse_attempt_history_entry(value))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        "Mission attempt history is malformed."
+                    ) from exc
+            return tuple(entries)
+
+    def _append_history_entry(
+        self,
+        mission_id: str,
+        entry: MissionAttemptHistoryEntry | MissionResolutionHistoryEntry,
+    ) -> Path:
+        encoded = (
+            json.dumps(
+                entry.to_dict(),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+        if len(encoded) > self.max_record_bytes:
+            raise ValueError(
+                "Mission attempt history entry exceeds its size limit."
+            )
+        path = self._history_path(mission_id)
+        with self._lock:
+            self._ensure_root()
+            if path.is_symlink():
+                raise PermissionError(
+                    "Mission attempt history symlinks are not allowed."
+                )
+            created = not path.exists()
+            if (
+                not created
+                and path.stat().st_size + len(encoded) > self.max_record_bytes
+            ):
+                raise ValueError(
+                    "Mission attempt history exceeds its size limit."
+                )
+            separator = (
+                b"\n"
+                if not created and self._missing_final_newline(path)
+                else b""
+            )
+            with path.open("ab", buffering=0) as handle:
+                handle.write(separator + encoded)
+                os.fsync(handle.fileno())
+            if created:
+                self._restrict_permissions(path)
+        return path
 
     def lock_exists(self, mission_id: str) -> bool:
         path = self._lock_path(self._normalize_id(mission_id))
@@ -384,6 +518,9 @@ class MissionCoordinationRepository:
     def _path(self, mission_id: str) -> Path:
         return self.root / f"{mission_id}.json"
 
+    def _history_path(self, mission_id: str) -> Path:
+        return self.root / f"{mission_id}.attempts.jsonl"
+
     def _lock_path(self, mission_id: str) -> Path:
         return self.root / f".{mission_id}.advance.lock"
 
@@ -416,6 +553,14 @@ class MissionCoordinationRepository:
             path.chmod(0o700 if directory else 0o600)
         except OSError:
             pass
+
+    @staticmethod
+    def _missing_final_newline(path: Path) -> bool:
+        if path.stat().st_size == 0:
+            return False
+        with path.open("rb") as handle:
+            handle.seek(-1, os.SEEK_END)
+            return handle.read(1) != b"\n"
 
     @staticmethod
     def _valid_timestamp(value: object) -> bool:
