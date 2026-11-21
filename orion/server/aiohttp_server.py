@@ -131,6 +131,11 @@ class LocalApiServer:
                 "server listening on %s:%d",
                 self.config.host, self.config.port,
             )
+        if self.authenticator is not None and not self.config.secure_cookies:
+            self.logger.warning(
+                "server.secure_cookies is false: session cookies will be "
+                "sent over plain HTTP (development only, never deploy)"
+            )
 
     def _run_loop(self) -> None:
         assert self._loop is not None

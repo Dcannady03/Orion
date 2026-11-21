@@ -25,10 +25,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
 import secrets
+import subprocess
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -543,6 +545,112 @@ def _hostname_of(host: str) -> str:
     return host.split(":")[0]
 
 
+# Tailscale assigns tailnet IPs from the CGNAT range.
+TAILNET_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+LOOPBACK_IPS = frozenset({"127.0.0.1", "::1"})
+
+
+def _is_tailnet_ip(value: str) -> bool:
+    try:
+        return ipaddress.ip_address(value.strip()) in TAILNET_NETWORK
+    except ValueError:
+        return False
+
+
+def _run_tailscale_status() -> dict:
+    """`tailscale status --json`, parsed. {} on any failure."""
+    try:
+        result = subprocess.run(
+            ["tailscale", "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if result.returncode != 0:
+        return {}
+    try:
+        data = json.loads(result.stdout)
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+class TailnetIdentity:
+    """Best-effort tailnet identity for audit records.
+
+    Maps tailnet IPs to ``user@device`` from the local Tailscale
+    daemon (`tailscale status --json`), cached for 5 minutes. Never a
+    hard dependency: any failure yields "" and the request proceeds
+    with the IP alone. Identity comes from the local daemon ONLY —
+    client-supplied identity headers are never accepted (§3.3
+    proxy-trust rule), and the identity is audit context, never an
+    auth decision.
+    """
+
+    def __init__(
+        self,
+        *,
+        ttl: timedelta = timedelta(minutes=5),
+        runner: Callable[[], dict] | None = None,
+    ) -> None:
+        self._ttl = ttl
+        self._runner = runner or _run_tailscale_status
+        self._lock = threading.Lock()
+        self._cached_at: datetime | None = None
+        self._by_ip: dict[str, str] = {}
+
+    def lookup(self, ip: str) -> str:
+        """``user@device`` for a tailnet IP, or "" when unknown."""
+        if not ip:
+            return ""
+        with self._lock:
+            now = _utcnow()
+            if self._cached_at is None or now - self._cached_at >= self._ttl:
+                self._refresh_locked()
+            return self._by_ip.get(ip.strip(), "")
+
+    def _refresh_locked(self) -> None:
+        try:
+            data = self._runner()
+        except Exception:  # noqa: BLE001 - identity must never break auth
+            data = {}
+        by_ip: dict[str, str] = {}
+        if isinstance(data, dict):
+            peers = data.get("Peer", {})
+            users = data.get("User", {})
+            nodes = list(peers.values()) if isinstance(peers, dict) else []
+            self_node = data.get("Self", {})
+            if isinstance(self_node, dict):
+                nodes.append(self_node)
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+                hostname = str(node.get("HostName", ""))
+                user = (
+                    users.get(str(node.get("UserID", "")), {})
+                    if isinstance(users, dict)
+                    else {}
+                )
+                login = (
+                    str(user.get("LoginName", ""))
+                    if isinstance(user, dict)
+                    else ""
+                )
+                identity = (
+                    f"{login}@{hostname}"
+                    if login and hostname
+                    else (hostname or login)
+                )
+                if not identity:
+                    continue
+                for address in node.get("TailscaleIPs") or []:
+                    by_ip[str(address)] = identity
+        self._by_ip = by_ip
+        self._cached_at = _utcnow()
+
+
 @dataclass
 class AuthResult:
     """What an auth endpoint returns: status, envelope data, headers."""
@@ -569,11 +677,13 @@ class Authenticator:
         *,
         logger: logging.Logger | None = None,
         clock: Callable[[], datetime] | None = None,
+        tailnet: TailnetIdentity | None = None,
     ) -> None:
         self._paths = paths
         self._credentials = CredentialStore(paths)
         self._sessions = SessionStore(paths, clock=clock)
         self._lockout = LockoutTracker(clock=clock)
+        self._tailnet = tailnet or TailnetIdentity()
         # Behind Tailscale Serve Orion sees plain loopback HTTP (TLS
         # terminates at Serve), so the Secure flag cannot be inferred
         # from the socket — it is explicit config, safe by default.
@@ -592,6 +702,59 @@ class Authenticator:
     def setup_mode(self) -> bool:
         """True when no password exists: every endpoint answers 503."""
         return not self._credentials.exists
+
+    # -- request context ----------------------------------------------
+
+    @staticmethod
+    def _source(request: "ApiRequest") -> str:
+        """The lockout/audit source: the direct peer (the socket).
+
+        Behind Serve every request arrives from loopback, so a lockout
+        covers all remote clients — acceptable for a single-user system
+        and it stops brute force cold.
+        """
+        return request.remote_addr or "unknown"
+
+    def _tailnet_identity(self, request: "ApiRequest") -> str:
+        """Best-effort ``user@device`` for the real client, or "".
+
+        Behind Serve the direct peer is loopback, so the client IP is
+        the LAST X-Forwarded-For entry (the one Serve appended) when
+        it is a tailnet IP; otherwise the remote address itself when
+        it is a tailnet IP. Audit context only, never an auth input.
+        """
+        remote = (request.remote_addr or "").strip()
+        candidate = ""
+        if remote in LOOPBACK_IPS:
+            forwarded = request.headers.get("x-forwarded-for", "")
+            entries = [entry.strip() for entry in forwarded.split(",")]
+            entries = [entry for entry in entries if entry]
+            if entries and _is_tailnet_ip(entries[-1]):
+                candidate = entries[-1]
+        elif _is_tailnet_ip(remote):
+            candidate = remote
+        return self._tailnet.lookup(candidate) if candidate else ""
+
+    def _audit(
+        self,
+        request: "ApiRequest",
+        event: str,
+        target: str,
+        *,
+        detail: str = "",
+        status: str = "success",
+    ) -> None:
+        source = self._source(request)
+        identity = self._tailnet_identity(request)
+        where = f"{source} ({identity})" if identity else source
+        record_auth_event(
+            self._paths,
+            event,
+            target,
+            detail=f"{detail} [from {where}]" if detail else f"from {where}",
+            status=status,
+            logger=self._logger,
+        )
 
     # -- the gate ----------------------------------------------------
 
@@ -688,16 +851,44 @@ class Authenticator:
         password = body.get("password", "")
         if not isinstance(password, str) or not password:
             raise ApiError.bad_request("A password is required.")
+        source = self._source(request)
+        if self._lockout.is_locked_out(source):
+            raise ApiError(
+                429,
+                "Too many failed logins from this source. "
+                "Try again in 15 minutes.",
+                code="locked_out",
+            )
         if not self._credentials.verify_password(password):
+            tripped = self._lockout.record_failure(source)
+            self._audit(
+                request, "login", "server session",
+                detail="Login failed (invalid password).",
+                status="failed",
+            )
+            if tripped:
+                self._audit(
+                    request, "lockout", source,
+                    detail=(
+                        "Source locked out for 15 minutes after "
+                        f"{LOCKOUT_THRESHOLD} failed logins."
+                    ),
+                    status="failed",
+                )
             raise ApiError(
                 401, "Invalid password.", code="invalid_credentials"
             )
+        self._lockout.record_success(source)
         session, token = self._sessions.create(
             user_agent=str(request.headers.get("user-agent", "")),
-            tailnet_identity="",
+            tailnet_identity=self._tailnet_identity(request),
         )
         csrf = csrf_token_for(
             session.session_id, self._credentials.csrf_secret
+        )
+        self._audit(
+            request, "login", "server session",
+            detail=f"Login succeeded; session {session.session_id}.",
         )
         return AuthResult(
             status=200,
@@ -714,6 +905,10 @@ class Authenticator:
         session = request.session
         if session is not None:
             self._sessions.revoke(session.session_id)
+            self._audit(
+                request, "logout", "server session",
+                detail=f"Session {session.session_id} revoked via logout.",
+            )
         return AuthResult(
             status=200,
             data={},
@@ -748,6 +943,10 @@ class Authenticator:
             raise ApiError.bad_request("A session id is required.")
         if not self._sessions.revoke(session_id):
             raise ApiError.not_found(f"Unknown session: {session_id}")
+        self._audit(
+            request, "revoke", "server session",
+            detail=f"Session {session_id} revoked.",
+        )
         return AuthResult(status=200, data={"revoked": session_id})
 
     def revoke_all(self, request: "ApiRequest") -> AuthResult:
@@ -755,6 +954,12 @@ class Authenticator:
         CSRF secret, so every outstanding CSRF token dies with them."""
         removed = self._sessions.revoke_all()
         self._credentials.rotate_csrf_secret()
+        self._audit(
+            request, "revoke-all", "server sessions",
+            detail=(
+                f"{removed} session(s) revoked; CSRF secret rotated."
+            ),
+        )
         return AuthResult(
             status=200,
             data={"revoked_sessions": removed},

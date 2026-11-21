@@ -26,6 +26,7 @@ from orion.core.paths import OrionPaths
 from orion.server.aiohttp_server import LocalApiServer
 from orion.server.api import ROUTES, ApiRequest
 from orion.server.auth import (
+    LOCKOUT_THRESHOLD,
     MAX_SESSIONS,
     MIN_PASSWORD_LENGTH,
     SESSION_LIFETIME,
@@ -33,6 +34,7 @@ from orion.server.auth import (
     CredentialStore,
     LockoutTracker,
     SessionStore,
+    TailnetIdentity,
     csrf_token_for,
     verify_csrf_token,
 )
@@ -369,9 +371,282 @@ class PromptPasswordTests(unittest.TestCase):
 
 
 
+TAILNET_STATUS = {
+    "Self": {
+        "HostName": "daniels-server",
+        "UserID": 1,
+        "TailscaleIPs": ["100.80.66.37"],
+    },
+    "Peer": {
+        "node-muse": {
+            "HostName": "muse",
+            "UserID": 1,
+            "TailscaleIPs": ["100.116.33.108"],
+        },
+        "node-phone": {
+            "HostName": "phone",
+            "UserID": 2,
+            "TailscaleIPs": ["100.99.99.99"],
+        },
+    },
+    "User": {
+        "1": {"LoginName": "daniel@example.com"},
+        "2": {"LoginName": "jess@example.com"},
+    },
+}
+
+
+class TailnetIdentityTests(unittest.TestCase):
+    def test_lookup_returns_user_at_device(self) -> None:
+        identity = TailnetIdentity(runner=lambda: TAILNET_STATUS)
+        self.assertEqual(
+            identity.lookup("100.80.66.37"),
+            "daniel@example.com@daniels-server",
+        )
+        self.assertEqual(
+            identity.lookup("100.116.33.108"),
+            "daniel@example.com@muse",
+        )
+        self.assertEqual(
+            identity.lookup("100.99.99.99"), "jess@example.com@phone"
+        )
+
+    def test_unknown_ip_returns_empty(self) -> None:
+        identity = TailnetIdentity(runner=lambda: TAILNET_STATUS)
+        self.assertEqual(identity.lookup("100.64.0.1"), "")
+        self.assertEqual(identity.lookup(""), "")
+
+    def test_runner_failure_returns_empty(self) -> None:
+        def _boom() -> dict:
+            raise OSError("tailscale is not installed")
+
+        identity = TailnetIdentity(runner=_boom)
+        self.assertEqual(identity.lookup("100.80.66.37"), "")
+
+    def test_results_are_cached(self) -> None:
+        calls: list[None] = []
+
+        def _runner() -> dict:
+            calls.append(None)
+            return TAILNET_STATUS
+
+        identity = TailnetIdentity(runner=_runner)
+        identity.lookup("100.80.66.37")
+        identity.lookup("100.116.33.108")
+        self.assertEqual(len(calls), 1)
+
+    def test_cache_refreshes_after_ttl(self) -> None:
+        calls: list[None] = []
+
+        def _runner() -> dict:
+            calls.append(None)
+            return TAILNET_STATUS
+
+        identity = TailnetIdentity(
+            ttl=timedelta(0), runner=_runner
+        )
+        identity.lookup("100.80.66.37")
+        identity.lookup("100.80.66.37")
+        self.assertEqual(len(calls), 2)
+
+
+class AuthenticatorLoginTests(AuthFixture):
+    """Login lockout, audit events, and tailnet identity."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        CredentialStore(self.paths).set_password(PASSWORD)
+        config = SimpleNamespace(secure_cookies=True, tailscale_host="")
+        self.tailnet = TailnetIdentity(runner=lambda: TAILNET_STATUS)
+        self.authenticator = Authenticator(
+            self.paths,
+            config,
+            clock=self.clock,
+            tailnet=self.tailnet,
+        )
+        self.sessions = SessionStore(self.paths, clock=self.clock)
+
+    def _login_request(
+        self,
+        password: str,
+        *,
+        remote_addr: str = "127.0.0.1",
+        headers: dict | None = None,
+    ) -> ApiRequest:
+        all_headers = {"host": "127.0.0.1:8000"}
+        if headers:
+            all_headers.update(headers)
+        return ApiRequest(
+            method="POST",
+            path="/api/auth/login",
+            headers=all_headers,
+            body={"password": password},
+            remote_addr=remote_addr,
+        )
+
+    def _attempt(self, password: str, **kwargs) -> ApiError | None:
+        try:
+            self.authenticator.login(self._login_request(password, **kwargs))
+        except ApiError as exc:
+            return exc
+        return None
+
+    def _auth_events(self) -> list:
+        history = RecoveryHistoryStore(self.paths.observability)
+        return history.query(kind="server-auth").records
+
+    def test_five_failures_lock_out_the_sixth(self) -> None:
+        for _ in range(LOCKOUT_THRESHOLD):
+            error = self._attempt("wrong-password-here")
+            assert error is not None
+            self.assertEqual(error.status, 401)
+            self.assertEqual(error.code, "invalid_credentials")
+        error = self._attempt(PASSWORD)
+        assert error is not None
+        self.assertEqual(error.status, 429)
+        self.assertEqual(error.code, "locked_out")
+
+    def test_lockout_expires(self) -> None:
+        for _ in range(LOCKOUT_THRESHOLD):
+            self._attempt("wrong-password-here")
+        self.assertIsNotNone(self._attempt(PASSWORD))
+        self.clock.advance(timedelta(minutes=15, seconds=1))
+        self.assertIsNone(self._attempt(PASSWORD))
+
+    def test_success_clears_failures(self) -> None:
+        for _ in range(LOCKOUT_THRESHOLD - 1):
+            self._attempt("wrong-password-here")
+        self.assertIsNone(self._attempt(PASSWORD))
+        for _ in range(LOCKOUT_THRESHOLD - 1):
+            error = self._attempt("wrong-password-here")
+            assert error is not None
+            self.assertEqual(error.status, 401)
+        error = self._attempt("wrong-password-here")
+        assert error is not None
+        self.assertEqual(error.status, 401)
+        error = self._attempt(PASSWORD)
+        assert error is not None
+        self.assertEqual(error.status, 429)
+
+    def test_login_success_is_audited(self) -> None:
+        self.assertIsNone(self._attempt(PASSWORD))
+        events = self._auth_events()
+        self.assertEqual(len(events), 1)
+        self.assertIn("login", events[0].detail)
+        self.assertIn("Login succeeded", events[0].detail)
+        self.assertIn("127.0.0.1", events[0].detail)
+        self.assertEqual(events[0].status, "success")
+
+    def test_login_failures_and_lockout_are_audited(self) -> None:
+        for _ in range(LOCKOUT_THRESHOLD):
+            self._attempt("wrong-password-here")
+        events = self._auth_events()
+        self.assertEqual(len(events), LOCKOUT_THRESHOLD + 1)
+        failures = [e for e in events if "Login failed" in e.detail]
+        self.assertEqual(len(failures), LOCKOUT_THRESHOLD)
+        self.assertTrue(all(e.status == "failed" for e in failures))
+        lockouts = [e for e in events if e.detail.startswith("lockout:")]
+        self.assertEqual(len(lockouts), 1)
+        self.assertIn("locked out for 15 minutes", lockouts[0].detail)
+
+    def test_logout_revoke_and_revoke_all_are_audited(self) -> None:
+        self.assertIsNone(self._attempt(PASSWORD))
+        self.assertIsNone(self._attempt(PASSWORD))
+        sessions = self.sessions.list_sessions()
+        self.assertEqual(len(sessions), 2)
+        current = sessions[0]
+        base = {
+            "headers": {"host": "127.0.0.1:8000"},
+            "remote_addr": "127.0.0.1",
+            "session": current,
+        }
+        self.authenticator.logout(
+            ApiRequest(method="POST", path="/api/auth/logout", **base)
+        )
+        other = sessions[1]
+        self.authenticator.revoke_session(
+            ApiRequest(
+                method="POST",
+                path=f"/api/auth/sessions/{other.session_id}/revoke",
+                path_params={"session_id": other.session_id},
+                **base,
+            )
+        )
+        self.assertIsNone(self._attempt(PASSWORD))
+        sessions = self.sessions.list_sessions()
+        self.assertEqual(len(sessions), 1)
+        self.authenticator.revoke_all(
+            ApiRequest(
+                method="POST",
+                path="/api/auth/revoke-all",
+                session=sessions[0],
+                headers={"host": "127.0.0.1:8000"},
+                remote_addr="127.0.0.1",
+            )
+        )
+        events = self._auth_events()
+        details = [event.detail for event in events]
+        self.assertTrue(
+            any(detail.startswith("logout:") for detail in details)
+        )
+        self.assertTrue(
+            any(detail.startswith("revoke:") for detail in details)
+        )
+        self.assertTrue(
+            any(detail.startswith("revoke-all:") for detail in details)
+        )
+
+    def test_tailnet_identity_from_forwarded_for(self) -> None:
+        self.assertIsNone(
+            self._attempt(
+                PASSWORD,
+                headers={"x-forwarded-for": "100.116.33.108"},
+            )
+        )
+        sessions = self.sessions.list_sessions()
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(
+            sessions[0].tailnet_identity, "daniel@example.com@muse"
+        )
+
+    def test_non_tailnet_forwarded_for_is_ignored(self) -> None:
+        self.assertIsNone(
+            self._attempt(
+                PASSWORD,
+                headers={"x-forwarded-for": "8.8.8.8"},
+            )
+        )
+        sessions = self.sessions.list_sessions()
+        self.assertEqual(sessions[0].tailnet_identity, "")
+
+    def test_direct_tailnet_remote_addr(self) -> None:
+        self.assertIsNone(
+            self._attempt(PASSWORD, remote_addr="100.99.99.99")
+        )
+        sessions = self.sessions.list_sessions()
+        self.assertEqual(
+            sessions[0].tailnet_identity, "jess@example.com@phone"
+        )
+
+    def test_last_forwarded_for_entry_wins(self) -> None:
+        # A client-supplied first entry must not spoof the identity:
+        # Serve appends the real client IP last.
+        self.assertIsNone(
+            self._attempt(
+                PASSWORD,
+                headers={
+                    "x-forwarded-for": "100.99.99.99, 100.116.33.108"
+                },
+            )
+        )
+        sessions = self.sessions.list_sessions()
+        self.assertEqual(
+            sessions[0].tailnet_identity, "daniel@example.com@muse"
+        )
+
+
 class AuthenticatorGateTests(AuthFixture):
     """CSRF + Origin/Host validation at the Authenticator level."""
-
     SERVE_HOST = "daniels-server.test.ts.net"
 
     def setUp(self) -> None:
@@ -648,6 +923,48 @@ class AuthHttpTests(AuthHttpBase):
     def test_login_without_password_is_400(self) -> None:
         status, payload, _ = self.http("POST", "/api/auth/login", body={})
         self.assertEqual(status, 400)
+
+    def test_login_lockout_over_http(self) -> None:
+        for _ in range(5):
+            status, payload, _ = self.login(password="wrong-password-here")
+            self.assertEqual(status, 401)
+            self.assertEqual(
+                payload["data"]["error_code"], "invalid_credentials"
+            )
+        status, payload, _ = self.login(password="wrong-password-here")
+        self.assertEqual(status, 429)
+        self.assertEqual(payload["data"]["error_code"], "locked_out")
+        status, _, _ = self.login()
+        self.assertEqual(status, 429)
+
+    def test_auth_events_are_audited(self) -> None:
+        _, login_payload, headers = self.login()
+        cookie = self.cookie_from(headers)
+        csrf = login_payload["data"]["csrf_token"]
+        status, _, _ = self.http(
+            "POST", "/api/auth/logout", body={},
+            headers={"Cookie": cookie, "X-CSRF-Token": csrf},
+        )
+        self.assertEqual(status, 200)
+        _, second_payload, second_headers = self.login()
+        second_cookie = self.cookie_from(second_headers)
+        second_csrf = second_payload["data"]["csrf_token"]
+        status, _, _ = self.http(
+            "POST", "/api/auth/revoke-all", body={},
+            headers={"Cookie": second_cookie, "X-CSRF-Token": second_csrf},
+        )
+        self.assertEqual(status, 200)
+        history = RecoveryHistoryStore(self.paths.observability)
+        events = history.query(kind="server-auth").records
+        details = [event.detail for event in events]
+        self.assertEqual(len(events), 4)
+        prefixes = sorted(detail.split(":")[0] for detail in details)
+        self.assertEqual(
+            prefixes, ["login", "login", "logout", "revoke-all"]
+        )
+        self.assertTrue(
+            any("Login succeeded" in detail for detail in details)
+        )
 
     def test_unauthenticated_requests_rejected_on_every_endpoint(self) -> None:
         for method, template, _ in ROUTES:
