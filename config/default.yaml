@@ -1,6 +1,6 @@
 orion:
   name: Orion
-  version: 0.7.0
+  version: 0.8.0
   codename: Conductor
 providers:
   default: ollama
