@@ -323,6 +323,17 @@ class ServerConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ServerConfig(secure_cookies="yes")  # type: ignore[arg-type]
 
+    def test_tailscale_host_default_empty_and_normalized(self) -> None:
+        self.assertEqual(ServerConfig().tailscale_host, "")
+        self.assertEqual(
+            ServerConfig(
+                tailscale_host="  DANIELS-SERVER.Test.TS.NET "
+            ).tailscale_host,
+            "daniels-server.test.ts.net",
+        )
+        with self.assertRaises(ValueError):
+            ServerConfig(tailscale_host=123)  # type: ignore[arg-type]
+
     def test_bind_conflict_fails_fast_with_clear_error(self) -> None:
         from types import SimpleNamespace
         from unittest.mock import Mock

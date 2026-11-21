@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from orion.application.observability.recovery import (
@@ -23,11 +24,12 @@ from orion.application.observability.recovery import (
 )
 from orion.core.paths import OrionPaths
 from orion.server.aiohttp_server import LocalApiServer
-from orion.server.api import ROUTES
+from orion.server.api import ROUTES, ApiRequest
 from orion.server.auth import (
     MAX_SESSIONS,
     MIN_PASSWORD_LENGTH,
     SESSION_LIFETIME,
+    Authenticator,
     CredentialStore,
     LockoutTracker,
     SessionStore,
@@ -35,6 +37,7 @@ from orion.server.auth import (
     verify_csrf_token,
 )
 from orion.server.config import ServerConfig
+from orion.server.errors import ApiError
 from orion.server.logging import close_server_logging, setup_server_logging
 from orion.server.setup import run_server_setup
 from tests.test_mission_coordinator import MissionCoordinatorFixture
@@ -366,6 +369,159 @@ class PromptPasswordTests(unittest.TestCase):
 
 
 
+class AuthenticatorGateTests(AuthFixture):
+    """CSRF + Origin/Host validation at the Authenticator level."""
+
+    SERVE_HOST = "daniels-server.test.ts.net"
+
+    def setUp(self) -> None:
+        super().setUp()
+        CredentialStore(self.paths).set_password(PASSWORD)
+        config = SimpleNamespace(
+            secure_cookies=True, tailscale_host=self.SERVE_HOST
+        )
+        self.authenticator = Authenticator(
+            self.paths, config, clock=self.clock
+        )
+        self.sessions = SessionStore(self.paths, clock=self.clock)
+        self.session, self.token = self.sessions.create()
+        self.csrf = csrf_token_for(
+            self.session.session_id,
+            CredentialStore(self.paths).csrf_secret,
+        )
+
+    def _request(
+        self,
+        method: str = "GET",
+        path: str = "/api/healthz",
+        *,
+        headers: dict | None = None,
+        body: dict | None = None,
+    ) -> ApiRequest:
+        all_headers = {"host": "127.0.0.1:8000"}
+        if headers:
+            all_headers.update(headers)
+        return ApiRequest(
+            method=method, path=path, headers=all_headers, body=body
+        )
+
+    def _authed(
+        self,
+        method: str = "GET",
+        path: str = "/api/healthz",
+        *,
+        headers: dict | None = None,
+        body: dict | None = None,
+    ) -> ApiRequest:
+        all_headers = {"cookie": f"orion_session={self.token}"}
+        if headers:
+            all_headers.update(headers)
+        return self._request(
+            method, path, headers=all_headers, body=body
+        )
+
+    def test_get_with_valid_session_passes(self) -> None:
+        session = self.authenticator.authenticate(self._authed())
+        assert session is not None
+        self.assertEqual(session.session_id, self.session.session_id)
+
+    def test_post_without_csrf_is_403(self) -> None:
+        with self.assertRaises(ApiError) as ctx:
+            self.authenticator.authenticate(
+                self._authed("POST", "/api/auth/logout", body={})
+            )
+        self.assertEqual(ctx.exception.status, 403)
+        self.assertEqual(ctx.exception.code, "csrf_required")
+
+    def test_post_with_bound_csrf_passes(self) -> None:
+        session = self.authenticator.authenticate(
+            self._authed(
+                "POST", "/api/auth/logout", body={},
+                headers={"x-csrf-token": self.csrf},
+            )
+        )
+        assert session is not None
+        self.assertEqual(session.session_id, self.session.session_id)
+
+    def test_post_with_unbound_csrf_is_403(self) -> None:
+        other, _ = self.sessions.create()
+        other_csrf = csrf_token_for(
+            other.session_id, CredentialStore(self.paths).csrf_secret
+        )
+        with self.assertRaises(ApiError) as ctx:
+            self.authenticator.authenticate(
+                self._authed(
+                    "POST", "/api/auth/logout", body={},
+                    headers={"x-csrf-token": other_csrf},
+                )
+            )
+        self.assertEqual(ctx.exception.status, 403)
+        self.assertEqual(ctx.exception.code, "csrf_invalid")
+
+    def test_missing_host_is_403(self) -> None:
+        request = ApiRequest(
+            method="GET",
+            path="/api/healthz",
+            headers={"cookie": f"orion_session={self.token}"},
+        )
+        with self.assertRaises(ApiError) as ctx:
+            self.authenticator.authenticate(request)
+        self.assertEqual(ctx.exception.code, "forbidden_host")
+
+    def test_bad_host_is_403(self) -> None:
+        with self.assertRaises(ApiError) as ctx:
+            self.authenticator.authenticate(
+                self._authed(headers={"host": "evil.example.com"})
+            )
+        self.assertEqual(ctx.exception.code, "forbidden_host")
+
+    def test_serve_host_passes(self) -> None:
+        session = self.authenticator.authenticate(
+            self._authed(headers={"host": self.SERVE_HOST})
+        )
+        self.assertIsNotNone(session)
+
+    def test_ipv6_loopback_host_passes(self) -> None:
+        session = self.authenticator.authenticate(
+            self._authed(headers={"host": "[::1]:8000"})
+        )
+        self.assertIsNotNone(session)
+
+    def test_bad_origin_is_403(self) -> None:
+        with self.assertRaises(ApiError) as ctx:
+            self.authenticator.authenticate(
+                self._authed(
+                    headers={"origin": "https://evil.example.com"}
+                )
+            )
+        self.assertEqual(ctx.exception.code, "forbidden_origin")
+
+    def test_serve_origin_passes(self) -> None:
+        session = self.authenticator.authenticate(
+            self._authed(
+                headers={"origin": f"https://{self.SERVE_HOST}"}
+            )
+        )
+        self.assertIsNotNone(session)
+
+    def test_login_is_exempt_from_csrf_but_not_origin(self) -> None:
+        result = self.authenticator.authenticate(
+            self._request(
+                "POST", "/api/auth/login", body={"password": PASSWORD}
+            )
+        )
+        self.assertIsNone(result)
+        with self.assertRaises(ApiError) as ctx:
+            self.authenticator.authenticate(
+                self._request(
+                    "POST", "/api/auth/login",
+                    body={"password": PASSWORD},
+                    headers={"origin": "https://evil.example.com"},
+                )
+            )
+        self.assertEqual(ctx.exception.code, "forbidden_origin")
+
+
 # -- live-socket HTTP auth tests ---------------------------------------
 
 
@@ -522,6 +678,67 @@ class AuthHttpTests(AuthHttpBase):
         )
         self.assertEqual(status, 401)
 
+    def test_mutating_post_without_csrf_is_403(self) -> None:
+        _, _, headers = self.login()
+        cookie = self.cookie_from(headers)
+        status, payload, _ = self.http(
+            "POST", "/api/auth/logout", body={}, headers={"Cookie": cookie}
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["data"]["error_code"], "csrf_required")
+        # The session survives the rejected logout.
+        status, _, _ = self.http(
+            "GET", "/api/healthz", headers={"Cookie": cookie}
+        )
+        self.assertEqual(status, 200)
+
+    def test_csrf_token_from_another_session_is_403(self) -> None:
+        _, first_payload, first_headers = self.login()
+        _, second_payload, _ = self.login()
+        first_cookie = self.cookie_from(first_headers)
+        other_csrf = second_payload["data"]["csrf_token"]
+        status, payload, _ = self.http(
+            "POST", "/api/auth/logout", body={},
+            headers={"Cookie": first_cookie, "X-CSRF-Token": other_csrf},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["data"]["error_code"], "csrf_invalid")
+
+    def test_bad_origin_is_403(self) -> None:
+        _, _, headers = self.login()
+        cookie = self.cookie_from(headers)
+        status, payload, _ = self.http(
+            "GET", "/api/healthz",
+            headers={
+                "Cookie": cookie,
+                "Origin": "https://evil.example.com",
+            },
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["data"]["error_code"], "forbidden_origin")
+
+    def test_allowed_origin_passes(self) -> None:
+        _, _, headers = self.login()
+        cookie = self.cookie_from(headers)
+        status, _, _ = self.http(
+            "GET", "/api/healthz",
+            headers={
+                "Cookie": cookie,
+                "Origin": f"http://127.0.0.1:{self.port}",
+            },
+        )
+        self.assertEqual(status, 200)
+
+    def test_bad_host_is_403(self) -> None:
+        _, _, headers = self.login()
+        cookie = self.cookie_from(headers)
+        status, payload, _ = self.http(
+            "GET", "/api/healthz",
+            headers={"Cookie": cookie, "Host": "evil.example.com"},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["data"]["error_code"], "forbidden_host")
+
     def test_me_returns_session_and_csrf(self) -> None:
         _, login_payload, headers = self.login()
         cookie = self.cookie_from(headers)
@@ -537,10 +754,12 @@ class AuthHttpTests(AuthHttpBase):
         self.assertNotIn("token_hash", data)
 
     def test_logout_revokes_the_session(self) -> None:
-        _, _, headers = self.login()
+        _, login_payload, headers = self.login()
         cookie = self.cookie_from(headers)
+        csrf = login_payload["data"]["csrf_token"]
         status, _, logout_headers = self.http(
-            "POST", "/api/auth/logout", body={}, headers={"Cookie": cookie}
+            "POST", "/api/auth/logout", body={},
+            headers={"Cookie": cookie, "X-CSRF-Token": csrf},
         )
         self.assertEqual(status, 200)
         self.assertIn("Max-Age=0", logout_headers.get("Set-Cookie", ""))
@@ -566,11 +785,12 @@ class AuthHttpTests(AuthHttpBase):
             current[0]["session_id"], first_payload["data"]["session_id"]
         )
         other_id = second_payload["data"]["session_id"]
+        first_csrf = first_payload["data"]["csrf_token"]
         status, _, _ = self.http(
             "POST",
             f"/api/auth/sessions/{other_id}/revoke",
             body={},
-            headers={"Cookie": first_cookie},
+            headers={"Cookie": first_cookie, "X-CSRF-Token": first_csrf},
         )
         self.assertEqual(status, 200)
         status, _, _ = self.http(
@@ -583,24 +803,26 @@ class AuthHttpTests(AuthHttpBase):
         self.assertEqual(len(payload["data"]["sessions"]), 1)
 
     def test_revoke_unknown_session_is_404(self) -> None:
-        _, _, headers = self.login()
+        _, login_payload, headers = self.login()
         cookie = self.cookie_from(headers)
+        csrf = login_payload["data"]["csrf_token"]
         status, _, _ = self.http(
             "POST",
             "/api/auth/sessions/does-not-exist/revoke",
             body={},
-            headers={"Cookie": cookie},
+            headers={"Cookie": cookie, "X-CSRF-Token": csrf},
         )
         self.assertEqual(status, 404)
 
     def test_revoke_all_signs_out_everywhere(self) -> None:
-        _, _, first_headers = self.login()
+        _, first_payload, first_headers = self.login()
         _, _, second_headers = self.login()
         first_cookie = self.cookie_from(first_headers)
         second_cookie = self.cookie_from(second_headers)
+        first_csrf = first_payload["data"]["csrf_token"]
         status, payload, _ = self.http(
             "POST", "/api/auth/revoke-all", body={},
-            headers={"Cookie": first_cookie},
+            headers={"Cookie": first_cookie, "X-CSRF-Token": first_csrf},
         )
         self.assertEqual(status, 200)
         self.assertEqual(payload["data"]["revoked_sessions"], 2)

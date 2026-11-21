@@ -28,6 +28,7 @@ class ServerConfig:
     port: int = 8000
     auth_required: bool = True
     secure_cookies: bool = True
+    tailscale_host: str = ""
     shutdown_drain_seconds: int = 30
     max_concurrent_requests: int = 8
     max_request_bytes: int = 1_048_576
@@ -60,6 +61,11 @@ class ServerConfig:
             raise ValueError("Server auth_required must be a boolean.")
         if not isinstance(self.secure_cookies, bool):
             raise ValueError("Server secure_cookies must be a boolean.")
+        if not isinstance(self.tailscale_host, str):
+            raise ValueError("Server tailscale_host must be a string.")
+        object.__setattr__(
+            self, "tailscale_host", self.tailscale_host.strip().lower()
+        )
 
     @classmethod
     def from_config(cls, config_manager: ConfigManager) -> "ServerConfig":
@@ -70,6 +76,7 @@ class ServerConfig:
             port=int(get("server.port", 8000)),
             auth_required=bool(get("server.auth_required", True)),
             secure_cookies=bool(get("server.secure_cookies", True)),
+            tailscale_host=str(get("server.tailscale_host", "")),
             shutdown_drain_seconds=int(get("server.shutdown_drain_seconds", 30)),
             max_concurrent_requests=int(get("server.max_concurrent_requests", 8)),
             max_request_bytes=int(get("server.max_request_bytes", 1_048_576)),

@@ -192,6 +192,10 @@ server:
   port: 8000
   auth_required: true
   secure_cookies: true
+  # The Tailscale Serve hostname (e.g. daniels-server.<tailnet>.ts.net):
+  # the only non-localhost Host/Origin the API accepts. Empty until
+  # Serve is configured; set it in ~/.orion/config.yaml.
+  tailscale_host: ""
   shutdown_drain_seconds: 30
   max_concurrent_requests: 8
   max_request_bytes: 1048576

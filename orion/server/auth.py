@@ -35,12 +35,19 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping
+from urllib.parse import urlparse
 
 from orion.application.observability.recovery import RecoveryHistoryStore
 from orion.server.errors import ApiError
 
 if TYPE_CHECKING:
     from orion.server.api import ApiRequest
+
+# Localhost is always an allowed Host/Origin (loopback dev + Serve
+# proxying to loopback); the Tailscale Serve hostname joins it when
+# configured (server.tailscale_host).
+LOCALHOST_NAMES = frozenset({"127.0.0.1", "::1", "localhost"})
+MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 MIN_PASSWORD_LENGTH = 12
 SESSION_COOKIE_NAME = "orion_session"
@@ -527,6 +534,15 @@ def _cookie_value(headers: Mapping[str, str], name: str) -> str:
     return ""
 
 
+def _hostname_of(host: str) -> str:
+    """The hostname part of a Host header value (port stripped)."""
+    host = host.strip().lower()
+    if host.startswith("["):
+        end = host.find("]")
+        return host[1:end] if end != -1 else host
+    return host.split(":")[0]
+
+
 @dataclass
 class AuthResult:
     """What an auth endpoint returns: status, envelope data, headers."""
@@ -562,6 +578,13 @@ class Authenticator:
         # terminates at Serve), so the Secure flag cannot be inferred
         # from the socket — it is explicit config, safe by default.
         self._secure_cookies = bool(getattr(config, "secure_cookies", True))
+        allowed = set(LOCALHOST_NAMES)
+        tailscale_host = str(
+            getattr(config, "tailscale_host", "") or ""
+        ).strip().lower()
+        if tailscale_host:
+            allowed.add(tailscale_host)
+        self._allowed_hostnames = frozenset(allowed)
         self._logger = logger or logging.getLogger("orion.server.auth")
         self._clock = clock or _utcnow
 
@@ -576,9 +599,11 @@ class Authenticator:
         """Verify one request. Returns the session (None for login).
 
         Raises ApiError: 503 setup_required when no password exists,
-        401 unauthenticated when the session cookie is missing, unknown,
-        or expired. Mutating requests additionally need a valid CSRF
-        token and a passing Origin/Host check (added in commit 4).
+        403 forbidden_host/forbidden_origin for a Host or Origin
+        outside the allowlist, 401 unauthenticated when the session
+        cookie is missing, unknown, or expired, and 403
+        csrf_required/csrf_invalid when a mutating request lacks a
+        valid session-bound CSRF token.
         """
         if self.setup_mode:
             raise ApiError(
@@ -588,6 +613,8 @@ class Authenticator:
                 "to set one.",
                 code="setup_required",
             )
+        self._check_host(request)
+        self._check_origin(request)
         if request.method == "POST" and request.path == LOGIN_PATH:
             return None
         token = _cookie_value(request.headers, SESSION_COOKIE_NAME)
@@ -598,8 +625,56 @@ class Authenticator:
                 "Authentication required.",
                 code="unauthenticated",
             )
+        self._check_csrf(request, session)
         self._sessions.touch(session.session_id)
         return session
+
+    def _check_host(self, request: "ApiRequest") -> None:
+        host = request.headers.get("host", "")
+        if not host or _hostname_of(host) not in self._allowed_hostnames:
+            raise ApiError(
+                403,
+                "This request's Host is not allowed.",
+                code="forbidden_host",
+            )
+
+    def _check_origin(self, request: "ApiRequest") -> None:
+        origin = request.headers.get("origin", "")
+        if not origin:
+            return
+        try:
+            hostname = urlparse(origin).hostname or ""
+        except ValueError:
+            raise ApiError(
+                403,
+                "The Origin header is not a valid URL.",
+                code="forbidden_origin",
+            ) from None
+        if hostname.lower() not in self._allowed_hostnames:
+            raise ApiError(
+                403,
+                "This request's Origin is not allowed.",
+                code="forbidden_origin",
+            )
+
+    def _check_csrf(self, request: "ApiRequest", session: Session) -> None:
+        if request.method not in MUTATING_METHODS:
+            return
+        token = request.headers.get(CSRF_HEADER_NAME.lower(), "")
+        if not token:
+            raise ApiError(
+                403,
+                "A CSRF token is required for this request.",
+                code="csrf_required",
+            )
+        if not verify_csrf_token(
+            token, session.session_id, self._credentials.csrf_secret
+        ):
+            raise ApiError(
+                403,
+                "The CSRF token is invalid or bound to another session.",
+                code="csrf_invalid",
+            )
 
     # -- endpoints ---------------------------------------------------
 
