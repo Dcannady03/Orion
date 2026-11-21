@@ -16,6 +16,8 @@ ADVANCE_TOKEN_PATTERN = re.compile(r"[a-f0-9]{64}")
 ATTEMPT_ID_PATTERN = re.compile(r"mission-attempt-[a-f0-9]{32}")
 CAPABILITY_ID_PATTERN = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+")
 AUDIT_STATES = frozenset({"reserved", "succeeded", "failed", "uncertain"})
+RESOLUTION_FINDINGS = frozenset({"ran", "did_not_run", "cannot_determine"})
+RESOLUTION_AUDIT_OUTCOMES = frozenset({"succeeded", "cleared", "none"})
 _JSON_SCALARS = (str, int, float, bool, type(None))
 
 
@@ -450,3 +452,291 @@ class MissionAdvanceAudit:
         if set(value) != fields:
             raise ValueError("Mission coordination audit fields are invalid.")
         return cls(**dict(value))
+
+
+@dataclass(frozen=True)
+class MissionLockInfo:
+    """Bounded facts read from one per-Mission advance lock file.
+
+    A lock file written by the current advance lock records the holder PID
+    and the UTC time the lock was taken. Older or malformed lock files carry
+    no usable identity: ``pid`` is 0 and ``started_at`` is empty, and the
+    holder cannot be confirmed either way.
+    """
+
+    mission_id: str
+    pid: int = 0
+    started_at: str = ""
+    lock_path: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mission_id", _mission_id(self.mission_id))
+        if (
+            isinstance(self.pid, bool)
+            or not isinstance(self.pid, int)
+            or self.pid < 0
+        ):
+            raise TypeError("Mission lock PID must be a non-negative integer.")
+        object.__setattr__(self, "started_at", _timestamp(
+            self.started_at,
+            "Mission lock start timestamp",
+        ))
+        object.__setattr__(self, "lock_path", _text(
+            self.lock_path, "Mission lock path", 2_000
+        ))
+
+    @property
+    def known(self) -> bool:
+        """Whether the lock file identifies its holder process."""
+        return self.pid > 0
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "mission_id": self.mission_id,
+            "pid": self.pid,
+            "started_at": self.started_at,
+            "lock_path": self.lock_path,
+            "known": self.known,
+        }
+
+
+@dataclass(frozen=True)
+class MissionResolvePreview:
+    """Read-only uncertainty inspection; resolving nothing by itself."""
+
+    mission_id: str
+    status: str
+    stage: str
+    progress: int
+    mission_updated_at: str
+    last_event_id: str
+    audit: MissionAdvanceAudit | None = None
+    audit_blocked: bool = False
+    lock: MissionLockInfo | None = None
+    lock_blocked: bool = False
+    lock_holder_alive: bool | None = None
+    downstream_observed: bool = False
+    downstream_reference: str = ""
+    downstream_evidence: str = ""
+    downstream_unknown: bool = False
+    suggested_finding: str = ""
+    resolvable: bool = False
+    blocked_reason: str = ""
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mission_id", _mission_id(self.mission_id))
+        if self.audit is not None and not isinstance(
+            self.audit, MissionAdvanceAudit
+        ):
+            raise TypeError("Mission resolve preview audit must be typed.")
+        if self.lock is not None and not isinstance(self.lock, MissionLockInfo):
+            raise TypeError("Mission resolve preview lock must be typed.")
+        if self.audit is not None and self.audit.mission_id != self.mission_id:
+            raise ValueError("Mission resolve preview audit identity does not match.")
+        if self.lock is not None and self.lock.mission_id != self.mission_id:
+            raise ValueError("Mission resolve preview lock identity does not match.")
+        for name in (
+            "audit_blocked",
+            "lock_blocked",
+            "downstream_observed",
+            "downstream_unknown",
+            "resolvable",
+        ):
+            if not isinstance(getattr(self, name), bool):
+                raise TypeError(f"{name} must be a boolean.")
+        if self.lock_holder_alive is not None and not isinstance(
+            self.lock_holder_alive, bool
+        ):
+            raise TypeError("Mission lock holder liveness must be a boolean or null.")
+        if isinstance(self.progress, bool) or not isinstance(self.progress, int):
+            raise TypeError("Mission resolve preview progress must be an integer.")
+        if not 0 <= self.progress <= 100:
+            raise ValueError("Mission resolve preview progress must be between 0 and 100.")
+        if self.audit_blocked and self.audit is None:
+            raise ValueError("A blocked Mission resolve preview requires an audit.")
+        if self.lock_blocked and self.lock is None:
+            raise ValueError("A lock-blocked Mission resolve preview requires lock info.")
+        if self.lock_holder_alive is not None and not self.lock_blocked:
+            raise ValueError("Lock holder liveness requires a lock.")
+        suggested = _text(
+            self.suggested_finding, "Mission resolve suggested finding", 20
+        ).lower()
+        if suggested and suggested not in {"ran", "did_not_run"}:
+            raise ValueError(
+                "Mission resolve suggested finding is not ran or did not run."
+            )
+        blocked_reason = _text(
+            self.blocked_reason,
+            "Mission resolve blocked reason",
+            500,
+        )
+        if self.resolvable and blocked_reason:
+            raise ValueError("Resolvable Mission previews cannot carry a blocked reason.")
+        if not self.resolvable and not blocked_reason:
+            raise ValueError("Unresolvable Mission previews require a blocked reason.")
+        object.__setattr__(self, "status", _text(
+            self.status, "Mission resolve preview status", 40, required=True
+        ))
+        object.__setattr__(self, "stage", _text(
+            self.stage, "Mission resolve preview stage", 40, required=True
+        ))
+        object.__setattr__(self, "mission_updated_at", _timestamp(
+            self.mission_updated_at,
+            "Mission resolve preview update timestamp",
+            required=True,
+        ))
+        last_event_id = _text(
+            self.last_event_id, "Mission resolve preview last event ID", 38
+        ).lower()
+        if last_event_id and not EVENT_ID_PATTERN.fullmatch(last_event_id):
+            raise ValueError("Mission resolve preview last event ID has an invalid format.")
+        object.__setattr__(self, "last_event_id", last_event_id)
+        object.__setattr__(self, "downstream_reference", _text(
+            self.downstream_reference,
+            "Mission resolve downstream reference",
+            160,
+        ))
+        object.__setattr__(self, "downstream_evidence", _text(
+            self.downstream_evidence,
+            "Mission resolve downstream evidence",
+            500,
+        ))
+        object.__setattr__(self, "suggested_finding", suggested)
+        object.__setattr__(self, "blocked_reason", blocked_reason)
+        object.__setattr__(self, "warnings", tuple(dict.fromkeys(
+            _text(item, "Mission resolve preview warning", 500, required=True)
+            for item in self.warnings
+        )))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "mission_id": self.mission_id,
+            "status": self.status,
+            "stage": self.stage,
+            "progress": self.progress,
+            "mission_updated_at": self.mission_updated_at,
+            "last_event_id": self.last_event_id,
+            "audit": self.audit.to_dict() if self.audit is not None else None,
+            "audit_blocked": self.audit_blocked,
+            "lock": self.lock.to_dict() if self.lock is not None else None,
+            "lock_blocked": self.lock_blocked,
+            "lock_holder_alive": self.lock_holder_alive,
+            "downstream_observed": self.downstream_observed,
+            "downstream_reference": self.downstream_reference,
+            "downstream_evidence": self.downstream_evidence,
+            "downstream_unknown": self.downstream_unknown,
+            "suggested_finding": self.suggested_finding,
+            "resolvable": self.resolvable,
+            "blocked_reason": self.blocked_reason,
+            "warnings": list(self.warnings),
+            "preview_only": True,
+            "operation_dispatched": False,
+        }
+
+
+@dataclass(frozen=True)
+class MissionResolveRequest:
+    mission_id: str
+    finding: str = ""
+    confirmed: bool = False
+    actor: str = "user"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mission_id", _mission_id(self.mission_id))
+        finding = _text(
+            self.finding, "Mission resolve finding", 20
+        ).lower()
+        if finding and finding not in RESOLUTION_FINDINGS:
+            raise ValueError(
+                "Mission resolve finding is not ran, did not run, or cannot "
+                "determine."
+            )
+        if not isinstance(self.confirmed, bool):
+            raise TypeError("Mission resolve confirmation must be a boolean.")
+        object.__setattr__(self, "finding", finding)
+        object.__setattr__(self, "actor", _text(
+            self.actor, "Mission resolve actor", 100, required=True
+        ))
+
+
+@dataclass(frozen=True)
+class MissionResolveResult:
+    mission_id: str
+    finding: str
+    audit_outcome: str
+    lock_cleared: bool
+    downstream_reference: str
+    previous_status: str
+    new_status: str
+    new_stage: str
+    new_progress: int
+    reconciled: bool
+    next_action: str
+    recovery_record_id: str = ""
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mission_id", _mission_id(self.mission_id))
+        finding = _text(self.finding, "Mission resolve finding", 20).lower()
+        if finding and finding not in {"ran", "did_not_run"}:
+            raise ValueError(
+                "Mission resolve result finding is not ran or did not run."
+            )
+        audit_outcome = _text(
+            self.audit_outcome, "Mission resolve audit outcome", 20
+        ).lower()
+        if audit_outcome not in RESOLUTION_AUDIT_OUTCOMES:
+            raise ValueError(
+                "Mission resolve audit outcome is not succeeded, cleared, or none."
+            )
+        if not isinstance(self.lock_cleared, bool):
+            raise TypeError("Mission resolve lock flag must be a boolean.")
+        if not isinstance(self.reconciled, bool):
+            raise TypeError("Mission resolve reconciliation flag must be a boolean.")
+        if isinstance(self.new_progress, bool) or not isinstance(self.new_progress, int):
+            raise TypeError("Mission resolve progress must be an integer.")
+        if not 0 <= self.new_progress <= 100:
+            raise ValueError("Mission resolve progress must be between 0 and 100.")
+        object.__setattr__(self, "finding", finding)
+        object.__setattr__(self, "audit_outcome", audit_outcome)
+        object.__setattr__(self, "downstream_reference", _text(
+            self.downstream_reference,
+            "Mission resolve downstream reference",
+            160,
+        ))
+        for name, label in (
+            ("previous_status", "Mission previous status"),
+            ("new_status", "Mission new status"),
+            ("new_stage", "Mission new stage"),
+            ("next_action", "Mission resolve next action"),
+        ):
+            object.__setattr__(self, name, _text(
+                getattr(self, name), label, 500, required=name != "next_action"
+            ))
+        object.__setattr__(self, "recovery_record_id", _text(
+            self.recovery_record_id, "Mission resolve recovery record ID", 40
+        ))
+        object.__setattr__(self, "warnings", tuple(dict.fromkeys(
+            _text(item, "Mission resolve warning", 500, required=True)
+            for item in self.warnings
+        )))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "mission_id": self.mission_id,
+            "finding": self.finding,
+            "audit_outcome": self.audit_outcome,
+            "lock_cleared": self.lock_cleared,
+            "downstream_reference": self.downstream_reference,
+            "previous_status": self.previous_status,
+            "new_status": self.new_status,
+            "new_stage": self.new_stage,
+            "new_progress": self.new_progress,
+            "reconciled": self.reconciled,
+            "next_action": self.next_action,
+            "recovery_record_id": self.recovery_record_id,
+            "warnings": list(self.warnings),
+            "resolution_applied": True,
+            "operation_dispatched": False,
+        }
