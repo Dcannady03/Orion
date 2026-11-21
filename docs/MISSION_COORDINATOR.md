@@ -78,6 +78,14 @@ a blocked Mission stays blocked. The decision contract is:
 - the projection links the decision record as a `final_review` Mission link when
   the event is observed, mirroring the validation and documentation-review links.
 
+Phase 3 also adds the audited uncertainty-resolution workflow
+(`mission resolve`): when a crash leaves a coordination audit stuck at
+`reserved`/`uncertain`, or a stale advance lock behind, the operator can
+inspect what the downstream actually did and resolve the block with an
+explicit finding — downstream ran, downstream did not run, or cannot
+determine. See "Uncertainty resolution" below. There is still no automatic
+resolution, no background reaping of stale locks, and no automatic retry.
+
 ## Architecture and boundaries
 
 ```text
@@ -267,15 +275,76 @@ secrets, raw exceptions, prompts, workspace content, or provider output.
 
 A persisted `reserved` attempt after restart is uncertain and blocks replay. An
 exception after the dispatch boundary or a failed post-dispatch reconciliation also
-becomes `uncertain`. There is no automatic retry, stale-lock removal, uncertainty
-reset, or duplicate dispatch. Operators must reconcile authoritative Team and Event
-Store state before any future recovery mechanism may be considered.
+becomes `uncertain`. There is no automatic retry, automatic stale-lock removal,
+or duplicate dispatch. The operator-invoked way out is `mission resolve` (see
+"Uncertainty resolution" below): it inspects authoritative Team and Event Store
+state first, and only then — with an explicit finding and confirmation — completes
+or clears the stuck audit.
+
+## Uncertainty resolution
+
+A Mission is *uncertain* when its coordination audit is stuck at `reserved` or
+`uncertain`, or when a stale `.advance.lock` file blocks preview and advance.
+That happens when the process dies between the `reserved` audit write and the
+terminal write, or while holding the advance lock: the Mission stays
+`AWAITING_*`, reconcile blocks, and nothing can move it. The audit and the
+lock are the only things standing in the way — the Mission projection itself
+is restart-safe and unchanged.
+
+`mission resolve <mission-id>` is the one audited way out. It never dispatches
+a Team operation and never retries anything automatically. It works in two
+steps:
+
+1. **Read-only inspection.** The preview reconciles the Mission, shows the
+   stuck audit (attempt, capability, token, started_at, state, actor), the
+   lock state (holder PID and lock time, whether the holder is alive), and —
+   critically — what the downstream actually did: whether the operation's
+   effect is observable in the Event Store (a Mission link) or in Team state
+   (an approval, run, validation, documentation, or final-review record for
+   the reserved attempt's subject). Nothing is mutated.
+2. **Explicit, confirmed finding.** The operator states what happened:
+   - **Downstream ran:** the audit is completed as `succeeded` with the
+     downstream reference from the reconciled state; the Mission reconciles
+     and the next advance proceeds from the new state with a new token. The
+     operation is never re-dispatched.
+   - **Downstream did not run:** the audit record is cleared (under the same
+     optimistic-concurrency guard as every audit write), so the operation
+     can be attempted again from a fresh preview and token.
+   - **Cannot determine:** resolution is refused and the block stands.
+
+The finding must agree with the observable evidence: "ran" is refused when
+nothing downstream is observable, and "did not run" is refused when the
+effect is observable. When Team inspection itself is unavailable, the outcome
+is unknown and resolution refuses. A `failed` audit is not uncertain — it
+still blocks automatic retry by design — and terminal Missions
+(`completed`/`blocked`/`failed`) are not resolvable; those are lifecycle
+states, not coordination blocks.
+
+**Stale locks.** The advance lock file records the holder PID and the UTC
+time the lock was taken. Resolution clears a lock only after confirming no
+live holder: the PID must be recorded and the process must not be running
+(checked with a read-only process open on Windows, `kill(pid, 0)` on POSIX).
+A lock whose holder is alive refuses resolution outright, and a lock whose
+owner cannot be identified (empty or malformed file, including locks written
+before this release) is never cleared automatically — the preview prints the
+file path so the operator can remove it manually after confirming no advance
+is running. Preview and advance never clear a lock on their own; the
+fail-closed default stays.
+
+**Audit of the resolution.** Every resolution is recorded in the recovery
+history under the `mission-resolve` kind, with the mission, finding, attempt,
+capability, actor, and outcome. The resolution is a separate append-only
+record — it never edits the audit it resolves, beyond completing a ran
+attempt as `succeeded` or clearing a did-not-run attempt. Concurrent
+resolutions serialize on the audit's optimistic-concurrency guard: one wins,
+the other is refused.
 
 ## Commands and read-only guarantees
 
 ```text
 mission next <mission-id>
 mission advance <mission-id>
+mission resolve <mission-id>
 ```
 
 `mission next` may reconcile Mission projection and perform bounded Team inspection,
@@ -283,11 +352,16 @@ but it never calls approval, implementation, validation, documentation, or
 final-review mutation handlers and never writes coordination audit. Existing
 Mission show, list, history, and validate operations remain read-only.
 `mission advance` is the only coordination entry point that can dispatch, and only
-after explicit confirmation.
+after explicit confirmation. `mission resolve` inspects uncertain coordination
+state read-only, then — only with an explicit finding and confirmation — completes
+or clears a stuck audit and clears a stale lock; it never dispatches a Team
+operation.
 
 ## Intentional gaps
 
-- There is no automatic retry or operator uncertainty-resolution command.
+- There is no automatic retry, automatic uncertainty resolution, or background
+  reaping of stale locks; `mission resolve` is operator-invoked and explicitly
+  confirmed.
 - There is no rework or repair loop after a `changes_requested` decision; the
   Mission stays blocked.
 - Command Center lifecycle event coverage is still incomplete.

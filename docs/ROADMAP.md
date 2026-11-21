@@ -200,7 +200,7 @@ without claiming the deferred GUI or autonomous scheduler.
       mismatch, failure/blocked, unsupported-state, and read-only safety tests
 - [x] Add a reviewed typed human final-review decision boundary and authoritative
       event producer in Phase 3
-- [ ] Add an explicit audited uncertainty-resolution workflow before any retry
+- [x] Add an explicit audited uncertainty-resolution workflow before any retry
 
 ## Unreleased — Orion v0.8.3 Goal Proposals
 

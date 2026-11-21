@@ -579,6 +579,7 @@ mission validate <mission-id>
 mission reconcile <mission-id>
 mission next <mission-id>
 mission advance <mission-id>
+mission resolve <mission-id>
 ```
 
 Missions live under `~/.orion/missions/` and remain bound to the exact Goal Proposal
@@ -623,8 +624,18 @@ mismatch, or uncertain prior dispatch fails closed. Validation and documentation
 failures project a blocked state; implementation failure is terminal. Successful
 documentation reaches final human review at 90%, where `mission advance` records
 the one typed human decision: accept completes the Mission at 100%, while request
-changes or reject blocks it at 95%. See `MISSION_ENGINE.md` and
-`MISSION_COORDINATOR.md`.
+changes or reject blocks it at 95%.
+
+When a crash leaves a coordination audit stuck at `reserved`/`uncertain`, or a
+stale advance lock behind, `mission resolve <mission-id>` inspects what the
+downstream actually did (from a fresh reconcile plus Team inspection) and asks
+the operator to state the finding: downstream ran (the audit is completed as
+succeeded and the operation is never re-dispatched), downstream did not run
+(the audit is cleared so the operation can be attempted again), or cannot
+determine (resolution is refused and the block stands). A stale lock is
+cleared only after confirming no live holder. Every resolution is recorded in
+the recovery history under the `mission-resolve` kind. See
+`MISSION_ENGINE.md` and `MISSION_COORDINATOR.md`.
 
 ### Observability
 
@@ -2085,13 +2096,15 @@ or execute anything from the CLI.
 | `mission reconcile <mission-id>` | Explicitly rebuild and persist Mission projection only |
 | `mission next <mission-id>` | Preview the one eligible operation and state-bound token; execute nothing |
 | `mission advance <mission-id>` | Confirm and dispatch at most one current allowlisted operation, reconcile, and stop |
+| `mission resolve <mission-id>` | Inspect uncertain coordination state and, with an explicit finding, complete or clear a stuck audit and clear a stale lock; dispatches nothing |
 
 Only `mission advance` can dispatch, and only after explicit Y/N/D confirmation. The
-Phase 2 allowlist contains `team.approve`, `team.implement`, `team.validate`, and
-`team.documentation_review`. Each confirmation performs at most one mutation, one
-reconciliation, and then stops. Fixed progress can reach final review from persisted
-Team lifecycle events; the current Team layer still has no typed final-decision
-command.
+Phase 3 allowlist contains `team.approve`, `team.implement`, `team.validate`,
+`team.documentation_review`, and `team.final_review`. Each confirmation performs at
+most one mutation, one reconciliation, and then stops. Fixed progress can reach
+final review from persisted Team lifecycle events, and `mission advance` records
+the one typed human decision there: accept completes the Mission at 100%, while
+request changes or reject blocks it at 95%.
 
 ### AI Team
 
