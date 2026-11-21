@@ -216,11 +216,11 @@ console uses. There is no second execution path.
 
 ## Lifecycle
 
-- **Graceful shutdown:** Ctrl+C (SIGINT) triggers a bounded drain — up to
-  `shutdown_drain_seconds` for detached work to finish — then the listener
-  stops, the singleton lock is released, and the process exits 0. SIGTERM is
-  handled where the platform delivers it, but Orion does not depend on it:
-  Windows Task Scheduler termination is closer to TerminateProcess, so
+- **Graceful shutdown:** Ctrl+C (or Ctrl+Break on Windows) triggers a bounded
+  drain — up to `shutdown_drain_seconds` for detached work to finish — then
+  the listener stops, the singleton lock is released, and the process exits 0.
+  SIGTERM is handled where the platform delivers it, but Orion does not depend
+  on it: Windows Task Scheduler termination is closer to TerminateProcess, so
   graceful shutdown there is best-effort.
 - **Abrupt termination:** the OS releases the singleton lock immediately, so
   the next start acquires it with no manual cleanup. All durable stores are

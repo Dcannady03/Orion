@@ -721,6 +721,13 @@ class Orion:
         try:
             signal.signal(signal.SIGINT, _request_shutdown)
             signal.signal(signal.SIGTERM, _request_shutdown)
+            # Windows only: Ctrl+Break is a second graceful-stop signal.
+            # (Cross-process CTRL_C_EVENT injection does not reliably
+            # reach a Store-launcher-spawned interpreter, but Ctrl+Break
+            # delivery does — verified live 2026-11-20.)
+            sigbreak = getattr(signal, "SIGBREAK", None)
+            if sigbreak is not None:
+                signal.signal(sigbreak, _request_shutdown)
         except (ValueError, OSError, RuntimeError):
             # Not the main thread (tests embed the server), or the
             # platform does not deliver the signal: shutdown still
