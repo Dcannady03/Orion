@@ -19,6 +19,9 @@ from orion.application.missions.coordination_models import (
     MissionAdvanceRequest,
     MissionAdvanceResult,
     MissionNextOperation,
+    MissionResolvePreview,
+    MissionResolveRequest,
+    MissionResolveResult,
 )
 from orion.application.missions.coordination_repository import (
     MissionCoordinationRepository,
@@ -30,6 +33,33 @@ from orion.application.results import ApplicationResult
 
 
 _PLAN_HASH_PATTERN = re.compile(r"[a-f0-9]{64}")
+
+# What each allowlisted operation leaves behind when it runs: the Mission
+# link the projection records, used by resolution to tell "ran" from
+# "did not run" from the reconciled Mission alone.
+_RESOLUTION_LINK_TYPES = {
+    "team.approve": "approval",
+    "team.implement": "team_run",
+    "team.validate": "validation",
+    "team.documentation_review": "documentation_review",
+    "team.final_review": "final_review",
+}
+
+# Run-based operations: the coordination-data fields that prove the
+# operation ran, plus the label used in the resolution evidence.
+_RUN_EFFECT_FIELDS = {
+    "team.validate": ("validation_status", "validation_id", "validation"),
+    "team.documentation_review": (
+        "documentation_review_status",
+        "documentation_review_id",
+        "documentation review",
+    ),
+    "team.final_review": (
+        "final_review_status",
+        "final_review_id",
+        "final review",
+    ),
+}
 
 
 class MissionCoordinator:
@@ -44,6 +74,7 @@ class MissionCoordinator:
         translator: MissionOperationTranslator | None = None,
         clock=None,
         attempt_id_factory=None,
+        recovery_recorder=None,
     ) -> None:
         if not isinstance(mission_service, MissionService):
             raise TypeError("Mission Coordinator requires MissionService.")
@@ -51,6 +82,8 @@ class MissionCoordinator:
             raise TypeError(
                 "Mission Coordinator requires MissionCoordinationRepository."
             )
+        if recovery_recorder is not None and not callable(recovery_recorder):
+            raise TypeError("Mission Coordinator recovery recorder must be callable.")
         self.mission_service = mission_service
         self.team_application = team_application
         self.audit_repository = audit_repository
@@ -59,6 +92,7 @@ class MissionCoordinator:
         self._attempt_id_factory = attempt_id_factory or (
             lambda: f"mission-attempt-{uuid4().hex}"
         )
+        self._recovery_recorder = recovery_recorder
         self._lock = RLock()
 
     def preview(
@@ -222,6 +256,149 @@ class MissionCoordinator:
                     warnings=warnings,
                 )
 
+    def resolve_preview(self, mission_id: str) -> MissionResolvePreview:
+        """Reconcile and inspect uncertain coordination state without mutating it."""
+        reconciliation = self.mission_service.reconcile(mission_id)
+        mission = reconciliation.mission
+        validation = self.mission_service.validate(mission.mission_id)
+        if not validation.valid:
+            reason = validation.errors[0] if validation.errors else (
+                "Mission validation did not establish a safe current projection."
+            )
+            return self._blocked_resolve_preview(
+                mission, reason, warnings=validation.warnings
+            )
+        return self._resolve_inspection(mission)
+
+    def resolve(self, request: MissionResolveRequest) -> MissionResolveResult:
+        """Resolve one stuck Mission from an explicit operator finding.
+
+        The preview is re-derived here from current state, so the finding
+        is checked against fresh evidence rather than a stale inspection.
+        A resolution never dispatches a Team operation: ``ran`` completes
+        the stuck audit as succeeded, ``did_not_run`` clears it so the
+        operation can be attempted again, and ``cannot_determine`` is
+        refused outright.
+        """
+        if not isinstance(request, MissionResolveRequest):
+            raise TypeError("Mission resolution requires a structured request.")
+        if not request.confirmed:
+            raise MissionCoordinationError(
+                "Mission resolution requires explicit confirmation."
+            )
+        if request.finding == "cannot_determine":
+            raise MissionCoordinationError(
+                "The downstream outcome cannot be determined; the coordination "
+                "block stands. No state was changed."
+            )
+
+        with self._lock:
+            reconciliation = self.mission_service.reconcile(request.mission_id)
+            mission = reconciliation.mission
+            validation = self.mission_service.validate(mission.mission_id)
+            if not validation.valid:
+                raise MissionCoordinationError(
+                    validation.errors[0] if validation.errors else
+                    "Mission validation failed before resolution."
+                )
+            inspection = self._resolve_inspection(mission)
+            if not inspection.resolvable:
+                raise MissionCoordinationError(inspection.blocked_reason)
+            audit = inspection.audit
+            warnings: list[str] = []
+            audit_outcome = "none"
+            downstream_reference = inspection.downstream_reference
+            if inspection.audit_blocked:
+                if request.finding not in {"ran", "did_not_run"}:
+                    raise MissionCoordinationError(
+                        "Resolution requires the operator to state whether "
+                        "the downstream operation ran."
+                    )
+                if request.finding == "ran" and not inspection.downstream_observed:
+                    raise MissionCoordinationError(
+                        "The downstream effect is not observable in the "
+                        "Event Store or Team state; the attempt cannot be "
+                        "resolved as ran. Resolve as did not run only when "
+                        "the evidence supports it, or leave the block in "
+                        "place."
+                    )
+                if (
+                    request.finding == "did_not_run"
+                    and inspection.downstream_observed
+                ):
+                    raise MissionCoordinationError(
+                        "Downstream state shows the operation ran "
+                        f"({inspection.downstream_evidence}); it cannot be "
+                        "resolved as did not run."
+                    )
+                if request.finding == "ran":
+                    completed = replace(
+                        audit,
+                        state="succeeded",
+                        finished_at=self._now(),
+                        result_status="succeeded",
+                        downstream_reference=downstream_reference,
+                        last_advance_event_id=mission.last_event_id,
+                        safe_message=(
+                            "Resolved by operator as downstream-ran; the "
+                            "operation is never re-dispatched."
+                        ),
+                    )
+                    self.audit_repository.write(
+                        completed,
+                        expected_attempt_id=audit.attempt_id,
+                    )
+                    audit_outcome = "succeeded"
+                else:
+                    self.audit_repository.clear(
+                        mission.mission_id,
+                        expected_attempt_id=audit.attempt_id,
+                    )
+                    audit_outcome = "cleared"
+            elif request.finding:
+                raise MissionCoordinationError(
+                    "No stuck audit exists to resolve with a finding; only "
+                    "the stale lock can be cleared."
+                )
+            lock_cleared = False
+            if inspection.lock_blocked:
+                try:
+                    lock_cleared = self.audit_repository.clear_lock(
+                        mission.mission_id,
+                        expected=inspection.lock,
+                    )
+                except PermissionError:
+                    warnings.append(
+                        "The coordination lock changed during resolution; a "
+                        "new advance may hold it. The lock was left in place."
+                    )
+            after = self.mission_service.reconcile(mission.mission_id)
+            updated = after.mission
+            recovery_record_id = self._record_resolution(
+                mission=mission,
+                finding=request.finding,
+                audit=audit,
+                actor=request.actor,
+                audit_outcome=audit_outcome,
+                lock_cleared=lock_cleared,
+                warnings=warnings,
+            )
+            return MissionResolveResult(
+                mission_id=mission.mission_id,
+                finding=request.finding,
+                audit_outcome=audit_outcome,
+                lock_cleared=lock_cleared,
+                downstream_reference=downstream_reference,
+                previous_status=mission.status.value,
+                new_status=updated.status.value,
+                new_stage=updated.stage.value,
+                new_progress=updated.progress,
+                reconciled=after.changed,
+                next_action=updated.next_action,
+                recovery_record_id=recovery_record_id,
+                warnings=tuple(dict.fromkeys((*updated.warnings, *warnings))),
+            )
+
     def _preview_current(
         self,
         mission: Mission,
@@ -239,7 +416,8 @@ class MissionCoordinator:
                 return self._blocked_preview(
                     mission,
                     "Another Mission advance may be active or its outcome may be "
-                    "uncertain.",
+                    "uncertain. Run mission resolve "
+                    f"{mission.mission_id} to inspect the lock.",
                 )
             prior = self.audit_repository.get(mission.mission_id)
             audit_block = self._audit_block_reason(prior, token)
@@ -802,6 +980,359 @@ class MissionCoordinator:
             warnings=tuple(dict.fromkeys((*mission.warnings, *warnings))),
         )
 
+    def _blocked_resolve_preview(
+        self,
+        mission: Mission,
+        reason: str,
+        *,
+        audit: MissionAdvanceAudit | None = None,
+        audit_blocked: bool = False,
+        lock=None,
+        lock_blocked: bool = False,
+        lock_holder_alive: bool | None = None,
+        downstream_observed: bool = False,
+        downstream_reference: str = "",
+        downstream_evidence: str = "",
+        downstream_unknown: bool = False,
+        warnings: tuple[str, ...] = (),
+    ) -> MissionResolvePreview:
+        return MissionResolvePreview(
+            mission_id=mission.mission_id,
+            status=mission.status.value,
+            stage=mission.stage.value,
+            progress=mission.progress,
+            mission_updated_at=mission.updated_at,
+            last_event_id=mission.last_event_id,
+            audit=audit,
+            audit_blocked=audit_blocked,
+            lock=lock,
+            lock_blocked=lock_blocked,
+            lock_holder_alive=lock_holder_alive,
+            downstream_observed=downstream_observed,
+            downstream_reference=downstream_reference,
+            downstream_evidence=downstream_evidence,
+            downstream_unknown=downstream_unknown,
+            resolvable=False,
+            blocked_reason=reason,
+            warnings=tuple(dict.fromkeys((*mission.warnings, *warnings))),
+        )
+
+    def _resolve_inspection(self, mission: Mission) -> MissionResolvePreview:
+        """Inspect stuck coordination state from a fresh reconciliation."""
+        audit = self.audit_repository.get(mission.mission_id)
+        audit_blocked = audit is not None and audit.state in {
+            "reserved", "uncertain",
+        }
+        lock = self.audit_repository.lock_info(mission.mission_id)
+        lock_blocked = lock is not None
+        holder_alive = (
+            self.audit_repository.lock_holder_alive(lock)
+            if lock_blocked else None
+        )
+        shared = {
+            "audit": audit,
+            "audit_blocked": audit_blocked,
+            "lock": lock,
+            "lock_blocked": lock_blocked,
+            "lock_holder_alive": holder_alive,
+        }
+        if mission.status in {
+            MissionStatus.COMPLETED,
+            MissionStatus.BLOCKED,
+            MissionStatus.FAILED,
+        }:
+            return self._blocked_resolve_preview(
+                mission,
+                f"The Mission is {mission.status.value}; uncertainty "
+                "resolution does not apply to terminal Missions.",
+                **shared,
+            )
+        if not audit_blocked and not lock_blocked:
+            return self._blocked_resolve_preview(
+                mission,
+                "No uncertain coordination state was found for this Mission.",
+                **shared,
+            )
+        observed = False
+        reference = ""
+        evidence = ""
+        unknown = False
+        if audit_blocked:
+            observed, reference, evidence, unknown = self._downstream_effect(
+                mission, audit
+            )
+            shared.update({
+                "downstream_observed": observed,
+                "downstream_reference": reference,
+                "downstream_evidence": evidence,
+                "downstream_unknown": unknown,
+            })
+        if lock_blocked and holder_alive is True:
+            return self._blocked_resolve_preview(
+                mission,
+                "Another Mission advance may be active: the coordination "
+                f"lock is held by live process {lock.pid}. Resolution "
+                "refuses while a holder is alive.",
+                **shared,
+            )
+        if lock_blocked and holder_alive is None:
+            return self._blocked_resolve_preview(
+                mission,
+                "The coordination lock owner cannot be confirmed from its "
+                "lock file. Remove the lock file manually only after "
+                "confirming no Mission advance is running: "
+                f"{lock.lock_path}",
+                **shared,
+            )
+        if audit_blocked and unknown:
+            return self._blocked_resolve_preview(
+                mission,
+                "Downstream state could not be inspected safely, so the "
+                f"outcome cannot be determined. {evidence}",
+                **shared,
+            )
+        return MissionResolvePreview(
+            mission_id=mission.mission_id,
+            status=mission.status.value,
+            stage=mission.stage.value,
+            progress=mission.progress,
+            mission_updated_at=mission.updated_at,
+            last_event_id=mission.last_event_id,
+            audit=audit,
+            audit_blocked=audit_blocked,
+            lock=lock,
+            lock_blocked=lock_blocked,
+            lock_holder_alive=holder_alive,
+            downstream_observed=observed,
+            downstream_reference=reference,
+            downstream_evidence=evidence,
+            downstream_unknown=unknown,
+            suggested_finding=(
+                "ran" if observed else "did_not_run"
+            ) if audit_blocked else "",
+            resolvable=True,
+            warnings=mission.warnings,
+        )
+
+    def _downstream_effect(
+        self,
+        mission: Mission,
+        audit: MissionAdvanceAudit,
+    ) -> tuple[bool, str, str, bool]:
+        """Decide whether the stuck attempt's effect is observable.
+
+        Returns (observed, reference, evidence, unknown). The reconciled
+        Mission link is checked first: a recorded link means the lifecycle
+        event was published and projected. Team coordination inspection is
+        the fallback for an effect that exists downstream but has not been
+        observed by the projection yet. ``unknown`` means inspection itself
+        failed, which is a refusal, not a finding.
+        """
+        link_type = _RESOLUTION_LINK_TYPES.get(audit.capability_id)
+        if link_type is None:
+            return (
+                False,
+                "",
+                f"Capability {audit.capability_id} has no observable "
+                "downstream effect.",
+                True,
+            )
+        link = mission.link(link_type)
+        if link is not None:
+            return (
+                True,
+                link.subject_id,
+                f"Mission link {link_type} {link.subject_id} is recorded.",
+                False,
+            )
+        if audit.capability_id == "team.approve":
+            return self._approve_effect(mission, audit)
+        if audit.capability_id == "team.implement":
+            return self._implement_effect(mission, audit)
+        return self._run_effect(mission, audit)
+
+    def _approve_effect(
+        self,
+        mission: Mission,
+        audit: MissionAdvanceAudit,
+    ) -> tuple[bool, str, str, bool]:
+        task_id = audit.subject_id
+        if callable(getattr(self.team_application, "coordination_details", None)):
+            details, reason = self._coordination_details(mission, task_id)
+            if details is None:
+                return False, "", reason, True
+            matching = [
+                item for item in self._records(details, "approvals")
+                if str(item.get("team_task_id", "")).strip() == task_id
+            ]
+            if matching:
+                approval_id = str(matching[0].get("approval_id", "")).strip()
+                return (
+                    True,
+                    approval_id,
+                    f"Team approval {approval_id or 'record'} exists for "
+                    f"task {task_id}.",
+                    False,
+                )
+            return False, "", f"No Team approval exists for task {task_id}.", False
+        inspector = getattr(self.team_application, "approval_details", None)
+        if not callable(inspector):
+            return (
+                False,
+                "",
+                "AI Team approval state could not be inspected safely.",
+                True,
+            )
+        try:
+            details = inspector(TeamTaskRequest(task_id))
+        except Exception as exc:
+            return (
+                False,
+                "",
+                "AI Team approval state could not be inspected safely "
+                f"({type(exc).__name__}).",
+                True,
+            )
+        if not isinstance(details, ApplicationResult) or not details.ok:
+            return (
+                False,
+                "",
+                "AI Team approval details are unavailable for this Mission.",
+                True,
+            )
+        if str(details.data.get("team_task_id", "")).strip() != task_id:
+            return (
+                False,
+                "",
+                "AI Team approval details do not match the Mission task.",
+                True,
+            )
+        if details.data.get("approval_inspection_available") is not True:
+            return (
+                False,
+                "",
+                "Existing Team approvals cannot be inspected; resolution "
+                "fails closed.",
+                True,
+            )
+        existing_count = details.data.get("existing_approval_count", 0)
+        if (
+            isinstance(existing_count, bool)
+            or not isinstance(existing_count, int)
+            or existing_count < 0
+        ):
+            return False, "", "Existing Team approval metadata is invalid.", True
+        if existing_count:
+            approval_id = str(details.data.get("latest_approval_id", "")).strip()
+            return (
+                True,
+                approval_id,
+                f"Team approval {approval_id or 'record'} exists for "
+                f"task {task_id}.",
+                False,
+            )
+        return False, "", f"No Team approval exists for task {task_id}.", False
+
+    def _implement_effect(
+        self,
+        mission: Mission,
+        audit: MissionAdvanceAudit,
+    ) -> tuple[bool, str, str, bool]:
+        task_id = audit.subject_id
+        details, reason = self._coordination_details(mission, task_id)
+        if details is None:
+            return False, "", reason, True
+        if self._records(details, "unresolved_runs"):
+            return (
+                False,
+                "",
+                "An unresolved Team run record exists; the implementation "
+                "outcome cannot be determined.",
+                True,
+            )
+        runs = [
+            item for item in self._records(details, "runs")
+            if str(item.get("team_task_id", "")).strip() == task_id
+        ]
+        if runs:
+            run_id = str(runs[0].get("run_id", "")).strip()
+            return (
+                True,
+                run_id,
+                f"Team run {run_id or 'record'} exists for task {task_id}.",
+                False,
+            )
+        return False, "", f"No Team run exists for task {task_id}.", False
+
+    def _run_effect(
+        self,
+        mission: Mission,
+        audit: MissionAdvanceAudit,
+    ) -> tuple[bool, str, str, bool]:
+        status_field, id_field, label = _RUN_EFFECT_FIELDS[audit.capability_id]
+        run, reason = self._verified_run(mission)
+        if run is None:
+            return False, "", reason, True
+        status = str(run.get(status_field, "")).strip()
+        if status:
+            reference = str(run.get(id_field, "")).strip()
+            return (
+                True,
+                reference,
+                f"Team run {run['run_id']} has {label} status {status}.",
+                False,
+            )
+        return (
+            False,
+            "",
+            f"Team run {run['run_id']} has no {label} record.",
+            False,
+        )
+
+    def _record_resolution(
+        self,
+        *,
+        mission: Mission,
+        finding: str,
+        audit: MissionAdvanceAudit | None,
+        actor: str,
+        audit_outcome: str,
+        lock_cleared: bool,
+        warnings: list[str],
+    ) -> str:
+        """Best-effort recovery-history recording; never breaks the resolution."""
+        if self._recovery_recorder is None:
+            warnings.append(
+                "Recovery history is unavailable; this resolution was not "
+                "recorded."
+            )
+            return ""
+        detail = (
+            f"finding={finding or 'lock-only'}; "
+            f"attempt={audit.attempt_id if audit is not None else 'none'}; "
+            f"capability={audit.capability_id if audit is not None else 'none'}; "
+            f"actor={actor}; audit={audit_outcome}; "
+            f"lock_cleared={'yes' if lock_cleared else 'no'}"
+        )
+        try:
+            record = self._recovery_recorder(
+                "mission-resolve",
+                mission.mission_id,
+                status="success",
+                detail=detail,
+            )
+        except Exception:  # noqa: BLE001 - recording must never break a resolution
+            warnings.append(
+                "The resolution could not be recorded in recovery history."
+            )
+            return ""
+        if record is None:
+            warnings.append(
+                "The resolution could not be recorded in recovery history."
+            )
+            return ""
+        return str(getattr(record, "record_id", "") or "")
+
     @staticmethod
     def _advance_token(
         mission: Mission,
@@ -845,7 +1376,8 @@ class MissionCoordinator:
         if audit.state in {"reserved", "uncertain"}:
             return (
                 "A previous Mission dispatch outcome is uncertain; automatic replay "
-                "is blocked pending operator inspection."
+                "is blocked pending operator inspection. Run mission resolve "
+                f"{audit.mission_id} to inspect and resolve it."
             )
         if audit.advance_token != advance_token:
             return ""

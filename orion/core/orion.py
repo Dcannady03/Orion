@@ -603,6 +603,13 @@ class Orion:
                 self.missions,
                 self.team_application,
                 self.mission_coordination_repository,
+                # The observability application is registered below, so the
+                # recorder resolves lazily at resolution time.
+                recovery_recorder=lambda kind, target, **kwargs: (
+                    self.observability_application.record_recovery(
+                        kind, target, **kwargs
+                    )
+                ),
             ),
         )
         self.mission_application = self.services.register(
