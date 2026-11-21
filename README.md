@@ -1,31 +1,90 @@
 # Orion
 
 Orion is a local-first personal intelligence operating system. It combines AI,
-memory, project knowledge, plugins, discovery, and approval-based actions behind a
-cohesive command-line companion.
+memory, project knowledge, missions, observability, plugins, discovery, and
+approval-based actions behind a cohesive command-line companion.
 
 ## Current release
 
-**v0.7.0 — Conductor**
+**v0.8.0 — Conductor**
 
-Conductor adds persistent role-based routing for Architect, Engineering Reviewer,
-Implementation Engine, Tester, and Documentation Reviewer. Planning models and
-execution engines are independently configurable, validated before use, and reported
-with their actual assignment, fallback, usage, cost, and duration metadata.
+Conductor releases the accumulated Mission milestones — Goal Engine, Goal
+Proposals, Event Bus, Mission Engine Phase 1, and Mission Coordinator Phases 1,
+2, and 3 — as one minor release. The 0.8.2–0.8.7 labels remain internal
+milestone names for that work. Conductor's persistent role-based routing for
+Architect, Engineering Reviewer, Implementation Engine, Tester, and
+Documentation Reviewer remains intact: planning models and execution engines
+are independently configurable, validated before use, and reported with their
+actual assignment, fallback, usage, cost, and duration metadata.
 
-AI Team assignments live in update-safe external user configuration. Dynamic planning
-roles reuse Orion's provider routing policy, implementation remains fail-closed when
-its engine is unavailable, and Gatekeeper's immutable approval, workspace sandbox,
-Awaiting Review, and rollback boundaries remain unchanged.
+AI Team assignments live in update-safe external user configuration. Dynamic
+planning roles reuse Orion's provider routing policy, implementation remains
+fail-closed when its engine is unavailable, and Gatekeeper's immutable approval,
+workspace sandbox, Awaiting Review, and rollback boundaries remain unchanged.
+
+The v0.8.2 Goal Engine accepts high-level outcomes, classifies them with
+authoritative deterministic rules, resolves read-only workspace and department
+context, discovers real registry capabilities, predicts approval boundaries, and
+returns an immutable execution preview. It does not call Team, Command Center,
+providers, agents, approvals, execution engines, Git, or repository writes. See
+[Goal Engine](docs/GOAL_ENGINE.md).
+
+The v0.8.3 Goal Proposals milestone persists exact Goal Plans as versioned,
+expiring, SHA-256-protected review records under external Orion user data.
+Explicit Y/N/D acceptance is single-use and may dispatch only the first
+allowlisted operation. The initial allowlist translates `team.plan` into the
+existing `TeamPlanRequest` and stops; Team implementation still requires its
+separate immutable approval. See [Goal Proposals](docs/GOAL_PROPOSALS.md).
+
+The v0.8.4 Event Bus adds immutable typed events, synchronous
+persist-before-deliver subscribers, external append-only daily JSONL history,
+bounded filtering and replay, and a read-only `events` CLI. Initial events cover
+Goal Plans, Goal Proposal lifecycle transitions, and successful AI Team plan
+creation. Subscribers observe facts only and cannot advance workflows. See
+[Event Bus](docs/EVENT_BUS.md).
+
+The v0.8.5 Mission Engine Phase 1 creates one immutable, restart-safe Mission
+for an accepted or consumed Goal Proposal and projects strictly correlated
+Event Store facts into status, stage, fixed progress, identity links, history,
+and a recommended human command. Missions persist under `~/.orion/missions/`; explicit
+creation and reconciliation write only Mission state. There is no subscriber,
+automatic advancement, approval consumption, agent/job/provider launch, Git,
+subprocess, or workspace mutation. See [Mission Engine](docs/MISSION_ENGINE.md).
+
+The v0.8.6 Mission Coordinator Phase 1 adds a human-controlled gearbox above
+the Mission projection: `mission next` previews one deterministic operation,
+while `mission advance` requires explicit state-token-bound confirmation,
+dispatches at most one typed operation, reconciles once, and stops. The initial
+allowlist supports only the existing plan-hash-protected `team.approve` handler.
+Cross-process locks and external audit reservations block duplicate or uncertain
+replay; there is no autonomous continuation. See
+[Mission Coordinator](docs/MISSION_COORDINATOR.md).
+
+The v0.8.7 Mission Coordinator Phase 2 extends that same boundary through the
+existing typed `team.implement`, `team.validate`, and
+`team.documentation_review` application handlers. Strict persisted lifecycle
+events drive deterministic implementation, validation, documentation,
+blocked/failed, final review, and completion projection. Coordinated stages
+disable automatic follow-up cascades, so one confirmation remains one
+operation, one reconciliation, and a stop.
+
+Mission Coordinator Phase 3 completes the lifecycle. It adds the reviewed typed
+human final-review decision boundary: `mission advance` captures an accept /
+changes requested / reject decision (with an optional note, bound into the
+advance token) and records one immutable decision on the Team run — accept
+completes the Mission at 100%, changes requested or reject blocks it at 95%
+with no rework loop. It adds the audited uncertainty-resolution workflow
+(`mission resolve`) for a crash-stuck `reserved` audit or a stale lock, and an
+append-only per-Mission attempt history (`<mission-id>.attempts.jsonl`) so the
+full trail, including the final decision, is auditable after the fact. See
+[Mission Coordinator](docs/MISSION_COORDINATOR.md).
 
 ## Current development branch
 
-The development branch contains the unreleased Goal Engine, Goal Proposals, Event
-Bus, Mission Engine Phase 1, Mission Coordinator Phase 2, Command Center, Agent
-System, Image Center, Automatic Validation, Documentation Review, and
-application-core stabilization work.
-These capabilities are tested development features; they are not part of the v0.7.0
-stable release.
+The development branch contains the unreleased Command Center, Image Center,
+Automatic Validation, Documentation Review, and application-core stabilization
+work. These capabilities are tested development features; they are not part of
+the v0.8.0 stable release.
 
 The unreleased Automatic Validation milestone turns the configured Tester into a real
 post-implementation stage. Orion deterministically selects relevant local checks,
@@ -54,52 +113,6 @@ The application-core stabilization milestone adds immutable structured results, 
 serializable capability registry, and a Command Center application handler shared
 through a small CLI renderer. The CLI remains the only completed local interactive
 client in this milestone.
-
-The unreleased v0.8.2 Goal Engine accepts high-level outcomes, classifies them with
-authoritative deterministic rules, resolves read-only workspace and department
-context, discovers real registry capabilities, predicts approval boundaries, and
-returns an immutable execution preview. It does not call Team, Command Center,
-providers, agents, approvals, execution engines, Git, or repository writes. See
-[Goal Engine](docs/GOAL_ENGINE.md).
-
-The unreleased v0.8.3 Goal Proposals milestone persists exact Goal Plans as versioned,
-expiring, SHA-256-protected review records under external Orion user data. Explicit
-Y/N/D acceptance is single-use and may dispatch only the first allowlisted operation.
-The initial allowlist translates `team.plan` into the existing `TeamPlanRequest` and
-stops; Team implementation still requires its separate immutable approval. See
-[Goal Proposals](docs/GOAL_PROPOSALS.md).
-
-The unreleased v0.8.4 Event Bus adds immutable typed events, synchronous
-persist-before-deliver subscribers, external append-only daily JSONL history,
-bounded filtering and replay, and a read-only `events` CLI. Initial events cover Goal
-Plans, Goal Proposal lifecycle transitions, and successful AI Team plan creation.
-Subscribers observe facts only and cannot advance workflows. See
-[Event Bus](docs/EVENT_BUS.md).
-
-The unreleased v0.8.5 Mission Engine Phase 1 creates one immutable, restart-safe
-Mission for an accepted or consumed Goal Proposal and projects strictly correlated
-Event Store facts into status, stage, fixed progress, identity links, history, and a
-recommended human command. Missions persist under `~/.orion/missions/`; explicit
-creation and reconciliation write only Mission state. There is no subscriber,
-automatic advancement, approval consumption, agent/job/provider launch, Git,
-subprocess, or workspace mutation. See [Mission Engine](docs/MISSION_ENGINE.md).
-
-The unreleased v0.8.6 Mission Coordinator Phase 1 adds a human-controlled gearbox above the
-Mission projection: `mission next` previews one deterministic operation, while
-`mission advance` requires explicit state-token-bound confirmation, dispatches at
-most one typed operation, reconciles once, and stops. The initial allowlist supports
-only the existing plan-hash-protected `team.approve` handler. Cross-process locks and
-external audit reservations block duplicate or uncertain replay; there is no
-autonomous continuation. See [Mission Coordinator](docs/MISSION_COORDINATOR.md).
-
-The unreleased v0.8.7 Mission Coordinator Phase 2 extends that same boundary through
-the existing typed `team.implement`, `team.validate`, and
-`team.documentation_review` application handlers. Strict persisted lifecycle events
-drive deterministic implementation, validation, documentation, blocked/failed, final
-review, and completion projection. Coordinated stages disable automatic follow-up
-cascades, so one confirmation remains one operation, one reconciliation, and a stop.
-The current Team layer has no typed final-review decision command, and the Coordinator
-does not invent one.
 
 ### Experimental and planned interfaces
 
@@ -180,6 +193,15 @@ events correlation <id>      Read one correlated activity
 events subject <id>          Read events for one subject
 events types                 List stable event type contracts
 events subscribers           List registered observer names
+mission create <proposal-id>  Create a durable Mission from a proposal
+mission show <mission-id>     Show Mission status, stage, and links
+mission list [--status ...]   List Missions
+mission history <mission-id>  Show Mission history
+mission validate <mission-id> Validate a Mission read-only
+mission reconcile <mission-id> Rebuild Mission state from Event Store facts
+mission next <mission-id>     Preview the one safe next operation
+mission advance <mission-id>  Confirm and dispatch exactly one operation
+mission resolve <mission-id>  Resolve a stuck audit or stale lock
 cc status                    Show the personal AI organization
 cc snapshot                  Emit the versioned JSON snapshot contract
 cc departments               List organization departments
@@ -223,6 +245,35 @@ team docs <run-id>           Rerun Documentation Review only
 team docs last               Review the newest eligible workspace run
 team docs show <run-id>      Show the latest documentation findings
 team rollback <run-id>       Restore a run when affected files are unchanged
+health                        Unified service, provider, and disk status
+health --record               Record a health snapshot for graphs
+logs                          Search runtime logs
+diagnostics                   Build an environment report for issue reports
+graphs                        View health timelines and dependency tree
+backup export                 Back up configuration and runtime data
+backup list                   List backup archives
+backup verify <path>          Verify a backup archive
+backup import <path>          Restore after explicit approval
+recovery                      Show transparent recovery history
+audit                         Run a read-only security audit
+runbooks                      List diagnostic runbooks
+runbooks diagnose             Suggest runbooks from live health findings
+retry <operation>             Explicit bounded retry with verification
+remediate                     Propose fixes; apply only with approval
+docker list                   List containers (alias docker ps)
+docker inspect <name>         Show one container in detail
+docker start <name>           Approval-gated container start
+docker stop <name>            Approval-gated container stop
+docker restart <name>         Approval-gated container restart
+docker health                 Summarize container health
+docker logs <name>            Show recent container logs
+docker diagnose <name>        Read-only "why can't I reach it?" diagnosis
+shell <command>               Approval-gated shell execution (opt-in)
+git status                    Show repository status (Git workspaces)
+git log                       Show commit history
+git diff                      Show uncommitted changes
+git pull                      Pull with explicit confirmation
+git push                      Push with explicit confirmation
 execution status             Detect usable local execution engines
 workspace                    Inspect the active workspace
 files                        List workspace files
@@ -262,7 +313,7 @@ auditable. “Always allow” trust is narrowly scoped and stored per project wo
 - `orion/command_center` - organization, jobs, activity, snapshot, storage, and CLI
 
 - `orion/core` — runtime, configuration, profile, and routing
-- `orion/application` — structured results, Goal Engine, Event Bus, capability metadata, and application commands
+- `orion/application` — structured results, Goal Engine, Event Bus, Mission Engine and Coordinator, observability, capability metadata, and application commands
 - `orion/interfaces` — CLI rendering and other interface adapters
 - `orion/intelligence` — Brain, identity, intents, and AI providers
 - `orion/agents` — strict external agent definitions and registry
@@ -293,15 +344,17 @@ source, user data, workspace-generated state, and sanitized test fixtures.
 
 ## Roadmap
 
-The active development work combines the **v0.8.2 Goal Engine**, **v0.8.3 Goal
-Proposals**, **v0.8.4 Event Bus**, **v0.8.5 Mission Engine Phase 1**, **v0.8.6 Mission
-Coordinator Phase 1**, **v0.8.7 Mission Coordinator Phase 2**, and **Orion v1.0
-Command Center** with incremental application-core stabilization: deterministic
-planning, an explicit single-operation trust bridge, observation-only lifecycle
-facts, durable Mission projection, and a persistent organization/job control workflow
-over the existing Agent System, AI Team, routing, workspace, immutable approval,
-validation, documentation, and execution services.
-See `docs/ROADMAP.md` for the complete plan.
+v0.8.0 releases the Mission stack — Goal Engine, Goal Proposals, Event Bus,
+Mission Engine Phase 1, and Mission Coordinator Phases 1, 2, and 3 — alongside
+the completed Docker integration, approval-based shell execution, Git commands,
+and 0.4 observability work (health, logs, diagnostics, graphs, backup,
+recovery, retry, runbooks, remediate, audit). The active development work is
+the **Orion v1.0 Command Center** with incremental application-core
+stabilization: a persistent organization/job control workflow over the existing
+Agent System, AI Team, routing, workspace, immutable approval, validation,
+documentation, and execution services. Home Assistant and routines/multi-step
+workflows remain planned. See `docs/ROADMAP.md` for the complete plan and
+`docs/CHANGELOG.md` for the release history.
 
 ## v0.3.6.2 — Constellation Polish
 
@@ -625,6 +678,58 @@ again. No Team command initializes Git, creates a branch, commits, resets, pushe
 merges, tags, or opens a pull request. See `docs/CODEX_BRIDGE.md` for the complete
 security and persistence contract.
 
+## Mission Coordinator
+
+Mission Coordinator is a human-controlled gearbox above the Mission projection,
+not a workflow engine. One explicit confirmation can call at most one existing
+Team lifecycle operation, and the Coordinator always stops after the downstream
+result and one Mission reconciliation:
+
+```text
+Mission -> Preview -> Confirm -> One Operation -> Reconcile -> Stop
+```
+
+```text
+mission create <proposal-id>
+mission show <mission-id>
+mission next <mission-id>
+mission advance <mission-id>
+mission resolve <mission-id>
+```
+
+`mission next` reconciles, validates, and previews one deterministic operation
+without executing it. `mission advance` repeats that preview, shows the target,
+mutation, and downstream-approval details, then asks for explicit confirmation
+bound to the exact state token. The allowlist covers `team.approve`,
+`team.implement`, `team.validate`, `team.documentation_review`, and
+`team.final_review`; coordinated stages disable their automatic follow-ups, so
+one confirmation remains one operation, one reconciliation, and a stop.
+Cross-process locks and external audit reservations block duplicate or uncertain
+replay.
+
+When the previewed operation is `team.final_review`, `mission advance` asks for
+the human decision first — accept, request changes, or reject — then confirms
+with the decision shown. The decision and optional note are bound into the
+advance token, so an accept-token and a reject-token are different tokens and
+the decision cannot be swapped after preview. Accept completes the Mission at
+100%; changes requested or reject blocks it at 95% with no rework loop. One
+immutable decision is recorded on the Team run; a second decision is refused.
+
+When a crash leaves a coordination audit stuck at `reserved`/`uncertain`, or a
+stale advance lock behind, `mission resolve` inspects what the downstream
+actually did (from a fresh reconcile plus Team inspection) and asks the
+operator to state the finding: downstream ran (the audit is completed as
+succeeded and the operation is never re-dispatched), downstream did not run
+(the audit is cleared so the operation can be attempted again), or cannot
+determine (resolution is refused and the block stands). A stale lock clears
+only after confirming no live holder, and every resolution is recorded in the
+recovery history under the `mission-resolve` kind. Every attempt transition
+and resolution is also appended to a per-Mission attempt history
+(`<mission-id>.attempts.jsonl`), audit-only; the blocking logic reads only the
+single latest audit record. See `docs/MISSION_COORDINATOR.md` and
+`docs/MISSION_ENGINE.md` for the full lifecycle, token, and projection
+contracts.
+
 ## Execution Engine Discovery
 
 `execution status` separates runnable CLI engines from Codex Desktop and ChatGPT
@@ -644,6 +749,89 @@ reported as ChatGPT, desktop apps remain informational, and ChatGPT Desktop disp
 `CLI Support: No`. Claude and Gemini discovery prepares future adapters, but Codex
 Bridge Phase 1 still supports only a Ready Codex CLI. See
 `docs/EXECUTION_ENGINES.md` for status and diagnostic details.
+
+## Observability, Docker, and Shell
+
+Orion's observability commands inspect its own health, logs, and history in one
+place, and fix problems only with explicit approval:
+
+```text
+health
+logs --severity error
+diagnostics
+graphs
+backup export
+recovery
+audit
+runbooks diagnose
+retry provider ollama
+remediate
+```
+
+`health` reports disk space, AI provider configuration and the active provider,
+registered services, loaded configuration, the active workspace, and the Event
+Store, each OK, WARNING, ERROR, or UNKNOWN. `health --record` saves snapshots
+that `graphs` renders as ASCII timelines and a live dependency tree. `logs`
+searches runtime logs by severity, type, text, and time range. `diagnostics`
+builds a secret-free environment report safe to paste into an issue report.
+`backup` exports and imports configuration and runtime data as SHA-256-verified
+ZIP archives (Vault and tokens are never exported); `backup import` verifies
+first, writes a pre-import safety backup, and restores only after an explicit
+`Approve? [y/N]`. `recovery` lists every recovery Orion has performed, newest
+first, including failures. `audit` runs a read-only security audit over Vault
+and token storage, secrets in configuration and recent events, credential
+sources, endpoints, plugins, and approval policies. `runbooks` lists
+root-cause-oriented diagnostic procedures, and `runbooks diagnose` suggests the
+ones matching live health-check findings. `retry` makes an explicit, bounded
+retry of a failing operation and then verifies the result end to end — retries
+are never automatic. `remediate` proposes fixes from live health-check findings
+and applies them only with explicit approval, verifying each fix and recording
+outcomes in `recovery`. See `docs/USER_GUIDE.md` and the per-feature pages
+(`docs/HEALTH_CHECK.md`, `docs/LOG_VIEWER.md`, `docs/DIAGNOSTICS.md`,
+`docs/BACKUP_RESTORE.md`, `docs/SECURITY_AUDIT.md`, `docs/RETRY.md`,
+`docs/REMEDIATION.md`).
+
+`docker` talks to the Docker daemon on this machine through the `docker` CLI,
+with no new dependencies. Discovery and logs are read-only; control asks for
+approval first:
+
+```text
+docker list
+docker inspect web
+docker start web
+docker stop web
+docker restart web
+docker health
+docker logs web
+docker diagnose web
+```
+
+`docker list` (alias `docker ps`) shows every container, running or stopped.
+`docker inspect` shows one container in detail. `docker start`, `stop`, and
+`restart` show the container's current state first, then ask `Approve? [y/N]`,
+re-resolve before acting, re-inspect afterwards to verify the new state, and
+record every applied action in the recovery history — there is no `--yes`
+bypass. `docker health` summarizes container health across every container.
+`docker logs` shows recent log lines (default 50, `--tail N` up to 500).
+`docker diagnose` answers "why can't I reach this container?" in one read-only
+pass — running state and last exit code, a probe of each published host port,
+and a scan of the last 100 log lines — and reports one verdict: not running,
+no published ports, port unreachable, HTTP error, or all clear. The
+`container-unreachable` runbook covers the same ground as a procedure, and
+`remediate` proposes starting a stopped container that publishes a host port.
+When the `docker` command is missing or the daemon is unreachable, every docker
+command fails closed with a clear "Docker is not available" message. See
+[Docker integration](docs/DOCKER.md) for the full reference.
+
+`shell` runs one shell command at a time (PowerShell on Windows, `sh` on
+POSIX) and reports its exit code, duration, and captured output. It is off by
+default and gated twice: `shell.arbitrary_commands` must be `true` in
+`~/.orion/config.yaml` (add `shell:` / `arbitrary_commands: true` and restart
+Orion), and every command asks `Approve? [y/N]` after showing the exact
+command, working directory, and timeout. There is no `--yes` bypass. Every
+execution — and every refusal — is recorded in the recovery history
+(`recovery --kind shell`). See [Shell execution](docs/SHELL.md) for the full
+reference.
 
 ## Orion Vault
 
@@ -765,3 +953,8 @@ update rollback
 ```
 
 Orion downloads a pinned GitHub package, backs up the current application, replaces application files, and leaves `~/.orion` untouched. Git commands remain available in development workspaces.
+
+Git workspaces also expose `git status`, `git log`, `git diff`, `git pull`, and
+`git push`. Pull is fast-forward-only and requires a clean tree; push refuses a
+detached HEAD. Pull and push require explicit confirmation. Standard workspaces
+do not need Git.
