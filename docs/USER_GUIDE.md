@@ -620,11 +620,15 @@ stage becomes eligible.
 
 Coordination audit and locks persist under `~/.orion/missions/coordination/` so a
 restart, duplicate request, stale token, stale lock, unresolved Team run, authoritative
-mismatch, or uncertain prior dispatch fails closed. Validation and documentation
-failures project a blocked state; implementation failure is terminal. Successful
-documentation reaches final human review at 90%, where `mission advance` records
-the one typed human decision: accept completes the Mission at 100%, while request
-changes or reject blocks it at 95%.
+mismatch, or uncertain prior dispatch fails closed. Every attempt transition and
+resolution is also appended to a per-Mission attempt history
+(`<mission-id>.attempts.jsonl` in the same directory), so the full trail —
+including the final decision — is auditable after the fact; the history is
+audit-only and the blocking logic reads only the single latest audit record.
+Validation and documentation failures project a blocked state; implementation
+failure is terminal. Successful documentation reaches final human review at 90%,
+where `mission advance` records the one typed human decision: accept completes
+the Mission at 100%, while request changes or reject blocks it at 95%.
 
 When a crash leaves a coordination audit stuck at `reserved`/`uncertain`, or a
 stale advance lock behind, `mission resolve <mission-id>` inspects what the

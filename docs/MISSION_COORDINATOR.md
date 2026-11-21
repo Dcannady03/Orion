@@ -86,6 +86,13 @@ explicit finding — downstream ran, downstream did not run, or cannot
 determine. See "Uncertainty resolution" below. There is still no automatic
 resolution, no background reaping of stale locks, and no automatic retry.
 
+Phase 3 also adds an append-only per-Mission attempt history (see "Attempt
+history" below) and a dedicated final-review idempotency regression suite
+proving the new paths are as safe as the old ones: same-token replay is
+blocked after success, decision tokens cannot be swapped, the decision
+record is single-write, a resolution-cleared operation dispatches exactly
+once, and concurrent advances dispatch once.
+
 ## Architecture and boundaries
 
 ```text
@@ -338,6 +345,28 @@ record — it never edits the audit it resolves, beyond completing a ran
 attempt as `succeeded` or clearing a did-not-run attempt. Concurrent
 resolutions serialize on the audit's optimistic-concurrency guard: one wins,
 the other is refused.
+
+## Attempt history
+
+Alongside the single latest audit record, every attempt transition is
+appended to a per-Mission append-only log,
+`<mission-id>.attempts.jsonl` under the coordination root
+(`~/.orion/missions/coordination/`). Each line is one JSON object: an
+attempt snapshot (the full audit record at `reserved`, `uncertain`,
+`succeeded`, or `failed`) or a resolution record (finding, audit outcome,
+downstream reference, actor, and recovery-history record ID). A resolved
+attempt appears twice in the trail — once as the attempt it was, once as
+the resolution that settled it — and a cleared did-not-run attempt keeps
+its reserved snapshot plus the resolution that cleared it, so the full
+trail, including the final decision, is auditable after the fact.
+
+The log is audit-only: the blocking logic keeps reading only the single
+latest audit record, and nothing in preview, advance, or resolve consults
+the history. It shares the audit's size discipline (one bounded file per
+Mission); when the log is full, appends are best-effort and surface as a
+warning on the advance or resolution result rather than breaking the
+operation. A malformed or oversized log is reported, never silently
+misread.
 
 ## Commands and read-only guarantees
 
