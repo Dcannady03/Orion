@@ -10,6 +10,7 @@ from orion.application.missions import (
     MissionHistoryRequest,
     MissionListRequest,
     MissionReferenceRequest,
+    MissionResolveRequest,
 )
 from orion.application.results import ApplicationResult
 from orion.interfaces.cli.renderer import ApplicationResultRenderer
@@ -54,6 +55,8 @@ class MissionCliAdapter:
             return self._reference(command, args, self.application.next)
         if command == "advance":
             return self._advance(args)
+        if command == "resolve":
+            return self._resolve(args)
         if command == "validate":
             return self._reference(command, args, self.application.validate)
         if command == "reconcile":
@@ -92,7 +95,7 @@ class MissionCliAdapter:
             )))
         return self._usage(
             "Mission command not recognized. Use: mission create | show | list | "
-            "history | validate | reconcile | next | advance"
+            "history | validate | reconcile | next | advance | resolve"
         )
 
     def _advance(self, args: list[str]) -> ApplicationResult:
@@ -194,6 +197,106 @@ class MissionCliAdapter:
                 "operation_dispatched": False,
             },
             next_actions=(f"mission next {mission_id}",),
+        ))
+
+    def _resolve(self, args: list[str]) -> ApplicationResult:
+        if len(args) != 1:
+            return self._usage("Usage: mission resolve <mission-id>")
+        mission_id = args[0]
+        preview = self.application.resolve_preview(
+            MissionReferenceRequest(mission_id)
+        )
+        self.renderer.render(preview)
+        if not preview.ok or preview.data.get("resolvable") is not True:
+            return preview
+        finding = ""
+        if preview.data.get("audit_blocked") is True:
+            finding = self._prompt_finding(
+                str(preview.data.get("suggested_finding", ""))
+            )
+            if finding is None:
+                return self._resolve_cancelled(mission_id)
+            if finding == "ran":
+                consequence = (
+                    "This completes the stuck audit as succeeded. "
+                    "The operation will NOT be re-dispatched."
+                )
+            else:
+                consequence = (
+                    "This clears the stuck audit so the operation can be "
+                    "attempted again from a fresh preview and token."
+                )
+            self.renderer.output(f"\nResolve as {finding.replace('_', ' ')}?")
+            self.renderer.output(consequence)
+        else:
+            self.renderer.output(
+                "\nClear the stale coordination lock? No audit is stuck."
+            )
+        while True:
+            self.renderer.output("Confirm the resolution? [Y/N]:")
+            try:
+                answer = self.input("> ").strip().lower()
+            except KeyboardInterrupt:
+                return self._resolve_cancelled(mission_id)
+            if answer in {"", "n", "no"}:
+                return self._resolve_cancelled(mission_id)
+            if answer in {"y", "yes"}:
+                return self._render(self.application.resolve(
+                    MissionResolveRequest(
+                        mission_id=mission_id,
+                        finding=finding,
+                        confirmed=True,
+                        actor="user",
+                    )
+                ))
+            self.renderer.output(
+                "Please enter Y or N. No Mission state was changed."
+            )
+
+    def _prompt_finding(self, suggested: str) -> str | None:
+        """Ask for the operator finding; None cancels the resolution."""
+        while True:
+            hint = ""
+            if suggested:
+                hint = (
+                    f" The downstream evidence suggests "
+                    f"{suggested.replace('_', ' ')}."
+                )
+            self.renderer.output(
+                "\nDid the downstream operation run? [R]an / [D]id not run / "
+                f"[C]annot determine / [N]o (cancel):{hint}"
+            )
+            try:
+                answer = self.input("> ").strip().lower()
+            except KeyboardInterrupt:
+                return None
+            if answer in {"", "n", "no"}:
+                return None
+            if answer in {"r", "ran"}:
+                return "ran"
+            if answer in {"d", "did_not_run", "did not run", "not run"}:
+                return "did_not_run"
+            if answer in {"c", "cannot_determine", "cannot determine", "unknown"}:
+                self.renderer.output(
+                    "Cannot determine leaves the block in place. "
+                    "No Mission state was changed."
+                )
+                return None
+            self.renderer.output(
+                "Please enter R, D, C, or N. No Mission state was changed."
+            )
+
+    def _resolve_cancelled(self, mission_id: str) -> ApplicationResult:
+        return self._render(ApplicationResult.success(
+            "Mission resolution cancelled. No state was changed.",
+            data={
+                "command": "resolve",
+                "mission_id": mission_id,
+                "confirmed": False,
+                "resolution_applied": False,
+                "operation_dispatched": False,
+            },
+            next_actions=(f"mission show {mission_id}",),
         ))
 
     def _reference(self, command: str, args: list[str], handler) -> ApplicationResult:

@@ -4,7 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from orion.application.interface_actions import interface_action
-from orion.application.missions.coordination_models import MissionAdvanceRequest
+from orion.application.missions.coordination_models import (
+    MissionAdvanceRequest,
+    MissionResolveRequest,
+)
 from orion.application.missions.coordinator import MissionCoordinator
 from orion.application.missions.models import Mission, MissionStatus
 from orion.application.missions.service import MissionService
@@ -305,6 +308,123 @@ class MissionApplicationHandler:
             data=data,
             warnings=result.warnings,
             next_actions=next_actions,
+        )
+
+    def resolve_preview(self, request: MissionReferenceRequest) -> ApplicationResult:
+        """Render the read-only uncertainty inspection for one Mission."""
+        try:
+            coordinator = self._require_coordinator()
+            preview = coordinator.resolve_preview(self._reference(request))
+        except self._expected_errors() as exc:
+            return self._failure("Mission resolution preview failed", exc)
+        lines = [
+            "Mission Uncertainty Inspection",
+            "-" * 72,
+            f"Mission    : {preview.mission_id}",
+            f"Status     : {preview.status.replace('_', ' ').title()}",
+            f"Stage      : {preview.stage}",
+            f"Progress   : {preview.progress}%",
+        ]
+        audit = preview.audit
+        if audit is not None:
+            lines.extend([
+                "",
+                "Stuck audit:",
+                f"  Attempt  : {audit.attempt_id}",
+                f"  State    : {audit.state}",
+                f"  Operation: {audit.capability_id} on {audit.subject_id}",
+                f"  Started  : {audit.started_at}",
+                f"  Actor    : {audit.actor}",
+                f"  Token    : {audit.advance_token}",
+            ])
+        else:
+            lines.extend(["", "Stuck audit: none."])
+        lock = preview.lock
+        if lock is not None:
+            if preview.lock_holder_alive is True:
+                holder = f"live process {lock.pid}"
+            elif preview.lock_holder_alive is False:
+                holder = f"process {lock.pid} (not running)"
+            else:
+                holder = "unknown (lock file carries no holder identity)"
+            lines.extend([
+                "",
+                "Coordination lock:",
+                f"  Held since: {lock.started_at or 'unknown'}",
+                f"  Holder    : {holder}",
+                f"  File      : {lock.lock_path}",
+            ])
+        else:
+            lines.extend(["", "Coordination lock: none."])
+        if preview.audit_blocked:
+            lines.extend([
+                "",
+                "Downstream evidence:",
+                f"  {preview.downstream_evidence or 'No downstream evidence was found.'}",
+            ])
+            if preview.downstream_reference:
+                lines.append(f"  Reference : {preview.downstream_reference}")
+            if preview.suggested_finding:
+                lines.append(
+                    "  Suggested : "
+                    f"{preview.suggested_finding.replace('_', ' ')}"
+                )
+        lines.append("")
+        if preview.resolvable:
+            lines.append("This Mission can be resolved with an explicit finding.")
+            next_actions = (f"mission resolve {preview.mission_id}",)
+            warnings = preview.warnings
+        else:
+            lines.append(f"Blocked    : {preview.blocked_reason}")
+            lines.append("No state was changed.")
+            next_actions = (
+                f"mission show {preview.mission_id}",
+                f"mission reconcile {preview.mission_id}",
+            )
+            warnings = tuple(dict.fromkeys((
+                *preview.warnings,
+                preview.blocked_reason,
+            )))
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data={"command": "resolve_preview", **preview.to_dict()},
+            warnings=warnings,
+            next_actions=next_actions,
+        )
+
+    def resolve(self, request: MissionResolveRequest) -> ApplicationResult:
+        try:
+            coordinator = self._require_coordinator()
+            result = coordinator.resolve(request)
+        except self._expected_errors() as exc:
+            return self._failure("Mission resolution failed", exc)
+        data = {"command": "resolve", **result.to_dict()}
+        finding = result.finding.replace("_", " ") if result.finding else "lock only"
+        lines = [
+            "Mission Uncertainty Resolved",
+            "-" * 72,
+            f"Mission    : {result.mission_id}",
+            f"Finding    : {finding}",
+            f"Audit      : {result.audit_outcome}",
+            f"Lock       : {'cleared' if result.lock_cleared else 'unchanged'}",
+            f"Previous   : {result.previous_status}",
+            f"Current    : {result.new_status}",
+            f"Stage      : {result.new_stage}",
+            f"Progress   : {result.new_progress}%",
+        ]
+        if result.downstream_reference:
+            lines.append(f"Downstream : {result.downstream_reference}")
+        if result.recovery_record_id:
+            lines.append(f"Recorded   : {result.recovery_record_id}")
+        lines.append("No Team operation was dispatched.")
+        return ApplicationResult.success(
+            "\n".join(lines),
+            data=data,
+            warnings=result.warnings,
+            next_actions=(
+                f"mission show {result.mission_id}",
+                f"mission next {result.mission_id}",
+            ),
         )
 
     @staticmethod

@@ -701,6 +701,7 @@ class CommandRouter:
         print("    mission reconcile <mission-id> Rebuild Mission projection only")
         print("    mission next <mission-id>     Preview one eligible operation")
         print("    mission advance <mission-id>  Confirm and dispatch exactly one operation")
+        print("    mission resolve <mission-id>  Inspect and resolve uncertain coordination state")
         print()
         print("  Command Center")
         print("    cc status                  Show organization, jobs, and health")

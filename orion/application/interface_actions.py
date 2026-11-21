@@ -34,6 +34,7 @@ _ACTION_LABELS = {
     "team.sync": "Synchronize linked Command Center state",
     "mission.next": "Preview the next Mission operation",
     "mission.advance": "Advance the Mission by one confirmed operation",
+    "mission.resolve": "Resolve a Mission stuck on uncertain coordination state",
     "mission.show": "Show Mission state",
     "mission.reconcile": "Reconcile Mission projection",
 }
@@ -83,6 +84,8 @@ def cli_command_for_action(
         return f"mission next {mission_id}" if mission_id else None
     if capability == "mission.advance":
         return f"mission advance {mission_id}" if mission_id else None
+    if capability == "mission.resolve":
+        return f"mission resolve {mission_id}" if mission_id else None
     if capability == "mission.show":
         return f"mission show {mission_id}" if mission_id else None
     if capability == "mission.reconcile":
