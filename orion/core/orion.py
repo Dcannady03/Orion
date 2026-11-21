@@ -659,7 +659,24 @@ class Orion:
         self.discord_interface = None
         self.server_interface = None
         self.router = CommandRouter(self, interactive_team_approval=True)
-        self.console = Console(self)
+        # The console is built lazily (see the console property): its
+        # prompt_toolkit session needs a real console screen buffer, and a
+        # headless --server process started without one (SSH, a scheduled
+        # task) must not die in __init__.
+        self._console: Console | None = None
+
+    @property
+    def console(self) -> Console:
+        """Build the prompt_toolkit console on first use.
+
+        Console construction raises NoConsoleScreenBufferError on Windows
+        when the process has no console attached. Server mode never touches
+        the console; console mode builds it on first render/prompt, exactly
+        as before.
+        """
+        if self._console is None:
+            self._console = Console(self)
+        return self._console
 
     def _save_calendar_provider_state(self, provider_key: str, enabled: bool) -> None:
         self.config_manager.set("calendar.enabled", True)

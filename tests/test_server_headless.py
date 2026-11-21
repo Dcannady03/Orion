@@ -220,5 +220,29 @@ class HeadlessServerTests(MissionCoordinatorFixture, ApiFixture):
             signal.signal(signal.SIGTERM, previous_term)
 
 
+class LazyConsoleTests(unittest.TestCase):
+    """Orion() must not need a console: prompt_toolkit raises
+    NoConsoleScreenBufferError on Windows when the process has no console
+    attached, which would kill a headless --server start from SSH or a
+    scheduled task before it serves anything."""
+
+    def test_console_is_built_lazily_not_in_init(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "config.yaml").write_text('version: "0.8.0"\n')
+            Path(tmp, "profile.yaml").write_text(
+                "preferred_name: LazyTest\nname: Lazy Test\n"
+            )
+            with patch.dict(os.environ, {"ORION_USER_DATA": tmp}), patch(
+                "orion.core.orion.Console"
+            ) as fake_console:
+                runtime = Orion()
+                fake_console.assert_not_called()
+                self.assertIsNone(runtime._console)
+                first = runtime.console
+                fake_console.assert_called_once_with(runtime)
+                self.assertIs(runtime.console, first)
+                fake_console.assert_called_once_with(runtime)
+
+
 if __name__ == "__main__":
     unittest.main()
