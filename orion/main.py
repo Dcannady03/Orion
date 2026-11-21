@@ -27,12 +27,31 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run headless: start the loopback-only local API, skip the console",
     )
+    parser.add_argument(
+        "--server-setup",
+        action="store_true",
+        help="set the server password (local only, hidden prompt, no Orion start)",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None):
     """Prepare the local profile, then launch Orion."""
     args = build_parser().parse_args(argv)
+    if args.server_setup:
+        # The setup command runs without the singleton lock and without
+        # constructing Orion: it only writes auth.json and a recovery
+        # record, so it works while the server is running.
+        if args.server or args.first_contact or args.discord:
+            print(
+                "Orion --server-setup cannot be combined with --server, "
+                "--first-contact, or --discord.",
+                file=sys.stderr,
+            )
+            return 1
+        from orion.server.setup import run_server_setup
+
+        return run_server_setup()
     if args.server and args.first_contact:
         print(
             "Orion server mode is headless; --first-contact is interactive. "

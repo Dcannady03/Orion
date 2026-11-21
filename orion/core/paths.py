@@ -82,6 +82,18 @@ class OrionPaths:
         return self.user_root / "server.lock"
 
     @property
+    def server_dir(self) -> Path:
+        return self.user_root / "server"
+
+    @property
+    def server_auth(self) -> Path:
+        return self.server_dir / "auth.json"
+
+    @property
+    def server_sessions(self) -> Path:
+        return self.server_dir / "sessions"
+
+    @property
     def observability(self) -> Path:
         return self.user_root / "observability"
 
